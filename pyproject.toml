@@ -7,6 +7,7 @@ name = "sentieon-assist"
 version = "0.1.0"
 description = "Offline Sentieon support harness"
 requires-python = ">=3.11"
+dependencies = ["rich>=13.9"]
 
 [project.scripts]
 sentieon-assist = "sentieon_assist.cli:main"
