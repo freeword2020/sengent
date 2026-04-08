@@ -1,0 +1,22 @@
+[
+  {
+    "category": "install",
+    "summary": "这是一个 Sentieon 安装相关问题。",
+    "patterns": ["install", "安装", "部署", "解压后不能用", "安装失败", "找不到 sentieon", "找不到 sentieon 命令"],
+    "causes": [
+      "安装包未完整解压",
+      "可执行文件未加入 PATH",
+      "系统依赖或权限不满足"
+    ],
+    "steps": [
+      "确认安装目录和文件完整性",
+      "检查 sentieon 可执行文件路径",
+      "确认 PATH 或调用脚本配置正确"
+    ],
+    "requires": [
+      "操作系统版本",
+      "Sentieon 版本",
+      "完整报错信息"
+    ]
+  }
+]

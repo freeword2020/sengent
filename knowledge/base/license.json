@@ -1,0 +1,21 @@
+[
+  {
+    "category": "license",
+    "summary": "这是一个 Sentieon license 相关问题。",
+    "patterns": ["license", "licence", "许可证", "授权", "激活失败", "找不到 license", "无法激活"],
+    "causes": [
+      "license 文件路径错误",
+      "SENTIEON_LICENSE 环境变量未设置",
+      "license 文件权限异常"
+    ],
+    "steps": [
+      "确认 license 文件存在且路径正确",
+      "检查 SENTIEON_LICENSE 环境变量",
+      "检查 license 文件权限是否可读"
+    ],
+    "requires": [
+      "Sentieon 版本",
+      "完整报错信息"
+    ]
+  }
+]
