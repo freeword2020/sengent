@@ -4,6 +4,10 @@ This document is the handoff anchor for future threads working on
 `sentieon-assist`. It captures why the project exists, what is already built,
 what architectural boundaries matter, and which milestones have been completed.
 
+Latest closeout handoff for the completed reference-expansion line:
+
+- `docs/superpowers/plans/2026-04-08-harness-system-handoff.md`
+
 ## Project Goal
 
 Build a practical local Sentieon support assistant for Chinese-speaking
