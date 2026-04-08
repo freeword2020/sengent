@@ -21,15 +21,36 @@ INSTALL_TERMS = (
 )
 
 REFERENCE_TERMS = (
+    "alignment",
+    "bwa",
+    "star",
+    "minimap2",
+    "dnaseq",
     "dnascope",
     "dnascope longread",
     "dnascope hybrid",
     "pangenome",
+    "cnvscope",
+    "joint call",
     "tnscope",
     "tnseq",
+    "tnsnv",
+    "tnhaplotyper",
+    "tnhaplotyper2",
     "gvcftyper",
     "dedup",
     "locuscollector",
+    "qualcal",
+    "varcal",
+    "applyvarcal",
+    "rnaseq",
+    "geneedit",
+    "umi",
+    "readwriter",
+    "python api",
+    "distributed mode",
+    "bcl-fastq",
+    "realigner",
     "sentieon-cli",
 )
 
@@ -63,6 +84,9 @@ def classify_query(query: str) -> str:
 
 def is_reference_query(query: str) -> bool:
     normalized_query = query.lower()
-    return any(term in normalized_query for term in REFERENCE_TERMS) and any(
-        cue in normalized_query for cue in REFERENCE_CUES
+    has_reference_cue = any(cue in normalized_query for cue in REFERENCE_CUES)
+    has_reference_term = any(term in normalized_query for term in REFERENCE_TERMS)
+    has_parameter_only_cue = "--" in normalized_query and any(
+        cue in normalized_query for cue in ("参数", "选项", "是什么", "含义", "作用", "意思")
     )
+    return (has_reference_term and has_reference_cue) or has_parameter_only_cue

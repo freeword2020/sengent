@@ -27,3 +27,11 @@ def test_is_reference_query_detects_module_intro_question():
 
 def test_is_reference_query_detects_parameter_question():
     assert is_reference_query("sentieon-cli dnascope 的 --pcr_free 是什么") is True
+
+
+def test_is_reference_query_detects_new_module_intro_question():
+    assert is_reference_query("CNVscope 是什么") is True
+
+
+def test_is_reference_query_detects_parameter_only_question():
+    assert is_reference_query("参数 --haploid_bed 是什么") is True

@@ -11,7 +11,9 @@ controlled flow:
 2. extract minimum structured information
 3. stop and ask for missing required information when needed
 4. try external rule packs first
-5. use the local Ollama model only as fallback
+5. prefer deterministic local-source answers for module and parameter queries
+6. use the local Ollama model as the primary generation backend only when needed
+7. optionally allow a separately configured fallback LLM backend later
 
 That is the main engineering difference between a harness and a raw prompt.
 
@@ -30,6 +32,15 @@ That is the main engineering difference between a harness and a raw prompt.
 - `OLLAMA_KEEP_ALIVE`
   - default: `30m`
   - example: `2h` or `-1`
+- `SENGENT_LLM_FALLBACK_BACKEND`
+  - optional
+  - supported values today: `ollama`, `openai_compatible`
+- `SENGENT_LLM_FALLBACK_BASE_URL`
+  - optional base URL for the fallback backend
+- `SENGENT_LLM_FALLBACK_MODEL`
+  - optional fallback model name
+- `SENGENT_LLM_FALLBACK_API_KEY`
+  - optional API key for `openai_compatible` fallback backends
 - `SENTIEON_ASSIST_KNOWLEDGE_DIR`
   - optional override directory for customer-site knowledge packs
 - `SENTIEON_ASSIST_SOURCE_DIR`
@@ -47,6 +58,11 @@ Customer deployments should override or extend these through
 
 Reference materials for source-backed answers can be mounted through
 `SENTIEON_ASSIST_SOURCE_DIR`.
+
+The curated Sentieon module index now lives in the mounted source bundle:
+
+- `sentieon-note/sentieon-modules.json`
+- `sentieon-note/sentieon-module-index.md`
 
 ## Example usage
 
@@ -126,6 +142,14 @@ current answer is anchored to.
 If the user's requested Sentieon version clearly differs from the mounted
 primary release, the CLI also adds a `【版本提示】` section before execution advice.
 
+For reference-style module/parameter answers, the user-visible chat/CLI output
+is now intentionally slimmer: internal trace sections such as `【资料查询】`,
+`【资料版本】`, and `【参考资料】` are hidden from the final displayed answer.
+
+For reference-style searches, the search path now ranks curated module/index
+materials ahead of long generic PDF mentions, so queries such as `DNAscope`
+prefer the structured local index when both sources mention the same term.
+
 ## Natural Knowledge Queries
 
 The same `cli` and `chat` entry points can answer local reference questions about
@@ -140,8 +164,17 @@ PYTHONPATH=src python3 -m sentieon_assist.cli "sentieon-cli dnascope 的 --pcr_f
 ```
 
 The assistant answers these by preferring mounted local notes and source
-snippets, then using the local model to organize the retrieved evidence into a
-readable reply.
+snippets. For module-intro questions and the currently indexed high-frequency
+parameter questions, it now prefers the curated module index first and answers
+them deterministically before involving the model. Uncovered parameter/detail
+questions still fall back to local source evidence.
+
+For compact customer-facing output:
+
+- module intro questions still show `【模块介绍】`
+- parameter questions now prefer a shorter `【常用参数】` answer
+- ambiguous parameter names first ask the user to confirm the module, then
+  continue on the next turn
 
 ## Recommended Local Testing
 

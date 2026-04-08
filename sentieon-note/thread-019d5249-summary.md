@@ -29,6 +29,15 @@ GitHub 侧的更新时间也值得带上:
 
 - 以官方文档站 / PDF / 官方 GitHub 为准
 
+本地回答层当前已经有结构化索引，可稳定命中:
+
+- 模块介绍 / 输入 / 输出 / 相关模块
+- `DNAscope` 高频参数
+- `DNAscope LongRead` 高频参数
+- `DNAscope Hybrid` 高频参数
+- `Joint Call` / `GVCFtyper` 高频参数
+- `TNscope` 高频参数
+
 ## 2. 流程选择
 
 ### 短读长 germline

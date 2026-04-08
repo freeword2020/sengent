@@ -1,6 +1,7 @@
 import sys
 
 from sentieon_assist.cli import main
+from sentieon_assist.cli import render_chat_response
 from sentieon_assist.cli import run_query
 
 
@@ -31,8 +32,10 @@ def test_chat_loop_answers_once_and_quits():
     prompts = iter(["Sentieon 202503 license 报错", "/quit"])
     outputs: list[str] = []
     statuses: list[tuple[str, bool]] = []
+    input_prompts: list[str] = []
 
-    def fake_input(_prompt: str) -> str:
+    def fake_input(prompt: str) -> str:
+        input_prompts.append(prompt)
         return next(prompts)
 
     def fake_output(message: str) -> None:
@@ -54,10 +57,50 @@ def test_chat_loop_answers_once_and_quits():
     assert statuses
     assert any(text.startswith("思考中") for text, clear in statuses if not clear)
     assert any(clear for text, clear in statuses)
+    assert input_prompts
+    assert input_prompts[0] == "sengent> "
+
+
+def test_render_chat_response_keeps_structured_answer_stable_without_polish():
+    generated_calls: list[str] = []
+    streamed_calls: list[str] = []
+
+    rendered, streamed = render_chat_response(
+        "DNAscope 是做什么的",
+        "【资料查询】\n- 命中模块索引：DNAscope",
+        model_generate=lambda prompt, **kwargs: generated_calls.append(prompt) or "SHOULD_NOT_RUN",
+        model_stream_generate=lambda prompt, on_chunk, **kwargs: streamed_calls.append(prompt) or "SHOULD_NOT_RUN",
+    )
+
+    assert rendered == "【资料查询】\n- 命中模块索引：DNAscope"
+    assert streamed is False
+    assert generated_calls == []
+    assert streamed_calls == []
+
+
+def test_render_chat_response_keeps_parameter_disambiguation_stable_without_polish():
+    generated_calls: list[str] = []
+    streamed_calls: list[str] = []
+    raw_response = (
+        "需要确认模块：参数 --genotype_model 同时出现在多个模块中（GVCFtyper；Joint Call）。"
+        "请补充模块名后再查询，例如：GVCFtyper 的 --genotype_model 是什么"
+    )
+
+    rendered, streamed = render_chat_response(
+        "--genotype_model 是什么",
+        raw_response,
+        model_generate=lambda prompt, **kwargs: generated_calls.append(prompt) or "SHOULD_NOT_RUN",
+        model_stream_generate=lambda prompt, on_chunk, **kwargs: streamed_calls.append(prompt) or "SHOULD_NOT_RUN",
+    )
+
+    assert rendered == raw_response
+    assert streamed is False
+    assert generated_calls == []
+    assert streamed_calls == []
 
 
 def test_chat_loop_streams_model_output_chunks():
-    prompts = iter(["Sentieon 202503 license 报错", "/quit"])
+    prompts = iter(["license 报错", "/quit"])
     outputs: list[str] = []
     statuses: list[tuple[str, bool]] = []
 
@@ -70,7 +113,7 @@ def test_chat_loop_streams_model_output_chunks():
     streamed: list[str] = []
 
     def fake_stream_generate(prompt: str, on_chunk, **kwargs) -> str:
-        chunks = ["【问题判断】\n", "这是一个 Sentieon license 相关问题。"]
+        chunks = ["请告诉我", " Sentieon 版本号，例如 202503.03。"]
         for chunk in chunks:
             streamed.append(chunk)
             on_chunk(chunk)
@@ -88,9 +131,37 @@ def test_chat_loop_streams_model_output_chunks():
     )
 
     assert code == 0
-    assert streamed == ["【问题判断】\n", "这是一个 Sentieon license 相关问题。"]
-    assert any("【问题判断】" in item for item in outputs)
+    assert streamed == ["请告诉我", " Sentieon 版本号，例如 202503.03。"]
+    assert "请告诉我 Sentieon 版本号，例如 202503.03。" in "".join(outputs)
     assert any(clear for text, clear in statuses)
+
+
+def test_chat_loop_prefers_explicit_non_stream_model_generate_over_backend_stream(monkeypatch):
+    prompts = iter(["Sentieon 202503 license 报错", "/quit"])
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fail_if_stream_used(*args, **kwargs):
+        raise AssertionError("stream backend should not be used when model_generate is explicitly injected")
+
+    monkeypatch.setattr("sentieon_assist.cli._chat_model_stream_generate", fail_if_stream_used)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "【问题判断】\n这是一个 Sentieon license 相关问题。",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert any("【问题判断】" in item for item in outputs)
 
 
 def test_chat_loop_falls_back_to_non_stream_generate_when_stream_fails():
@@ -200,6 +271,42 @@ def test_chat_loop_reset_clears_pending_question(monkeypatch):
     assert seen_queries == ["license 报错", "Sentieon 202503 license 报错"]
     assert any("已清空当前补问上下文" in item for item in outputs)
     assert any("【问题判断】" in item for item in outputs)
+
+
+def test_chat_loop_carries_pending_parameter_disambiguation_context(monkeypatch):
+    prompts = iter(["--genotype_model 是什么", "GVCFtyper", "/quit"])
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "--genotype_model 是什么":
+            return "需要确认模块：参数 --genotype_model 同时出现在多个模块中（GVCFtyper；Joint Call）。请补充模块名后再查询，例如：GVCFtyper 的 --genotype_model 是什么"
+        if query == "--genotype_model 是什么 GVCFtyper":
+            return "【资料查询】\n- 命中模块索引：GVCFtyper\n- 命中参数：--genotype_model"
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: prompt,
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == ["--genotype_model 是什么", "--genotype_model 是什么 GVCFtyper"]
+    assert any("需要确认模块" in item for item in outputs)
+    assert any("命中模块索引：GVCFtyper" in item for item in outputs)
 
 
 def test_chat_mode_requires_local_model(monkeypatch):

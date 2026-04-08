@@ -71,6 +71,11 @@ Key files and responsibilities:
   Rule-first answer composition, source-backed model fallback, reference-query
   answering, and answer normalization.
 
+- `src/sentieon_assist/llm_backends.py`
+  Pluggable LLM backend router. Ollama remains the default primary backend, and
+  an optional fallback backend can be attached without changing the CLI or
+  answer pipeline.
+
 - `src/sentieon_assist/ollama_client.py`
   Local Ollama HTTP client, non-stream generation, streaming generation, and
   model warmup.
@@ -103,6 +108,8 @@ Key files and responsibilities:
 The project currently relies on the following local reference bundle:
 
 - `sentieon-note/Sentieon202503.03.pdf`
+- `sentieon-note/sentieon-modules.json`
+- `sentieon-note/sentieon-module-index.md`
 - `sentieon-note/sentieon-doc-map.md`
 - `sentieon-note/sentieon-github-map.md`
 - `sentieon-note/thread-019d5249-summary.md`
@@ -112,10 +119,13 @@ The assistant already exposes this through:
 
 - `sources` for inventory
 - `search` for keyword search
+- module-index-first reference answers for major Sentieon modules
 - source evidence collection for answer synthesis
-- automatic `【资料版本】` tagging
+- internal version/reference context for grounding and mismatch checks
 - version mismatch warning when the query version differs from the mounted
   primary release
+- compact user-facing reference answers that now hide internal trace sections
+  such as `【资料查询】`, `【资料版本】`, and `【参考资料】`
 
 ## Milestones Completed
 
@@ -157,7 +167,32 @@ Completed:
 - natural question routing for module intro / parameter lookup
 - examples like `DNAscope 是做什么的`
 - examples like `sentieon-cli dnascope 的 --pcr_free 是什么`
+- deterministic parameter answers for indexed module flags before model fallback
+- curated reference ranking so module/index files outrank generic PDF mentions
 - local evidence first, local model organizes answer second
+
+### Milestone 5: Pluggable LLM Backbone
+
+Completed:
+
+- Ollama remains the default primary backend
+- new backend router isolates generation/probe/warmup from the CLI
+- optional fallback backend skeleton now supported via config
+- current supported fallback backend types:
+  - `ollama`
+  - `openai_compatible`
+
+### Milestone 6: Chat UX and Reference Answer Cleanup
+
+Completed:
+
+- ambiguous parameter prompts are deterministic and no longer re-polished by
+  the model
+- chat can carry pending parameter-disambiguation context across turns
+- repeated answers for the same parameter query are now stable
+- user-visible reference answers hide internal trace/debug sections
+- parameter answers are slimmer and now default to a compact
+  `【常用参数】`-only presentation
 
 ## Current Configuration
 
@@ -166,6 +201,10 @@ Main environment variables:
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
 - `OLLAMA_KEEP_ALIVE`
+- `SENGENT_LLM_FALLBACK_BACKEND`
+- `SENGENT_LLM_FALLBACK_BASE_URL`
+- `SENGENT_LLM_FALLBACK_MODEL`
+- `SENGENT_LLM_FALLBACK_API_KEY`
 - `SENTIEON_ASSIST_KNOWLEDGE_DIR`
 - `SENTIEON_ASSIST_SOURCE_DIR`
 
@@ -185,33 +224,38 @@ The user provided a remote repository intended for ongoing project continuity:
 
 - <https://github.com/freeword2020/sengent.git>
 
-At the time of writing this file, the local workspace at
-`/Users/zhuge/Documents/codex/harness` is still not a local git worktree. Future
-threads should either:
-
-- initialize this directory as a git repository and attach that remote, or
-- clone the remote into a clean workspace and move this project into that git
-  worktree
-
-This should be done carefully to avoid losing the current local-only progress.
+The local workspace at `/Users/zhuge/Documents/codex/harness` is now a git
+worktree attached to that remote. Future threads should continue from this
+repository directly unless there is a deliberate reason to move to a new
+workspace.
 
 ## Recommended Next Milestones
 
 Priority suggestions for future threads:
 
-1. Persist the workspace into the new git remote cleanly.
-
-2. Add richer module/parameter coverage.
-   Start with:
+1. Expand parameter coverage beyond the current indexed set.
+   Current high-frequency modules already covered:
    - `DNAscope`
    - `DNAscope LongRead`
    - `DNAscope Hybrid`
+   - `Joint Call`
+   - `GVCFtyper`
    - `TNscope`
-   - `sentieon-cli` common options
+   Next expansion targets:
+   - `sentieon-cli` common global options
+   - `DNAseq`
+   - `CNVscope`
+   - `RNAseq`
+   - `GeneEditEvaluator`
 
-3. Improve source-aware parameter answers.
-   Extract more structured module/parameter snippets instead of generic keyword
-   search only.
+2. Improve source-aware parameter answers for uncovered queries.
+   Add value-based matching, richer per-parameter evidence, and better fallback
+   ranking when a flag is not yet in the structured index.
+
+3. Add explicit chat state introspection.
+   The current chat carries pending follow-up context, but there is still no
+   `/status` view for operators to inspect whether the system is waiting for a
+   missing version, missing error text, or parameter-disambiguation module name.
 
 4. Add explicit chat memory structure.
    The current chat carries pending follow-up context, but not a fuller
@@ -234,7 +278,35 @@ Priority suggestions for future threads:
 Most recent verified state in this thread:
 
 - full test suite passed
-- `pytest -x -vv`
-- result: `75 passed`
+- `pytest -q`
+- result: `95 passed in 4.29s`
+
+## Immediate Handoff Notes
+
+If a new thread continues from here, the most relevant current behavior is:
+
+- `chat` prompt is `sengent>`
+- ambiguous parameters such as `--split_by_sample 是什么` now ask the user to
+  confirm the module, and the next turn can be just `Joint Call`
+- reference answers now intentionally hide internal trace blocks and show only
+  user-facing content
+- parameter answers are compact; module-intro answers still use
+  `【模块介绍】`
+
+Suggested next thread entry tests:
+
+```bash
+cd /Users/zhuge/Documents/codex/harness
+export PYTHONPATH=src
+export OLLAMA_KEEP_ALIVE=30m
+python3 -m sentieon_assist chat
+```
+
+Then try:
+
+- `DNAscope 是做什么的`
+- `GVCFtyper 的 --genotype_model 是什么`
+- `--split_by_sample 是什么`
+- `Joint Call`
 
 Future threads should re-run tests before claiming continuity.

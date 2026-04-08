@@ -127,3 +127,100 @@ def test_collect_source_bundle_metadata_reads_primary_release_and_date(tmp_path)
     assert metadata["primary_release"] == "202503.03"
     assert metadata["primary_date"] == "Mar 30, 2026"
     assert metadata["primary_reference"] == "Sentieon202503.03.pdf"
+
+
+def test_collect_source_evidence_matches_mixed_language_reference_query_without_spaces(tmp_path):
+    (tmp_path / "notes.md").write_text(
+        "Sentieon DNAscope is a pipeline for alignment and germline variant calling."
+    )
+
+    evidence = collect_source_evidence(
+        tmp_path,
+        issue_type="reference",
+        query="dnascope是什么",
+        info={
+            "version": "",
+            "input_type": "",
+            "error": "",
+            "error_keywords": "",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert evidence
+    assert evidence[0]["name"] == "notes.md"
+    assert "DNAscope" in evidence[0]["snippet"]
+
+
+def test_collect_source_evidence_does_not_match_generic_reference_term(tmp_path):
+    (tmp_path / "noise.md").write_text("This section only discusses generic reference materials.")
+    (tmp_path / "notes.md").write_text(
+        "Sentieon DNAscope is a pipeline for alignment and germline variant calling."
+    )
+
+    evidence = collect_source_evidence(
+        tmp_path,
+        issue_type="reference",
+        query="dnascope是什么",
+        info={
+            "version": "",
+            "input_type": "",
+            "error": "",
+            "error_keywords": "",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert evidence
+    assert all(item["name"] != "noise.md" for item in evidence)
+
+
+def test_search_sources_prefers_definition_snippet_over_contents_snippet(tmp_path):
+    (tmp_path / "notes.md").write_text(
+        "Contents\n"
+        "DNAscope .... 19\n"
+        "\n"
+        "Typical usage for DNAscope\n"
+        "DNAscope is a pipeline for alignment and germline variant calling from short-read DNA sequence data.\n"
+    )
+
+    matches = search_sources(tmp_path, "DNAscope")
+
+    assert matches
+    assert matches[0]["name"] == "notes.md"
+    assert "pipeline for alignment and germline variant calling" in matches[0]["snippet"]
+
+
+def test_search_sources_prefers_exact_definition_statement(tmp_path):
+    (tmp_path / "notes.md").write_text(
+        "Quick start pipeline summary. Variant calling: DNAscope variant calling.\n"
+        "Detailed module intro. DNAscope is a pipeline for alignment and germline variant calling from short-read DNA sequence data.\n"
+    )
+
+    matches = search_sources(tmp_path, "DNAscope")
+
+    assert matches
+    assert matches[0]["name"] == "notes.md"
+    assert "DNAscope is a pipeline for alignment and germline variant calling" in matches[0]["snippet"]
+
+
+def test_search_sources_prefers_curated_reference_index_over_generic_pdf(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "Sentieon202503.03.pdf"
+    pdf_path.write_text("fake")
+    module_path = tmp_path / "sentieon-modules.json"
+    module_path.write_text("fake")
+
+    def fake_extract_source_text(path):
+        name = path.name if hasattr(path, "name") else str(path)
+        if str(name).endswith("sentieon-modules.json"):
+            return '{"entries":[{"name":"DNAscope","summary":"DNAscope 是短读长胚系主流程。"}]}'
+        return "Reference manual. DNAscope mentioned in a long generic chapter."
+
+    monkeypatch.setattr("sentieon_assist.sources.extract_source_text", fake_extract_source_text)
+
+    matches = search_sources(tmp_path, "DNAscope")
+
+    assert matches
+    assert matches[0]["name"] == "sentieon-modules.json"

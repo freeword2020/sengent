@@ -5,7 +5,16 @@ import re
 from typing import Any
 
 from sentieon_assist.config import AppConfig, load_config
-from sentieon_assist.ollama_client import generate
+from sentieon_assist.llm_backends import build_backend_router
+from sentieon_assist.module_index import (
+    build_module_evidence,
+    format_module_reference_answer,
+    format_parameter_disambiguation,
+    format_parameter_reference_answer,
+    match_module_entries,
+    match_module_parameter,
+    match_parameter_entries,
+)
 from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.rules import match_rule
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
@@ -153,6 +162,27 @@ def normalize_model_answer(
     return normalized
 
 
+def format_reference_display(text: str) -> str:
+    hidden_headers = {"【资料查询】", "【资料版本】", "【参考资料】"}
+    lines = str(text).splitlines()
+    visible_lines: list[str] = []
+    skip_section = False
+    for line in lines:
+        stripped = line.strip()
+        if re.fullmatch(r"【[^】]+】", stripped):
+            skip_section = stripped in hidden_headers
+            if not skip_section:
+                visible_lines.append(stripped)
+            continue
+        if skip_section:
+            continue
+        visible_lines.append(line)
+
+    compacted = "\n".join(visible_lines)
+    compacted = re.sub(r"\n{3,}", "\n\n", compacted)
+    return compacted.strip()
+
+
 def generate_model_fallback(
     issue_type: str,
     query: str,
@@ -163,11 +193,7 @@ def generate_model_fallback(
 ) -> str:
     app_config = config or load_config()
     prompt = build_support_prompt(issue_type, query, info, source_context=source_context, evidence=evidence)
-    text = generate(
-        app_config.ollama_model,
-        prompt,
-        base_url=app_config.ollama_base_url,
-    )
+    text = build_backend_router(app_config).generate(prompt)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
         text,
@@ -186,11 +212,7 @@ def generate_reference_fallback(
 ) -> str:
     app_config = config or load_config()
     prompt = build_reference_prompt(query, source_context=source_context, evidence=evidence)
-    text = generate(
-        app_config.ollama_model,
-        prompt,
-        base_url=app_config.ollama_base_url,
-    )
+    text = build_backend_router(app_config).generate(prompt)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
         text,
@@ -280,6 +302,49 @@ def answer_reference_query(
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
     source_context = collect_source_bundle_metadata(effective_source_directory)
+    module_matches = match_module_entries(query, effective_source_directory, max_matches=1)
+    module_evidence: list[dict[str, str]] = []
+    if module_matches:
+        module_entry = module_matches[0]
+        module_parameter = match_module_parameter(module_entry, query)
+        if module_parameter is not None:
+            direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
+            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+            return format_reference_display(
+                normalize_model_answer(
+                    direct_answer,
+                    source_context=source_context,
+                    sources=source_names,
+                )
+            )
+        direct_answer = format_module_reference_answer(module_entry, query)
+        module_evidence.append(build_module_evidence(module_entry))
+        if direct_answer:
+            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+            return format_reference_display(
+                normalize_model_answer(
+                    direct_answer,
+                    source_context=source_context,
+                    sources=source_names,
+                )
+            )
+    global_parameter_matches = match_parameter_entries(query, effective_source_directory, max_matches=1)
+    all_parameter_matches = match_parameter_entries(query, effective_source_directory)
+    if len(all_parameter_matches) > 1:
+        return format_parameter_disambiguation(all_parameter_matches)
+    if global_parameter_matches:
+        module_entry = global_parameter_matches[0]
+        module_parameter = module_entry.get("matched_parameter")
+        if isinstance(module_parameter, dict):
+            direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
+            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+            return format_reference_display(
+                normalize_model_answer(
+                    direct_answer,
+                    source_context=source_context,
+                    sources=source_names,
+                )
+            )
     evidence = collect_source_evidence(
         effective_source_directory,
         issue_type="reference",
@@ -293,19 +358,28 @@ def answer_reference_query(
             "data_type": "",
         },
     )
+    if module_evidence:
+        evidence = [
+            *module_evidence,
+            *[item for item in evidence if item.get("name") != "sentieon-modules.json"],
+        ]
     if not evidence:
         return "未在本地资料中找到相关模块或参数，请补充更具体的模块名或参数名。"
     if model_fallback is not None:
         text = call_model_fallback(model_fallback, "reference", query, {}, evidence)
         source_names = [item["name"] for item in evidence]
-        return normalize_model_answer(
-            text,
-            source_context=source_context,
-            sources=source_names,
+        return format_reference_display(
+            normalize_model_answer(
+                text,
+                source_context=source_context,
+                sources=source_names,
+            )
         )
-    return generate_reference_fallback(
-        query,
-        source_context=source_context,
-        evidence=evidence,
-        config=app_config,
+    return format_reference_display(
+        generate_reference_fallback(
+            query,
+            source_context=source_context,
+            evidence=evidence,
+            config=app_config,
+        )
     )

@@ -48,6 +48,8 @@ def test_reference_query_uses_local_source_evidence_with_model_fallback():
         knowledge_directory="/tmp/empty-does-not-match",
     )
 
-    assert "【资料查询】" in text
     assert "DNAscope" in text
-    assert "【参考资料】" in text
+    assert "【模块介绍】" in text
+    assert "【资料查询】" not in text
+    assert "【资料版本】" not in text
+    assert "【参考资料】" not in text

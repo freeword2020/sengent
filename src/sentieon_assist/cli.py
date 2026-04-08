@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import threading
-import time
 from typing import Any, Callable
 
 from sentieon_assist.answering import answer_query, answer_reference_query, missing_required_fields
@@ -10,7 +9,7 @@ from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.config import load_config
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 from sentieon_assist.extractor import extract_info_from_query
-from sentieon_assist.ollama_client import generate, generate_stream, probe_ollama, warmup_model as ollama_warmup_model
+from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
@@ -68,7 +67,7 @@ def require_chat_model(
     api_probe: Callable[[str], dict[str, Any]] | None = None,
 ) -> None:
     config = load_config()
-    probe = api_probe or (lambda base_url: probe_ollama(base_url, config.ollama_model))
+    probe = api_probe or (lambda base_url: build_backend_router(config).probe_primary())
     result = probe(config.ollama_base_url)
     if not result.get("ok") or not result.get("model_available"):
         raise RuntimeError(f"本地 Ollama 模型不可用：{config.ollama_model}")
@@ -81,13 +80,7 @@ def _chat_model_generate(
 ) -> str:
     if model_generate is not None:
         return model_generate(prompt)
-    config = load_config()
-    return generate(
-        config.ollama_model,
-        prompt,
-        base_url=config.ollama_base_url,
-        keep_alive=config.ollama_keep_alive,
-    )
+    return build_backend_router(load_config()).generate(prompt)
 
 
 def _chat_model_stream_generate(
@@ -98,14 +91,11 @@ def _chat_model_stream_generate(
 ) -> str:
     if model_stream_generate is not None:
         return model_stream_generate(prompt, on_chunk=on_chunk)
-    config = load_config()
-    return generate_stream(
-        config.ollama_model,
-        prompt,
-        on_chunk=on_chunk,
-        base_url=config.ollama_base_url,
-        keep_alive=config.ollama_keep_alive,
-    )
+    return build_backend_router(load_config()).generate_stream(prompt, on_chunk=on_chunk)
+
+
+def _is_stable_chat_response(raw_response: str) -> bool:
+    return raw_response.startswith("【") or raw_response.startswith("需要确认模块")
 
 
 def render_chat_response(
@@ -117,10 +107,15 @@ def render_chat_response(
     stream_output_fn: Callable[[str], None] | None = None,
     clear_status_fn: Callable[[], None] | None = None,
 ) -> tuple[str, bool]:
+    if _is_stable_chat_response(raw_response):
+        if clear_status_fn is not None:
+            clear_status_fn()
+        return raw_response.strip(), False
     prompt = build_chat_polish_prompt(query, raw_response)
     if raw_response.startswith("需要补充以下信息"):
         prompt = build_chat_missing_info_prompt(query, raw_response)
-    if stream_output_fn is not None:
+    should_try_stream = stream_output_fn is not None and (model_stream_generate is not None or model_generate is None)
+    if should_try_stream:
         streamed_chunks: list[str] = []
         saw_chunk = False
         try:
@@ -158,6 +153,10 @@ def _handle_stream_chunk(
         clear_status_fn()
     streamed_chunks.append(chunk)
     stream_output_fn(chunk)
+
+
+def _requires_followup(response: str) -> bool:
+    return response.startswith("需要补充以下信息") or response.startswith("需要确认模块")
 
 
 def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[str]]:
@@ -243,16 +242,12 @@ def chat_loop(
     elif model_generate is not None or model_stream_generate is not None:
         warmup = lambda model, base_url: None
     else:
-        warmup = lambda model, base_url: ollama_warmup_model(
-            model,
-            base_url=base_url,
-            keep_alive=config.ollama_keep_alive,
-        )
+        warmup = lambda model, base_url: build_backend_router(config).warmup_primary()
     warmup(config.ollama_model, config.ollama_base_url)
     output_fn("进入交互模式。输入 /quit 退出，输入 /reset 清空当前补问上下文。")
     pending_query: str | None = None
     while True:
-        query = input_fn("sentieon> ").strip()
+        query = input_fn("sengent> ").strip()
         if not query:
             continue
         if query in {"/quit", "quit", "exit"}:
@@ -270,7 +265,7 @@ def chat_loop(
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
         )
-        if response.startswith("需要补充以下信息"):
+        if _requires_followup(response):
             pending_query = effective_query
         else:
             pending_query = None
