@@ -5,19 +5,36 @@ import re
 from typing import Any
 
 from sentieon_assist.config import AppConfig, load_config
+from sentieon_assist.external_guides import (
+    format_external_error_association,
+    format_external_guide_answer,
+    match_external_error_association,
+    match_external_guide_entry,
+)
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.module_index import (
     build_module_evidence,
+    format_module_overview_answer,
+    format_parameter_followup_answer,
     format_module_reference_answer,
     format_parameter_disambiguation,
     format_parameter_reference_answer,
+    format_script_reference_answer,
+    format_unavailable_parameter_reference_answer,
+    format_unavailable_script_reference_answer,
     match_module_entries,
     match_module_parameter,
     match_parameter_entries,
 )
 from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
+from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
 from sentieon_assist.rules import match_rule
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
+from sentieon_assist.workflow_index import (
+    format_workflow_guidance_answer,
+    format_workflow_uncovered_answer,
+    match_workflow_entry,
+)
 
 
 REQUIRED_FIELDS = {
@@ -136,6 +153,105 @@ def _format_version_warning(query_version: str, source_context: dict[str, str] |
     )
 
 
+BIOINFORMATICS_TERMINOLOGY_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(?<![（(])somatic variant\s+(?:and|和)\s+structural variant detection(?![）)])",
+            re.IGNORECASE,
+        ),
+        "体细胞变异与结构变异检测（somatic variant and structural variant detection）",
+    ),
+    (
+        re.compile(r"(?<![（(])germline variant calling pipeline(?![）)])", re.IGNORECASE),
+        "胚系变异检测流程（germline variant calling pipeline）",
+    ),
+    (
+        re.compile(r"(?<![（(])germline variant calling(?![）)])", re.IGNORECASE),
+        "胚系变异检测（germline variant calling）",
+    ),
+    (
+        re.compile(r"(?<![（(])structural variant detection(?![）)])", re.IGNORECASE),
+        "结构变异检测（structural variant detection）",
+    ),
+    (
+        re.compile(r"(?<![（(])germline variants(?![）)])", re.IGNORECASE),
+        "胚系变异（germline variants）",
+    ),
+    (
+        re.compile(r"(?<![（(])long-read sequence data(?![）)])", re.IGNORECASE),
+        "长读长测序数据（long-read sequence data）",
+    ),
+    (
+        re.compile(r"(?<![（(])diploid organism(?![）)])", re.IGNORECASE),
+        "二倍体生物（diploid organism）",
+    ),
+    (
+        re.compile(r"(?<![（(])short-read germline(?![）)])", re.IGNORECASE),
+        "短读长胚系（short-read germline）",
+    ),
+    (
+        re.compile(r"(?<![（(])long-read germline(?![）)])", re.IGNORECASE),
+        "长读长胚系（long-read germline）",
+    ),
+    (
+        re.compile(r"(?<![（(])short-read\s+\+\s+long-read(?![）)])", re.IGNORECASE),
+        "短读长 + 长读长（short-read + long-read）",
+    ),
+    (
+        re.compile(r"(?<![（(])tumor[- ]normal(?![）)])", re.IGNORECASE),
+        "肿瘤-正常配对（tumor-normal）",
+    ),
+    (
+        re.compile(r"(?<![（(])tumor[- ]only(?![）)])", re.IGNORECASE),
+        "单肿瘤（tumor-only）",
+    ),
+    (
+        re.compile(r"(?<![（(])matched normal(?![）)])", re.IGNORECASE),
+        "配对正常样本（matched normal）",
+    ),
+    (
+        re.compile(r"(?<![（(])manual(?![）)])", re.IGNORECASE),
+        "官方手册（manual）",
+    ),
+)
+
+
+def _normalize_bioinformatics_terminology(text: str) -> str:
+    normalized = text
+    for pattern, replacement in BIOINFORMATICS_TERMINOLOGY_RULES:
+        normalized = pattern.sub(replacement, normalized)
+    normalized = re.sub(
+        r"([\u4e00-\u9fff])\s+(?=(?:配对正常样本|单肿瘤|肿瘤-正常配对|胚系变异|胚系变异检测流程|胚系变异检测|结构变异检测|体细胞变异与结构变异检测|长读长测序数据|长读长胚系|短读长胚系|短读长 \+ 长读长|二倍体生物|官方手册))",
+        r"\1",
+        normalized,
+    )
+    normalized = re.sub(r"((?:[A-Za-z0-9 .+\-/]+)）)\s+(?=[\u4e00-\u9fff])", r"\1", normalized)
+    return normalized
+
+
+TERSE_SCRIPT_FOLLOWUP_CUES = (
+    "我就要个示例",
+    "我只要个示例",
+    "给个示例",
+    "来个示例",
+    "示例也行",
+    "示例就行",
+    "来个脚本",
+    "脚本也行",
+    "就要脚本",
+    "给我个脚本",
+)
+
+
+def _is_terse_script_followup(query: str) -> bool:
+    normalized = re.sub(r"\s+", "", query.strip().lower())
+    return any(normalized.endswith(cue) for cue in TERSE_SCRIPT_FOLLOWUP_CUES)
+
+
+def _workflow_script_module(entry: dict[str, Any]) -> str:
+    return str(entry.get("script_module", "")).strip()
+
+
 def normalize_model_answer(
     text: str,
     query_version: str = "",
@@ -150,16 +266,40 @@ def normalize_model_answer(
         "命令细节需要结合官方文档确认。",
         normalized,
     )
+    normalized = re.sub(r"\*\*(.*?)\*\*", r"\1", normalized)
+    normalized = re.sub(r"`([^`]+)`", r"\1", normalized)
+    normalized = re.sub(r"(?m)^\*\s+", "- ", normalized)
+    normalized = _normalize_bioinformatics_terminology(normalized)
     source_context_block = _format_source_context(source_context)
     if source_context_block:
         normalized = f"{normalized}\n\n{source_context_block}"
     version_warning_block = _format_version_warning(query_version, source_context)
     if version_warning_block:
         normalized = f"{normalized}\n\n{version_warning_block}"
-    if sources and "【参考资料】" not in normalized:
-        source_lines = "\n".join(f"- {source}" for source in sources)
+    filtered_sources = _filter_display_sources(sources or [])
+    if filtered_sources and "【参考资料】" not in normalized:
+        source_lines = "\n".join(f"- {source}" for source in filtered_sources)
         normalized = f"{normalized}\n\n【参考资料】\n{source_lines}"
     return normalized
+
+
+def _filter_display_sources(sources: list[str]) -> list[str]:
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        name = str(source).strip()
+        if not name:
+            continue
+        lowered = name.lower()
+        if lowered == "sentieon-chinese-reference.md":
+            continue
+        if lowered.startswith("thread-") and lowered.endswith("-summary.md"):
+            continue
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        filtered.append(name)
+    return filtered
 
 
 def format_reference_display(text: str) -> str:
@@ -298,14 +438,136 @@ def answer_reference_query(
     *,
     model_fallback=None,
     source_directory: str | None = None,
+    parsed_intent: ReferenceIntent | None = None,
 ) -> str:
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
     source_context = collect_source_bundle_metadata(effective_source_directory)
+    resolved_intent = parsed_intent or ReferenceIntent()
+    if resolved_intent.intent == "not_reference":
+        resolved_intent = parse_reference_intent(query, config=app_config)
+    if resolved_intent.intent == "workflow_guidance":
+        workflow_entry = match_workflow_entry(query, effective_source_directory)
+        if workflow_entry is None:
+            return format_reference_display(
+                normalize_model_answer(
+                    format_workflow_uncovered_answer(),
+                    source_context=source_context,
+                    sources=["workflow-guides.json"],
+                )
+            )
+        if _is_terse_script_followup(query):
+            script_entry = workflow_entry
+            script_module = _workflow_script_module(script_entry)
+            if not script_module:
+                script_entry = match_workflow_entry(
+                    query,
+                    effective_source_directory,
+                    require_script_module=True,
+                )
+                script_module = _workflow_script_module(script_entry or {})
+            if script_module:
+                module_matches = match_module_entries(script_module, effective_source_directory, max_matches=1)
+                if module_matches:
+                    module_entry = module_matches[0]
+                    direct_answer = format_script_reference_answer(module_entry) or format_unavailable_script_reference_answer(
+                        module_entry
+                    )
+                    if direct_answer:
+                        script_source_names = [
+                            "sentieon-modules.json",
+                            *[str(item) for item in module_entry.get("sources", [])],
+                        ]
+                        return format_reference_display(
+                            normalize_model_answer(
+                                direct_answer,
+                                source_context=source_context,
+                                sources=script_source_names,
+                            )
+                        )
+        source_names = ["workflow-guides.json", *[str(item) for item in workflow_entry.get("sources", [])]]
+        return format_reference_display(
+            normalize_model_answer(
+                format_workflow_guidance_answer(workflow_entry),
+                source_context=source_context,
+                sources=source_names,
+            )
+        )
+    external_entry = None
+    external_error_association = None
+    if resolved_intent.intent == "reference_other":
+        external_error_association = match_external_error_association(query, effective_source_directory)
+        external_entry = match_external_guide_entry(query, effective_source_directory)
+    if external_error_association is not None:
+        source_names = [
+            str(external_error_association.get("source_file", "")).strip(),
+            *[str(item) for item in external_error_association.get("source_notes", [])],
+        ]
+        source_names = [name for name in source_names if name]
+        return format_reference_display(
+            normalize_model_answer(
+                format_external_error_association(external_error_association),
+                source_context=source_context,
+                sources=source_names,
+            )
+        )
     module_matches = match_module_entries(query, effective_source_directory, max_matches=1)
+    matched_module = ""
+    explicit_module_focus = False
+    if module_matches:
+        matched_module = str(module_matches[0].get("matched_alias", "")).strip()
+        normalized_query = query.lower()
+        normalized_module = matched_module.lower()
+        if normalized_module:
+            explicit_module_focus = (
+                normalized_query.startswith(normalized_module)
+                or f"{normalized_module} 的" in normalized_query
+                or f"{normalized_module}的" in normalized_query
+            )
+    if external_entry is not None:
+        matched_external = str(external_entry.get("matched_alias", "")).strip()
+        if not explicit_module_focus and (not matched_module or len(matched_external) >= len(matched_module) + 2):
+            source_names = [
+                str(external_entry.get("source_file", "")).strip(),
+                *[str(item) for item in external_entry.get("source_notes", [])],
+            ]
+            source_names = [name for name in source_names if name]
+            return format_reference_display(
+                normalize_model_answer(
+                    format_external_guide_answer(external_entry),
+                    source_context=source_context,
+                    sources=source_names,
+                )
+            )
     module_evidence: list[dict[str, str]] = []
     if module_matches:
         module_entry = module_matches[0]
+        module_summary = str(module_entry.get("summary", "")).strip()
+        if "待核验占位" in module_summary:
+            direct_answer = format_module_reference_answer(module_entry, query)
+            module_evidence.append(build_module_evidence(module_entry))
+            if direct_answer:
+                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+                return format_reference_display(
+                    normalize_model_answer(
+                        direct_answer,
+                        source_context=source_context,
+                        sources=source_names,
+                    )
+                )
+        if resolved_intent.intent == "script_example":
+            direct_answer = format_script_reference_answer(module_entry) or format_unavailable_script_reference_answer(
+                module_entry
+            )
+            if direct_answer:
+                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+                return format_reference_display(
+                    normalize_model_answer(
+                        direct_answer,
+                        source_context=source_context,
+                        sources=source_names,
+                    )
+                )
         module_parameter = match_module_parameter(module_entry, query)
         if module_parameter is not None:
             direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
@@ -317,6 +579,27 @@ def answer_reference_query(
                     sources=source_names,
                 )
             )
+        if resolved_intent.intent == "parameter_lookup":
+            direct_answer = format_unavailable_parameter_reference_answer(module_entry)
+            if direct_answer:
+                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+                return format_reference_display(
+                    normalize_model_answer(
+                        direct_answer,
+                        source_context=source_context,
+                        sources=source_names,
+                    )
+                )
+            direct_answer = format_parameter_followup_answer(module_entry)
+            if direct_answer:
+                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+                return format_reference_display(
+                    normalize_model_answer(
+                        direct_answer,
+                        source_context=source_context,
+                        sources=source_names,
+                    )
+                )
         direct_answer = format_module_reference_answer(module_entry, query)
         module_evidence.append(build_module_evidence(module_entry))
         if direct_answer:
@@ -338,6 +621,17 @@ def answer_reference_query(
         if isinstance(module_parameter, dict):
             direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
             source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
+            return format_reference_display(
+                normalize_model_answer(
+                    direct_answer,
+                    source_context=source_context,
+                    sources=source_names,
+                )
+            )
+    if resolved_intent.intent == "module_overview":
+        direct_answer = format_module_overview_answer(effective_source_directory)
+        if direct_answer:
+            source_names = ["sentieon-modules.json", "sentieon-module-index.md"]
             return format_reference_display(
                 normalize_model_answer(
                     direct_answer,

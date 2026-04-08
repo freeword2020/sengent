@@ -1,0 +1,188 @@
+{
+  "version": "2026-04-08",
+  "entries": [
+    {
+      "id": "samtools",
+      "name": "samtools",
+      "aliases": ["samtools", "samtools index", "samtools quickcheck", "samtools reheader", "samtools addreplacerg"],
+      "summary": "samtools 是面向 SAM/BAM/CRAM 的通用工具集合。",
+      "details": [
+        "高频子命令里，view、sort、index、quickcheck、reheader、addreplacerg、faidx、idxstats 对排错最常见。",
+        "它通常用于检查文件是否可读、是否已排序、是否带索引，以及是否需要修补 header/read group 或参考配套索引。"
+      ],
+      "troubleshooting": [
+        "如果问题是 BAM/CRAM 无法读取、无法随机访问或疑似损坏，优先看 quickcheck、view、index 这层。",
+        "如果问题集中在 read group 或 header，不要先猜 Sentieon 参数，先确认 addreplacerg 或 reheader 层面的输入状态。"
+      ],
+      "usage_boundary": [
+        "只用于解释 samtools 的工具定位和高频入口。",
+        "不把 samtools 的一般性行为表述成 Sentieon 官方建议。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.htslib.org/doc/samtools.html"]
+    },
+    {
+      "id": "bcftools",
+      "name": "bcftools",
+      "aliases": ["bcftools", "bcftools view", "bcftools query", "bcftools stats", "bcftools norm", "bcftools index"],
+      "summary": "bcftools 主要处理 VCF/BCF 的查看、过滤、统计、规范化和索引。",
+      "details": [
+        "高频子命令里，view、query、stats、norm、index 最常见。",
+        "它适合先检查 VCF/BCF 是否可读、header/contig/sample 是否一致，以及压缩索引状态是否正确。"
+      ],
+      "troubleshooting": [
+        "如果问题集中在 VCF/BCF 解析、索引、header 或样本列，通常应先在 bcftools 层复现。",
+        "如果是多文件联动失败，优先检查输入文件类型、压缩方式和索引是否满足工具要求。"
+      ],
+      "usage_boundary": [
+        "只用于解释 bcftools 的通用工具行为。",
+        "不单独替代 Sentieon 对变异调用或过滤流程的官方结论。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.htslib.org/doc/bcftools.html"]
+    },
+    {
+      "id": "fastqc",
+      "name": "FastQC",
+      "aliases": ["fastqc", "fastqc report", "quality control report"],
+      "summary": "FastQC 是原始测序数据质量控制工具，官方页面明确支持从 BAM、SAM 或 FastQ 导入数据。",
+      "details": [
+        "它的定位是生成质量控制报告，而不是做 trimming、比对或变异调用。",
+        "当问题是 reads 质量、GC、重复度、接头污染或每碱基质量分布怎么看时，可以先回到 FastQC 报告层。"
+      ],
+      "troubleshooting": [
+        "如果报错前就怀疑原始 reads 质量异常，先确认 FastQC 报告是否已经提示明显问题。",
+        "如果用户把 FastQC 当成下游 calling 工具，需要先澄清它只是 QC 层。"
+      ],
+      "usage_boundary": [
+        "只用于解释 FastQC 的报告定位和输入边界。",
+        "不单独替代 Sentieon 上游/下游流程结论。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.bioinformatics.babraham.ac.uk/projects/fastqc/"]
+    },
+    {
+      "id": "multiqc",
+      "name": "MultiQC",
+      "aliases": ["multiqc", "multiqc report"],
+      "summary": "MultiQC 的定位是汇总其他工具结果，不自己重新做上游分析。",
+      "details": [
+        "官方文档强调它会把多个日志和报告整合成一个汇总视图，常见产物是单个 HTML 报告和解析后的数据目录。",
+        "它适合用来快速看多个样本或多个工具的总体趋势，但不是原始证据来源本身。"
+      ],
+      "troubleshooting": [
+        "如果某个样本在 MultiQC 里异常，通常还要回到上游单工具报告确认原始证据。",
+        "如果用户把 MultiQC 图表当成原始算法输出，需要先澄清它是聚合层。"
+      ],
+      "usage_boundary": [
+        "只用于解释 MultiQC 的聚合定位。",
+        "不把 MultiQC 的汇总图直接等同于 Sentieon 或其他上游工具的原始结论。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://docs.seqera.io/multiqc"]
+    },
+    {
+      "id": "bgzip-tabix",
+      "name": "bgzip/tabix",
+      "aliases": ["bgzip/tabix", "bgzip", "tabix"],
+      "summary": "bgzip 是适合随机访问压缩文本格式的块压缩工具；tabix 用于给坐标排序后的通用文本格式文件建立索引。",
+      "details": [
+        "很多需要区间访问的 VCF/BED/GFF 类文件会要求 bgzip 压缩，而不是普通 gzip。",
+        "tabix 依赖正确的坐标规则、排序状态和压缩格式。"
+      ],
+      "troubleshooting": [
+        "如果问题是为什么普通 gzip 不行，先确认下游工具是否要求 bgzip 这种可随机访问的块压缩。",
+        "如果 region query、index 或 fetch 失败，先检查文件是否已排序、是否由 bgzip 压缩，以及索引是否与文件匹配。"
+      ],
+      "usage_boundary": [
+        "只用于解释 bgzip/tabix 的通用工具行为和索引前提。",
+        "不单独替代 Sentieon 对某类输入文件的具体支持声明。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": [
+        "https://www.htslib.org/doc/bgzip.html",
+        "https://www.htslib.org/doc/tabix.html"
+      ]
+    },
+    {
+      "id": "grep",
+      "name": "grep",
+      "aliases": ["grep", "grep -n", "grep -i", "grep -F", "grep -E", "grep -r"],
+      "summary": "grep 是按行查找文本的过滤器，适合先确认模式能否命中，再决定是否需要正则或固定字符串匹配。",
+      "details": [
+        "常见入口是 `-n`、`-i`、`-F`、`-E`、`-r`。",
+        "先区分“固定字符串”还是“正则”，再决定是否加引号和选项。"
+      ],
+      "troubleshooting": [
+        "如果“看起来没报错但就是没结果”，先确认是没命中还是模式写错；grep 没命中时退出码通常是 1。",
+        "如果模式里有 `.`、`*`、`[` 这类元字符，先确认是不是应该用 `-F`，以及 shell 有没有先改写你的模式。"
+      ],
+      "usage_boundary": [
+        "只用于解释 grep 的查找语义、常用入口和常见误区。",
+        "不把 grep 讲成通用正则课，也不替代具体业务脚本的上下文。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.gnu.org/software/grep/manual/grep.html"]
+    },
+    {
+      "id": "sed",
+      "name": "sed",
+      "aliases": ["sed", "sed -n", "sed -i", "sed -E", "sed -f"],
+      "summary": "sed 是行流编辑器，常用于替换、删除、插入或按行过滤。",
+      "details": [
+        "常见入口是 `-n`、`-i`、`-E`、`-e`、`-f`。",
+        "更复杂的脚本通常先写到文件，再用 `-f` 读入，能减少 shell quoting 错误。"
+      ],
+      "troubleshooting": [
+        "如果报 `sed: -e expression #1, char ...`，先看脚本文本是否被 shell 改写或引号断开。",
+        "如果用 `-i`，先确认是否真的想原地改文件，以及是否需要备份后缀。"
+      ],
+      "usage_boundary": [
+        "只用于解释 sed 的流式编辑语法和常见脚本入口。",
+        "不把 sed 讲成通用文本处理教程。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.gnu.org/software/sed/manual/sed.html"]
+    },
+    {
+      "id": "awk",
+      "name": "awk",
+      "aliases": ["awk", "gawk", "awk -F", "awk BEGIN", "awk END"],
+      "summary": "awk 是按字段处理文本的程序，适合做列提取、条件过滤和简单汇总。",
+      "details": [
+        "常见入口是 `-F`、`-v`、`BEGIN`、`END`、`$0`、`$1`。",
+        "脚本里需要区分 shell 变量和 awk 变量，必要时用 `-v` 传值。"
+      ],
+      "troubleshooting": [
+        "如果字段不对，先确认分隔符是不是 `FS` / `-F` 设错。",
+        "如果 `$1`、`$2` 之类看起来被改坏，先确认是否被 shell 提前展开，脚本是否需要单引号包住。"
+      ],
+      "usage_boundary": [
+        "只用于解释 awk 的字段处理、条件判断和轻量汇总入口。",
+        "不把 awk 延伸成复杂脚本语言教学。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.gnu.org/software/gawk/manual/gawk.html"]
+    },
+    {
+      "id": "shell-quoting-pipelines",
+      "name": "shell quoting / pipeline basics",
+      "aliases": ["shell quoting", "shell pipeline", "bash quoting", "quoting", "引号", "管道", "pipefail"],
+      "summary": "Shell 层重点是引号、变量展开、转义和管道连接；很多脚本错误其实是 shell 先把命令改写了。",
+      "details": [
+        "单引号保留字面量，双引号保留空格但仍会展开变量和命令替换。",
+        "管道会把左侧标准输出接给右侧标准输入；要看失败位置时，常需要配合 `set -o pipefail`。"
+      ],
+      "troubleshooting": [
+        "如果出现 `unexpected EOF`、`matching quote`、`command not found`，先检查引号是否配对、空格是否被拆词。",
+        "如果管道里前一段失败但整体还像是成功，先检查 `pipefail` 和每一段命令的退出码。"
+      ],
+      "usage_boundary": [
+        "只用于解释 shell 解析、引号和管道的基础语义。",
+        "不把 shell basics 扩展成完整 Bash 编程课。"
+      ],
+      "source_notes": ["external-tool-reference.md"],
+      "official_sources": ["https://www.gnu.org/software/bash/manual/bash.html"]
+    }
+  ]
+}

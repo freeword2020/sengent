@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import re
 import sys
 import threading
 from typing import Any, Callable
 
-from sentieon_assist.answering import answer_query, answer_reference_query, missing_required_fields
-from sentieon_assist.chat_events import (
-    event_check_missing_info,
-    event_detect_issue_type,
-    event_generate_reply,
-    event_prepare_reference_answer,
-    event_search_sources,
+from sentieon_assist.answering import (
+    answer_query,
+    answer_reference_query,
+    missing_required_fields,
+    normalize_model_answer,
 )
+from sentieon_assist.chat_events import event_generate_reply
 from sentieon_assist.chat_ui import ChatUI, build_console
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.config import load_config
@@ -19,6 +19,7 @@ from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
+from sentieon_assist.reference_intents import parse_reference_intent
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
 
@@ -26,6 +27,51 @@ try:
     import readline  # noqa: F401
 except ImportError:  # pragma: no cover
     readline = None
+
+PROMPT_LABEL = "Sengent>"
+PROMPT_STYLE_PREFIX = "\x1b[1;38;5;208m"
+PROMPT_STYLE_SUFFIX = "\x1b[0m"
+DEICTIC_REFERENCE_FOLLOWUP_PATTERN = re.compile(
+    r"^(?:这个|那个|那这个|这条|那条|这一条|那一条)(?:模块|流程|方向|方案)?(?:呢|怎么样|咋样|如何)?$"
+)
+REFERENCE_FOLLOWUP_CANONICAL_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:配对|有对照|有matchednormal|matchednormal|tumor[- ]normal|肿瘤配对|肿瘤对照)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 tumor-normal 呢",
+    ),
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:无对照|没对照|没有对照|无matchednormal|tumor[- ]only|单肿瘤|单样本肿瘤)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 tumor-only 呢",
+    ),
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:体细胞(?:的)?|somatic|肿瘤(?:的)?)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 somatic 呢",
+    ),
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:胚系(?:的)?|germline)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 germline 呢",
+    ),
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:短读长|short[- ]read)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 short-read 呢",
+    ),
+    (
+        re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:hybrid|联合分析|short[- ]read\s*\+\s*long[- ]read|short\s+read\s*\+\s*long\s+read|短读长\s*\+\s*长读长)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 hybrid 呢",
+    ),
+)
 
 
 def _default_status_writer(text: str, *, clear: bool = False) -> None:
@@ -41,13 +87,32 @@ def _default_stream_output_fn(chunk: str) -> None:
     sys.stdout.flush()
 
 
+def _build_input_prompt(
+    *,
+    input_fn=input,
+    stdin=None,
+    stdout=None,
+) -> str:
+    prompt = f"{PROMPT_LABEL} "
+    effective_stdin = sys.stdin if stdin is None else stdin
+    effective_stdout = sys.stdout if stdout is None else stdout
+    if input_fn is not input:
+        return prompt
+    if not getattr(effective_stdin, "isatty", lambda: False)():
+        return prompt
+    if not getattr(effective_stdout, "isatty", lambda: False)():
+        return prompt
+    return f"{PROMPT_STYLE_PREFIX}{PROMPT_LABEL}{PROMPT_STYLE_SUFFIX} "
+
+
 def start_thinking_animation(
     *,
     status_writer: Callable[..., None] | None = None,
     interval_seconds: float = 0.2,
+    label: str = "思考中",
 ) -> Callable[[], None]:
     writer = status_writer or _default_status_writer
-    frames = ("思考中.", "思考中..", "思考中...")
+    frames = (f"{label}.", f"{label}..", f"{label}...")
     stop_event = threading.Event()
     writer(frames[0], clear=False)
 
@@ -103,7 +168,13 @@ def _chat_model_stream_generate(
 
 
 def _is_stable_chat_response(raw_response: str) -> bool:
-    return raw_response.startswith("【") or raw_response.startswith("需要确认模块")
+    stable_prefixes = (
+        "【",
+        "需要确认模块",
+        "当前 MVP",
+        "未在本地资料中找到相关模块或参数",
+    )
+    return raw_response.startswith(stable_prefixes)
 
 
 def render_chat_response(
@@ -118,7 +189,7 @@ def render_chat_response(
     if _is_stable_chat_response(raw_response):
         if clear_status_fn is not None:
             clear_status_fn()
-        return raw_response.strip(), False
+        return normalize_model_answer(raw_response).strip(), False
     prompt = build_chat_polish_prompt(query, raw_response)
     if raw_response.startswith("需要补充以下信息"):
         prompt = build_chat_missing_info_prompt(query, raw_response)
@@ -146,9 +217,10 @@ def render_chat_response(
             return text.strip(), False
         except RuntimeError:
             pass
+    text = _chat_model_generate(prompt, model_generate=model_generate).strip()
     if clear_status_fn is not None:
         clear_status_fn()
-    return _chat_model_generate(prompt, model_generate=model_generate).strip(), False
+    return text, False
 
 
 def _handle_stream_chunk(
@@ -167,6 +239,86 @@ def _requires_followup(response: str) -> bool:
     return response.startswith("需要补充以下信息") or response.startswith("需要确认模块")
 
 
+def _is_reference_answer(response: str) -> bool:
+    return response.startswith(("【资料查询】", "【模块介绍】", "【常用参数】", "【流程指导】"))
+
+
+def _looks_like_reference_followup(
+    query: str,
+    *,
+    model_generate: Callable[..., str] | None = None,
+) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return False
+    normalized_compact = re.sub(r"\s+", "", normalized)
+    if DEICTIC_REFERENCE_FOLLOWUP_PATTERN.fullmatch(normalized_compact):
+        return False
+    if _normalize_reference_followup_fragment(query) != query.strip():
+        return True
+    if "--" in normalized:
+        return True
+    if any(
+        cue in normalized
+        for cue in (
+            "wgs",
+            "wes",
+            "whole exome",
+            "exome",
+            "全基因组",
+            "全外显子",
+            "panel",
+            "rna",
+            "rnaseq",
+            "rna-seq",
+            "fastq",
+            "ubam",
+            "ucram",
+            "bam",
+            "cram",
+            "胚系",
+            "体细胞",
+            "肿瘤",
+            "tumor",
+            "tumor-only",
+            "tumor only",
+            "tumor-normal",
+            "tumor normal",
+            "normal",
+            "短读长",
+            "short-read",
+            "short read",
+            "长读长",
+            "long-read",
+            "long read",
+            "hifi",
+            "ont",
+            "pacbio",
+            "nanopore",
+            "hybrid",
+            "diploid",
+            "二倍体",
+            "pangenome",
+            "graph",
+            "泛基因组",
+        )
+    ):
+        return True
+    if any(cue in normalized for cue in ("参数", "脚本", "示例", "命令", "workflow", "pipeline", "输入", "输出", "区别", "对比")):
+        return True
+    parsed_intent = parse_reference_intent(query, model_generate=model_generate)
+    return parsed_intent.intent in {"parameter_lookup", "script_example", "workflow_guidance"}
+
+
+def _normalize_reference_followup_fragment(query: str) -> str:
+    stripped = query.strip()
+    normalized_compact = re.sub(r"\s+", "", stripped.lower())
+    for pattern, replacement in REFERENCE_FOLLOWUP_CANONICAL_RULES:
+        if pattern.search(normalized_compact):
+            return replacement
+    return stripped
+
+
 def _build_chat_ui(output_fn: Callable[[str], None]) -> ChatUI:
     if output_fn is print:
         return ChatUI()
@@ -181,23 +333,13 @@ def _chat_issue_type_and_missing(query: str) -> tuple[str, list[str]]:
     return issue_type, missing_required_fields(issue_type, info)
 
 
-def _build_chat_events(query: str, response: str) -> list[str]:
-    issue_type, missing = _chat_issue_type_and_missing(query)
-    events = [event_detect_issue_type(issue_type)]
-    if issue_type == "reference":
-        events.append(event_search_sources())
-        events.append(event_prepare_reference_answer())
-    else:
-        events.append("正在检查缺失信息")
-        events.append(event_check_missing_info(missing))
-    if not _is_stable_chat_response(response):
-        events.append(event_generate_reply())
-    return events
-
-
 def _looks_like_new_query(query: str) -> bool:
     issue_type = classify_query(query)
     return issue_type != "other" or is_reference_query(query)
+
+
+def _build_pre_answer_status(query: str) -> str:
+    return "正在思考中"
 
 
 def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[str]]:
@@ -227,12 +369,21 @@ def run_query(
     source_directory: str | None = None,
 ) -> str:
     issue_type = classify_query(query)
-    if issue_type == "other" and is_reference_query(query):
-        return answer_reference_query(
-            query,
-            model_fallback=model_fallback,
-            source_directory=source_directory,
-        )
+    if issue_type == "other":
+        parsed_intent = parse_reference_intent(query)
+        if parsed_intent.is_reference:
+            return answer_reference_query(
+                query,
+                model_fallback=model_fallback,
+                source_directory=source_directory,
+                parsed_intent=parsed_intent,
+            )
+        if is_reference_query(query):
+            return answer_reference_query(
+                query,
+                model_fallback=model_fallback,
+                source_directory=source_directory,
+            )
     current_state = "CLASSIFIED"
     current_state = next_state(current_state, has_missing_info=False)
 
@@ -288,8 +439,9 @@ def chat_loop(
     warmup(config.ollama_model, config.ollama_base_url)
     ui.render_welcome_panel()
     pending_query: str | None = None
+    reference_context_query: str | None = None
     while True:
-        query = input_fn("Sengent> ").strip()
+        query = input_fn(_build_input_prompt(input_fn=input_fn)).strip()
         if not query:
             continue
         if query in {"/quit", "quit", "exit"}:
@@ -297,11 +449,24 @@ def chat_loop(
             return 0
         if query == "/reset":
             pending_query = None
+            reference_context_query = None
             output_fn("已清空当前补问上下文。")
             continue
-        effective_query = query if pending_query is None or _looks_like_new_query(query) else f"{pending_query} {query}"
-        ui.render_user_message(query)
-        clear_status = start_thinking_animation(status_writer=status_writer)
+        normalized_reference_followup = _normalize_reference_followup_fragment(query)
+        if pending_query is not None and not _looks_like_new_query(query):
+            effective_query = f"{pending_query} {query}"
+        elif (
+            reference_context_query is not None
+            and not _looks_like_new_query(query)
+            and _looks_like_reference_followup(query, model_generate=model_generate)
+        ):
+            effective_query = f"{reference_context_query} {normalized_reference_followup}"
+        else:
+            effective_query = query
+        clear_status = start_thinking_animation(
+            status_writer=status_writer,
+            label=_build_pre_answer_status(effective_query),
+        )
         response = run_query(
             effective_query,
             model_fallback=model_fallback,
@@ -313,13 +478,24 @@ def chat_loop(
             pending_query = effective_query
         else:
             pending_query = None
-        ui.render_events(_build_chat_events(effective_query, response))
+        if _is_reference_answer(response):
+            reference_context_query = effective_query
+        elif not _requires_followup(response):
+            reference_context_query = None
         effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
         streamed_started = False
+        clear_generation_status: Callable[[], None] | None = None
+        if not _is_stable_chat_response(response):
+            clear_generation_status = start_thinking_animation(
+                status_writer=status_writer,
+                label=event_generate_reply(),
+            )
 
         def wrapped_stream_output(chunk: str) -> None:
             nonlocal streamed_started
             if not streamed_started:
+                if clear_generation_status is not None:
+                    clear_generation_status()
                 ui.render_streaming_answer_header()
                 streamed_started = True
             effective_stream_output_fn(chunk)
@@ -330,7 +506,7 @@ def chat_loop(
             model_generate=model_generate,
             model_stream_generate=model_stream_generate,
             stream_output_fn=wrapped_stream_output,
-            clear_status_fn=None,
+            clear_status_fn=clear_generation_status,
         )
         if not streamed:
             ui.render_answer(rendered)

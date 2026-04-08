@@ -13,22 +13,22 @@
       "outputs": ["SAM/BAM/CRAM 对齐结果"],
       "common_questions": ["BWA、STAR、Minimap2 分别适合什么数据", "Sentieon 的比对模块有哪些", "长读长应该用哪个比对器"],
       "related_modules": ["Sentieon BWA", "Sentieon STAR", "Sentieon Minimap2", "DNAseq", "DNAscope", "DNAscope LongRead"],
-      "source_priority_notes": ["优先用 manual 的 binary/tool 章节和 sentieon-cli 流程说明判断具体适用场景。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "bwa",
       "name": "Sentieon BWA",
       "aliases": ["bwa", "sentieon bwa", "bwa mem"],
       "category": "alignment",
-      "summary": "Sentieon BWA 是短读长 DNA 的主力比对器，通常作为 DNAseq、DNAscope 等短读长胚系流程的上游。",
+      "summary": "Sentieon BWA 是短读长 DNA 比对器，可作为 DNAseq、DNAscope 等短读长流程的上游。",
       "scope": ["短读长 DNA", "WGS", "WES", "panel"],
       "inputs": ["FASTQ", "参考基因组 FASTA 及其索引"],
       "outputs": ["SAM/BAM/CRAM 对齐结果"],
       "common_questions": ["BWA 是做什么的", "BWA 需要什么参考索引", "BWA 为什么会 OOM 或被 killed"],
       "related_modules": ["DNAseq", "DNAscope", "Dedup", "QualCal"],
-      "source_priority_notes": ["参考 manual 的 BWA binary 章节和 troubleshooting 里的 BWA 内存说明。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "star",
@@ -41,7 +41,7 @@
       "outputs": ["RNA BAM/CRAM 对齐结果"],
       "common_questions": ["STAR 适合什么数据", "RNA 流程为什么要先用 STAR", "STAR 支持压缩 FASTQ 吗"],
       "related_modules": ["RNAseq", "RNASplitReadsAtJunction", "Haplotyper"],
-      "source_priority_notes": ["RNA 相关问答优先结合 RNA variant calling 章节。"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -55,7 +55,43 @@
       "outputs": ["长读长 BAM/CRAM 对齐结果"],
       "common_questions": ["Minimap2 适合什么数据", "长读长流程是否会重比对", "ONT 和 HiFi 都能用吗"],
       "related_modules": ["DNAscope LongRead", "DNAscope Hybrid", "LongReadSV"],
-      "source_priority_notes": ["具体长读长支持矩阵优先看 sentieon-cli LongRead 和 Hybrid 章节。"],
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+    },
+    {
+      "id": "sentieon-cli",
+      "name": "sentieon-cli",
+      "aliases": ["sentieon-cli", "sentieon cli", "sentieon driver", "全局参数", "global options"],
+      "category": "command-reference",
+      "summary": "这条索引用于承接 sentieon-cli 与大量 sentieon driver 问句里反复出现的通用参数。",
+      "scope": ["sentieon-cli 常见全局参数", "sentieon driver 常见共享参数"],
+      "inputs": [],
+      "outputs": [],
+      "parameters": [
+        {
+          "name": "-t",
+          "aliases": ["-t", "threads"],
+          "summary": "设置线程数，用于控制命令运行时可用的并行 worker 数。",
+          "details": [
+            "很多 sentieon-cli 和 sentieon driver 命令都会接受这个参数。",
+            "实际可用线程数仍要结合机器 CPU、I/O 和现场调度策略确认。"
+          ],
+          "values": []
+        },
+        {
+          "name": "-r",
+          "aliases": ["-r", "reference"],
+          "summary": "指定参考基因组 FASTA/REFERENCE，是 driver 类命令里最常见的共享参数之一。",
+          "details": [
+            "通常需要与对应参考索引、已对齐 BAM/CRAM 或调用流程保持一致。",
+            "不同 workflow 仍可能额外要求 BED、dbSNP、model bundle 等配套输入。"
+          ],
+          "values": []
+        }
+      ],
+      "common_questions": ["sentieon-cli 的 -t 是什么", "sentieon-cli 的 -r 是什么"],
+      "related_modules": ["DNAseq", "DNAscope", "TNscope", "GVCFtyper", "QualCal"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
     },
     {
@@ -63,21 +99,40 @@
       "name": "DNAseq",
       "aliases": ["dnaseq", "dna seq", "typical usage for dnaseq"],
       "category": "germline-variant-calling",
-      "summary": "DNAseq 是 Sentieon 的传统短读长胚系变异流程，适合常规 germline 场景，且在非 diploid 样本时通常比 DNAscope 更稳妥。",
-      "scope": ["短读长 DNA", "常规 germline workflow", "非 diploid 样本优先考虑"],
+      "summary": "DNAseq 是 Sentieon 的短读长 DNA 胚系流程，典型步骤包括 BWA、Dedup、QualCal 和 Haplotyper。",
+      "scope": ["短读长 DNA", "germline workflow"],
       "inputs": ["FASTQ", "BAM/CRAM", "参考基因组", "已知位点 VCF（视流程而定）"],
       "outputs": ["BAM/CRAM", "VCF 或 gVCF", "重校准和过滤相关中间文件"],
-      "common_questions": ["DNAseq 和 DNAscope 区别是什么", "什么情况下优先用 DNAseq", "DNAseq 是否适合非 diploid 样本"],
+      "script_examples": [
+        {
+          "title": "DNAseq germline step-by-step skeleton",
+          "summary": "官方 manual 的传统多步 DNAseq 骨架，覆盖比对、去重、BQSR 和 Haplotyper 调用。",
+          "when_to_use": ["短读长 DNA", "driver --algo workflow"],
+          "command_lines": [
+            "(sentieon bwa mem -R '@RG\\tID:GROUP_NAME\\tSM:SAMPLE_NAME\\tPL:PLATFORM' -t NUMBER_THREADS -K 10000000 REFERENCE SAMPLE_1_FASTQ SAMPLE_2_FASTQ || echo -n 'error') | sentieon util sort -r REFERENCE -o SORTED_BAM -t NUMBER_THREADS --sam2bam -i -",
+            "sentieon driver -t NUMBER_THREADS -i SORTED_BAM --algo LocusCollector --fun score_info SCORE.gz",
+            "sentieon driver -t NUMBER_THREADS -i SORTED_BAM --algo Dedup [--rmdup] --score_info SCORE.gz --metrics DEDUP_METRIC_TXT DEDUPED_BAM",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i DEDUPED_BAM --algo QualCal [-k KNOWN_SITES] RECAL_DATA.TABLE",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i DEDUPED_BAM -q RECAL_DATA.TABLE --algo Haplotyper [-d dbSNP] VARIANT_VCF"
+          ],
+          "notes": [
+            "这是 manual Chapter 3 的 step-by-step workflow。",
+            "多样本联合分型相关用法可结合 GVCFtyper 章节查看。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+        }
+      ],
+      "common_questions": ["DNAseq 和 DNAscope 区别是什么", "DNAseq 典型步骤有哪些", "DNAseq 是否可与 GVCFtyper 配合"],
       "related_modules": ["Sentieon BWA", "Dedup", "QualCal", "Haplotyper", "GVCFtyper", "VarCal", "ApplyVarCal"],
-      "source_priority_notes": ["非 diploid 与 joint call 相关问题要结合 GVCFtyper 和 VQSR 流程一起看。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-doc-map.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "dnascope",
       "name": "DNAscope",
       "aliases": ["dnascope", "sentieon dnascope"],
       "category": "germline-variant-calling",
-      "summary": "DNAscope 是 Sentieon 面向短读长 DNA 的主力胚系变异流程，强调高准确率，并把比对、预处理、小变异调用和部分结构变异调用串成一体化 pipeline。",
+      "summary": "DNAscope 是用于 short-read DNA sequence data 的 alignment and germline variant calling pipeline。",
       "scope": ["短读长 DNA", "WGS", "WES", "panel", "diploid organism"],
       "inputs": ["FASTQ", "uBAM/uCRAM", "BAM/CRAM", "参考基因组", "model bundle", "可选 dbSNP/BED"],
       "outputs": ["VCF", "可选 gVCF", "deduped BAM/CRAM", "SV VCF", "metrics 目录", "MultiQC 报告"],
@@ -111,10 +166,25 @@
           "values": []
         }
       ],
+      "script_examples": [
+        {
+          "title": "sentieon-cli DNAscope FASTQ skeleton",
+          "summary": "官方 sentieon-cli 的 DNAscope 单命令骨架。",
+          "when_to_use": ["短读长 DNA", "WGS", "WES", "panel"],
+          "command_lines": [
+            "sentieon-cli dnascope -r REFERENCE --r1_fastq R1_FASTQ --r2_fastq R2_FASTQ --readgroups READGROUPS -m MODEL_BUNDLE [-d DBSNP] [-b INTERVAL_FILE] [-t NUMBER_THREADS] [--pcr_free] [-g] [--duplicate_marking DUP_MARKING] [--assay ASSAY] [--consensus] [--dry_run] SAMPLE_VCF"
+          ],
+          "notes": [
+            "这是 sentieon-cli 的命令行入口。",
+            "manual 9.1 还给出了 uBAM/uCRAM、坐标排序 BAM/CRAM 以及 calling-only 入口。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+        }
+      ],
       "common_questions": ["DNAscope 是什么", "DNAscope 支持什么输入", "DNAscope 会输出哪些文件"],
       "related_modules": ["DNAseq", "DNAscope LongRead", "DNAscope Hybrid", "GVCFtyper", "Dedup", "LocusCollector"],
-      "source_priority_notes": ["manual 明确注明 DNAscope 推荐用于 diploid organism；非 diploid 样本优先考虑 DNAseq。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-doc-map.md", "sentieon-github-map.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
     },
     {
       "id": "dnascope-longread",
@@ -148,17 +218,32 @@
           "values": []
         }
       ],
+      "script_examples": [
+        {
+          "title": "sentieon-cli DNAscope LongRead FASTQ skeleton",
+          "summary": "官方 sentieon-cli 的 DNAscope LongRead 单命令骨架。",
+          "when_to_use": ["PacBio HiFi", "Oxford Nanopore"],
+          "command_lines": [
+            "sentieon-cli dnascope-longread -r REFERENCE --fastq INPUT_FASTQ --readgroups '@RG\\tID:foo\\tSM:bar' -m MODEL_BUNDLE [-d DBSNP] [-b DIPLOID_BED] [-t NUMBER_THREADS] [-g] --tech HiFi|ONT [--haploid_bed HAPLOID_BED] [--cnv_excluded_regions CNV_EXCLUDE_BED] SAMPLE_VCF"
+          ],
+          "notes": [
+            "如果输入是 uBAM/uCRAM/BAM/CRAM 并且还需要重比对，用 -i SAMPLE_INPUT --align，并在 CRAM/uCRAM 场景补 --input_ref INPUT_REF。",
+            "如果输入已经是可直接调用的长读长 BAM/CRAM，不带 --align 就会直接做 calling。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+        }
+      ],
       "common_questions": ["DNAscope LongRead 支持什么平台", "ONT 能不能用 DNAscope LongRead", "DNAscope LongRead 输出有哪些"],
       "related_modules": ["DNAscope", "DNAscope Hybrid", "Minimap2", "LongReadSV", "CNVscope"],
-      "source_priority_notes": ["技术选择要优先看 --tech HiFi|ONT 和 long-read 依赖项。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-github-map.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-github-map.md"]
     },
     {
       "id": "dnascope-hybrid",
       "name": "DNAscope Hybrid",
       "aliases": ["dnascope hybrid", "dnascope-hybrid", "hybrid", "短长联合 dnascope"],
       "category": "germline-variant-calling",
-      "summary": "DNAscope Hybrid 是同一样本短读长和长读长联合调用流程，利用两类数据互补来提升 SNV、indel、SV 和 CNV 结果。",
+      "summary": "DNAscope Hybrid 是用于单一样本 short-read 和 long-read 联合 germline variant calling 的流程。",
       "scope": ["短读长 + 长读长联合分析", "同一样本 hybrid germline"],
       "inputs": ["短读长 FASTQ 或对齐 BAM/CRAM", "长读长 uBAM/uCRAM 或 BAM/CRAM", "参考基因组", "model bundle"],
       "outputs": ["VCF", "SV VCF", "CNV VCF", "短读长 deduped CRAM/BAM", "长读长对齐 CRAM", "metrics 目录"],
@@ -185,45 +270,137 @@
           "values": []
         }
       ],
+      "script_examples": [
+        {
+          "title": "sentieon-cli DNAscope Hybrid aligned-input skeleton",
+          "summary": "官方 sentieon-cli 的 DNAscope Hybrid 骨架，用于已对齐 short-read 和 long-read 输入。",
+          "when_to_use": ["aligned short-read + long-read", "同一样本 hybrid germline"],
+          "command_lines": [
+            "sentieon-cli dnascope-hybrid -r REFERENCE --sr_aln SR_ALN [SR_ALN ...] --lr_aln LR_ALN [LR_ALN ...] -m MODEL_BUNDLE [-d DBSNP] [-b DIPLOID_BED] [-t NUMBER_THREADS] sample.vcf.gz"
+          ],
+          "notes": [
+            "如果输入仍是 short-read FASTQ 与 long-read uBAM/uCRAM，可改用未对齐输入入口。",
+            "long-read 输入为 CRAM/uCRAM 时，可结合 --lr_input_ref 入口说明。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+        }
+      ],
       "common_questions": ["DNAscope Hybrid 是什么", "Hybrid 流程需要哪些输入", "Hybrid 是否同时输出 CNV 和 SV"],
       "related_modules": ["DNAscope", "DNAscope LongRead", "CNVscope", "LongReadSV", "Minimap2", "Sentieon BWA"],
-      "source_priority_notes": ["这是 202503 版本里最值得优先记住的新能力之一。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-github-map.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-github-map.md"]
     },
     {
       "id": "pangenome",
       "name": "Sentieon Pangenome",
       "aliases": ["pangenome", "sentieon pangenome", "泛基因组"],
       "category": "germline-variant-calling",
-      "summary": "Sentieon Pangenome 是基于 pangenome graph 的短读长 DNA 比对和变异流程，重点提升复杂区域的表示和调用能力。",
+      "summary": "Sentieon Pangenome 是用于 pangenome alignment 和 germline variant calling 的流程。",
       "scope": ["graph/pangenome reference", "复杂区域短读长分析"],
       "inputs": ["FASTQ 或 BAM/CRAM", "参考基因组", "pangenome 相关文件"],
       "outputs": ["VCF", "BAM/CRAM", "个性化 pangenome 中间文件"],
+      "parameters": [
+        {
+          "name": "--hapl",
+          "aliases": ["hapl"],
+          "summary": "指定 pangenome haplotype 文件。",
+          "details": ["是 Sentieon Pangenome FASTQ/BAM 入口里的必需输入之一。"],
+          "values": []
+        },
+        {
+          "name": "--gbz",
+          "aliases": ["gbz"],
+          "summary": "指定 GBZ 格式的 pangenome graph 文件。",
+          "details": ["当前官方资料写到流程支持 Minigraph-Cactus 的 GRCh38 pangenome。"],
+          "values": []
+        },
+        {
+          "name": "--pop_vcf",
+          "aliases": ["pop_vcf"],
+          "summary": "指定 population VCF 文件。",
+          "details": ["是官方 sentieon-cli pangenome 入口中的必需输入。", "用于配合 pangenome 流程的变异调用步骤。"],
+          "values": []
+        },
+        {
+          "name": "--bam_format",
+          "aliases": ["bam_format"],
+          "summary": "使用 BAM 而不是 CRAM 作为输出对齐文件格式。",
+          "details": [],
+          "values": []
+        }
+      ],
+      "script_examples": [
+        {
+          "title": "sentieon-cli Pangenome FASTQ skeleton",
+          "summary": "官方 sentieon-cli 的 Pangenome 单命令骨架。",
+          "when_to_use": ["short-read DNA", "graph/pangenome reference"],
+          "command_lines": [
+            "sentieon-cli sentieon-pangenome -r REFERENCE --hapl HAPL --gbz GBZ -m MODEL_BUNDLE --pop_vcf POP_VCF --r1_fastq R1_FASTQ --r2_fastq R2_FASTQ --readgroup \"@RG\\tID:HG002-1\\tSM:HG002\\tLB:HG002-LB-1\\tPL:ILLUMINA\" [-b INTERVAL_FILE] [--bam_format] [-d DBSNP] [--dry_run] [-t NUMBER_THREADS] [--pcr_free] SAMPLE_VCF"
+          ],
+          "notes": [
+            "如果输入已经是排序后的 BAM/CRAM，可切到 -i SAMPLE_INPUT 的入口，而不是 --r1_fastq/--r2_fastq。",
+            "当前官方资料明确写到只支持 Minigraph-Cactus 的 GRCh38 pangenome，并要求 UCSC-style contig names。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+        }
+      ],
       "common_questions": ["Pangenome 是什么", "Pangenome 当前支持什么参考", "Pangenome 和普通 DNAscope 有什么区别"],
       "related_modules": ["DNAscope", "vg giraffe models", "Joint Call"],
-      "source_priority_notes": ["manual 明确写到当前仅支持 GRCh38 且要求 UCSC-style contig names。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-github-map.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-github-map.md"]
     },
     {
       "id": "cnvscope",
       "name": "CNVscope",
       "aliases": ["cnvscope", "sentieon cnv", "cnv"],
       "category": "copy-number",
-      "summary": "CNVscope 是 Sentieon 的胚系拷贝数变异模块，当前重点面向 WGS germline CNV calling，并需要配套 CNVModelApply 使用。",
+      "summary": "CNVscope 是 Sentieon Application Notes 中的 germline CNV calling 模块，示例流程与 CNVModelApply 配合使用。",
       "scope": ["WGS germline CNV", "deduped BAM 后续分析"],
       "inputs": ["deduped BAM", "参考基因组", "CNV model", "可选 interval BED"],
       "outputs": ["临时 CNV VCF", "最终 CNV VCF（带 CN 注释）"],
+      "parameters": [
+        {
+          "name": "--model",
+          "aliases": ["model"],
+          "summary": "指定 CNVscope / CNVModelApply 使用的 machine learning model。",
+          "details": ["CNVscope 里该模型会决定调用时使用的设置。", "CNVscope 和 CNVModelApply 必须使用同一套 model，否则官方文档明确说会报错。"],
+          "values": []
+        },
+        {
+          "name": "--interval",
+          "aliases": ["interval"],
+          "summary": "按 BED 区间限制 CNV 调用区域。",
+          "details": ["基础用法里可用它限制 calling interval。", "human male sample 需要分别对 autosomes 和 haploid X/Y 用不同 --interval 跑两遍。"],
+          "values": []
+        }
+      ],
+      "script_examples": [
+        {
+          "title": "CNVscope basic calling skeleton",
+          "summary": "官方 app note 的两步 CNVscope 骨架。",
+          "when_to_use": ["WGS germline CNV", "deduped BAM 后处理"],
+          "command_lines": [
+            "sentieon driver [--interval INTERVAL_FILE] -t NUMBER_THREADS -r REFERENCE -i DEDUPED_BAM --algo CNVscope --model ML_MODEL/cnv.model TMP_VARIANT_VCF",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE --algo CNVModelApply --model ML_MODEL/cnv.model -v TMP_VARIANT_VCF VARIANT_VCF"
+          ],
+          "notes": [
+            "CNVscope 和 CNVModelApply 必须使用同一套 model，否则官方文档明确说会报错。",
+            "human male sample 需要把 autosomes 和 haploid X/Y 分开各跑一遍，再用 bcftools 合并结果。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+        }
+      ],
       "common_questions": ["CNVscope 是什么", "CNVscope 需要什么输入", "male sample 的 X/Y 应该怎么处理"],
       "related_modules": ["CNVModelApply", "DNAscope LongRead", "DNAscope Hybrid"],
-      "source_priority_notes": ["male sample 需要区分 diploid 与 haploid 区域分别调用。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "joint-call",
       "name": "Joint Call",
       "aliases": ["joint call", "joint calling", "joint genotype", "joint genotyping", "联合分型", "联合调用"],
       "category": "workflow",
-      "summary": "Sentieon 的 joint call 主要依赖 GVCFtyper 对多个样本的 gVCF 做联合分型，适合 cohort 级分析。",
+      "summary": "Joint Call 指多个样本 gVCF 的联合分型流程，manual 示例通过 GVCFtyper 完成。",
       "scope": ["多样本联合分型", "cohort analysis", "大规模 GVCF 整合"],
       "inputs": ["多个 gVCF", "参考基因组", "可选 shard / interval"],
       "outputs": ["多样本 VCF", "可选按区域或按样本拆分的 VCF"],
@@ -232,28 +409,42 @@
           "name": "--genotype_model",
           "aliases": ["genotype_model"],
           "summary": "控制 joint genotyping 使用的分型模型。",
-          "details": ["大 cohort 可考虑 multinomial。", "multinomial 在大规模 joint call 时扩展性更好。"],
+          "details": ["manual 分布式章节写到 large joint calls with more than 1000 samples 可使用 multinomial。", "manual 同处说明 multinomial 在大 cohort 下 scales better。"],
           "values": ["multinomial"]
         },
         {
           "name": "--split_by_sample",
           "aliases": ["split_by_sample"],
           "summary": "在 merge 阶段按样本组拆分输出 VCF。",
-          "details": ["适合大 cohort 下控制输出文件规模。", "需要配套 split.conf 这类分组配置。"],
+          "details": ["是在 merge 步骤中按样本组拆分输出的选项。", "需要 split.conf 这类分组配置文件。"],
           "values": []
+        }
+      ],
+      "script_examples": [
+        {
+          "title": "GVCFtyper joint-calling skeleton",
+          "summary": "官方 manual 的 GVCFtyper 联合分型骨架。",
+          "when_to_use": ["joint call", "多样本 gVCF", "cohort analysis"],
+          "command_lines": [
+            "sentieon driver -r REFERENCE --algo GVCFtyper -v s1_VARIANT_GVCF -v s2_VARIANT_GVCF -v s3_VARIANT_GVCF VARIANT_VCF"
+          ],
+          "notes": [
+            "manual 12.5.5 给出了 shard、merge 和 --split_by_sample 的分布式骨架。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
         }
       ],
       "common_questions": ["joint call 是什么", "GVCFtyper 和 joint call 的关系是什么", "大 cohort 应该怎么分片"],
       "related_modules": ["GVCFtyper", "VarCal", "ApplyVarCal", "Distributed Mode"],
-      "source_priority_notes": ["大 cohort 常常受 I/O、样本顺序和 shard merge 顺序约束。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-doc-map.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "gvcftyper",
       "name": "GVCFtyper",
       "aliases": ["gvcftyper", "genotypegvcfs", "joint call tool"],
       "category": "germline-variant-calling",
-      "summary": "GVCFtyper 是 Sentieon 的联合分型核心算法，用于把多个样本的 gVCF 合并成 cohort 级 VCF。",
+      "summary": "GVCFtyper 是用于多个 gVCF 联合分型的算法。",
       "scope": ["joint call", "gVCF 合并", "多样本 cohort"],
       "inputs": ["多个 gVCF", "参考基因组", "可选 shard 配置"],
       "outputs": ["联合分型 VCF", "可选分片结果和 merge 输出"],
@@ -262,21 +453,21 @@
           "name": "--genotype_model",
           "aliases": ["genotype_model"],
           "summary": "控制 GVCFtyper 的分型模型。",
-          "details": ["大 cohort 场景可考虑 multinomial。", "multinomial 在大规模 joint call 时扩展性更好。"],
+          "details": ["manual 分布式章节写到 large joint calls with more than 1000 samples 可使用 multinomial。", "manual 同处说明 multinomial 在大 cohort 下 scales better。"],
           "values": ["multinomial"]
         },
         {
           "name": "--split_by_sample",
           "aliases": ["split_by_sample"],
           "summary": "在 merge 阶段按样本组拆分输出。",
-          "details": ["适合把超大 cohort 结果拆成更易管理的多个 VCF。"],
+          "details": ["是在 merge 步骤中按样本组拆分输出的选项。"],
           "values": []
         }
       ],
       "common_questions": ["GVCFtyper 是做什么的", "GVCFtyper 支持大 cohort 吗", "什么时候用 multinomial model"],
       "related_modules": ["Joint Call", "DNAscope", "DNAseq", "VarCal", "ApplyVarCal"],
-      "source_priority_notes": ["大 cohort 推荐重点查看 multinomial、split_by_sample 和 distributed mode 说明。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "haplotyper",
@@ -289,7 +480,7 @@
       "outputs": ["VCF", "可选带局部重组装信息的 BAM"],
       "common_questions": ["Haplotyper 是做什么的", "Haplotyper 和 DNAscope 的关系是什么", "Haplotyper 能不能用于 RNA"],
       "related_modules": ["DNAseq", "RNAseq", "GVCFtyper", "QualCal"],
-      "source_priority_notes": ["driver/algo 风格问题优先看 manual 的 algorithm 章节。"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -315,17 +506,17 @@
       "scope": ["somatic SNV/indel", "tumor-normal workflow", "tumor-only workflow"],
       "inputs": ["tumor/normal FASTQ 或 BAM/CRAM", "参考基因组", "可选 UMI 数据"],
       "outputs": ["somatic VCF", "过滤后的体细胞结果", "可选中间 BAM"],
-      "common_questions": ["TNseq 是什么", "TNseq 和 TNscope 的关系是什么", "体细胞流程有哪些核心模块"],
+      "common_questions": ["TNseq 是什么", "TNseq 和 TNscope 的关系是什么", "体细胞流程有哪些模块"],
       "related_modules": ["TNscope", "TNsnv", "TNhaplotyper", "TNhaplotyper2", "UMI", "Dedup"],
-      "source_priority_notes": ["具体算法分工优先看 TNscope/TNsnv/TNhaplotyper 说明。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "thread-019d5249-summary.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "tnscope",
       "name": "TNscope",
       "aliases": ["tnscope", "sentieon tnscope"],
       "category": "somatic-variant-calling",
-      "summary": "TNscope 是 Sentieon 的主力体细胞小变异调用工具，覆盖 somatic SNV/indel，并支持更复杂的 somatic calling 能力。",
+      "summary": "TNscope 是 Sentieon 的 somatic small-variant calling tool，用于 tumor-normal 和 tumor-only 变体调用。",
       "scope": ["somatic SNV/indel", "tumor-normal", "tumor-only（部分场景）"],
       "inputs": ["tumor/normal BAM/CRAM 或上游流程产物", "参考基因组", "可选 UMI/primer 相关信息"],
       "outputs": ["somatic VCF", "可选局部重组装 BAM", "可选额外注释"],
@@ -345,10 +536,25 @@
           "values": []
         }
       ],
+      "script_examples": [
+        {
+          "title": "TNscope tumor-normal skeleton",
+          "summary": "官方 manual 的 tumor-normal 体细胞调用骨架。",
+          "when_to_use": ["tumor-normal somatic calling", "体细胞 SNV/indel"],
+          "command_lines": [
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i TUMOR_DEDUPED_BAM [-q TUMOR_RECAL_DATA.TABLE] -i NORMAL_DEDUPED_BAM [-q NORMAL_RECAL_DATA.TABLE] --algo TNscope --tumor_sample TUMOR_SAMPLE_NAME --normal_sample NORMAL_SAMPLE_NAME [--dbsnp DBSNP] OUT_TN_VCF"
+          ],
+          "notes": [
+            "manual 6.2 还给出了 tumor-only 变体，以及包含 --pon 的用法。",
+            "manual tumor-normal 示例假定 tumor 和 normal 已完成各自预处理。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+        }
+      ],
       "common_questions": ["TNscope 是做什么的", "TNscope 和 TNsnv 区别是什么", "TNscope 是否支持 primer/UMI 相关处理"],
       "related_modules": ["TNseq", "TNsnv", "TNhaplotyper", "TNhaplotyper2", "UMI", "ContaminationAssessment"],
-      "source_priority_notes": ["release notes 中 TNscope 的功能更新很多，参数细节要结合对应版本。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-chinese-reference.md", "sentieon-doc-map.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "tnsnv",
@@ -361,7 +567,7 @@
       "outputs": ["somatic SNV VCF"],
       "common_questions": ["TNsnv 是什么", "TNsnv 和 TNscope 区别是什么", "什么时候会用到 TNsnv"],
       "related_modules": ["TNseq", "TNscope", "TNhaplotyper"],
-      "source_priority_notes": ["一般在 TNseq 家族背景下理解，而不是单独作为首选总体流程。"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -403,36 +609,57 @@
       "outputs": ["txt metrics", "report PDF/HTML", "MultiQC 汇总"],
       "common_questions": ["Sentieon 的 QC 模块有哪些", "QC 会产出什么指标", "coverage / insert size / contamination 分别看哪个模块"],
       "related_modules": ["AlignmentStat", "BaseDistributionByCycle", "CollectVCMetrics", "ContaminationAssessment", "InsertSizeMetricAlgo", "CoverageMetrics", "SequenceArtifactMetrics", "WgsMetricsAlgo"],
-      "source_priority_notes": ["家族级 QC 问题优先回答模块分工，再定位到具体 metrics algo。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "rnaseq",
       "name": "RNAseq",
       "aliases": ["rnaseq", "rna seq", "rna variant calling", "rna 变异调用"],
       "category": "rna-variant-calling",
-      "summary": "Sentieon 的 RNAseq / RNA variant calling 流程用于 RNA 数据的小变异分析，通常以上游 STAR 比对和 RNASplitReadsAtJunction 处理为基础。",
+      "summary": "Sentieon 的 RNAseq / RNA variant calling 流程用于 RNA 数据的小变异分析，以上游 STAR 比对和 RNASplitReadsAtJunction 处理为基础。",
       "scope": ["RNA variant calling", "RNA BAM 预处理", "RNA 小变异"],
       "inputs": ["RNA FASTQ 或 RNA BAM/CRAM", "参考基因组", "可选注释参考"],
       "outputs": ["RNA VCF", "处理后的 RNA BAM/CRAM"],
+      "script_examples": [
+        {
+          "title": "RNA short-variant calling skeleton",
+          "summary": "官方 manual 的 RNA 小变异 workflow 骨架，包含 STAR、Dedup、split junction 和 variant calling。",
+          "when_to_use": ["RNA 小变异调用", "short-read RNA", "manual step-by-step workflow"],
+          "command_lines": [
+            "sentieon STAR --runThreadN NUMBER_THREADS --genomeDir STAR_REFERENCE --readFilesIn SAMPLE SAMPLE2 --readFilesCommand zcat --outStd BAM_Unsorted --outSAMtype BAM Unsorted --outBAMcompression 0 --outSAMattrRGline ID:GROUP_NAME SM:SAMPLE_NAME PL:PLATFORM --twopassMode Basic --twopass1readsN -1 --sjdbOverhang READ_LENGTH_MINUS_1 | sentieon util sort -r REFERENCE -o SORTED_BAM -t NUMBER_THREADS -i -",
+            "sentieon driver -t NUMBER_THREADS -i SORTED_BAM --algo LocusCollector --rna [--consensus] [--umi_tag XR] --fun score_info SCORE.gz",
+            "sentieon driver -t NUMBER_THREADS -i SORTED_BAM --algo Dedup [--rmdup] --score_info SCORE.gz DEDUPED_BAM",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i DEDUPED_BAM --algo RNASplitReadsAtJunction --reassign_mapq 255:60 SPLIT_BAM",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i SPLIT_BAM [-q RECAL_DATA.TABLE] --algo Haplotyper --trim_soft_clip --call_conf 20 --emit_conf 20 [-d dbSNP] VARIANT_VCF"
+          ],
+          "notes": [
+            "这不是 sentieon-cli 单命令流程，而是 manual 7.2 的 step-by-step workflow。",
+            "如果想用 DNAscope 做 RNA calling，manual 明确给了把最后一步换成 DNAscope 的变体。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-github-map.md"]
+        }
+      ],
       "common_questions": ["RNAseq 模块是做什么的", "RNA 变异调用为什么需要 split reads at junction", "RNA 流程上游比对用什么"],
       "related_modules": ["Sentieon STAR", "RNASplitReadsAtJunction", "Haplotyper"],
-      "source_priority_notes": ["RNA 类问答不要和表达定量流程混淆，这里指 RNA variant calling。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "geneedit",
       "name": "GeneEditEvaluator",
       "aliases": ["geneedit", "geneeditevaluator", "gene edit", "基因编辑评估"],
       "category": "specialized-analysis",
-      "summary": "GeneEditEvaluator 是 Sentieon 在较新版本中引入的基因编辑序列分析模块，目前更偏 alpha / specialized tool 定位。",
-      "scope": ["genome editing sequence analysis", "specialized analysis"],
-      "inputs": ["基因编辑相关测序数据", "参考序列与分析配置"],
-      "outputs": ["基因编辑评估结果"],
-      "common_questions": ["geneedit 是什么", "GeneEditEvaluator 适合什么场景", "GeneEditEvaluator 是成熟主流程吗"],
-      "related_modules": ["Python API", "BCL-FASTQ"],
-      "source_priority_notes": ["当前更适合回答模块定位，不建议在第一版里承诺完整参数覆盖。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-chinese-reference.md"]
+      "summary": "当前本地官方资料仅见 release notes 级提及：GeneEditEvaluator 被记为 genome editing sequence analysis algorithm。",
+      "scope": ["release notes mention only"],
+      "inputs": [],
+      "outputs": [],
+      "parameters": [],
+      "script_examples": [],
+      "common_questions": ["GeneEditEvaluator 是什么", "GeneEditEvaluator 的参数有哪些", "能给个 GeneEditEvaluator 的参考脚本吗"],
+      "related_modules": [],
+      "source_priority_notes": ["当前本地官方资料还没有足够稳定的参数表或命令骨架可索引，因此参数/脚本问法只回答覆盖边界。"],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "dedup",
@@ -445,8 +672,8 @@
       "outputs": ["deduped BAM/CRAM", "dedup metrics", "可选 consensus reads"],
       "common_questions": ["Dedup 是做什么的", "Dedup 和 LocusCollector 的关系是什么", "Dedup 是否支持 UMI"],
       "related_modules": ["LocusCollector", "UMI", "DNAscope", "TNseq"],
-      "source_priority_notes": ["UMI 和 consensus 场景要结合 release notes 与 UMI 专题章节。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "thread-019d5249-summary.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
       "id": "locuscollector",
@@ -459,7 +686,7 @@
       "outputs": ["score_info 文件", "重复相关统计信息"],
       "common_questions": ["LocusCollector 是做什么的", "LocusCollector 和 Dedup 怎么配合", "分布式流程为什么会先跑 LocusCollector"],
       "related_modules": ["Dedup", "Distributed Mode", "DNAscope"],
-      "source_priority_notes": ["很多 operator 问题不是模块含义，而是为什么必须先跑它。"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -473,8 +700,8 @@
       "outputs": ["重校准表", "后续可应用到 BAM/CRAM"],
       "common_questions": ["QualCal 是做什么的", "QualCal 为什么会提示 recal table 不适用", "QualCal 和 DNAseq 的关系是什么"],
       "related_modules": ["DNAseq", "ReadWriter", "Haplotyper"],
-      "source_priority_notes": ["QualCal 相关报错常与 RG header 或 recal table 不匹配有关。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "varcal",
@@ -515,8 +742,8 @@
       "outputs": ["带 UMI 标签的 BAM/SAM", "UMI 相关 metrics", "后续 Dedup 输入"],
       "common_questions": ["UMI 模块是做什么的", "UMI 和 Dedup 的关系是什么", "UMI 是否支持 consensus"],
       "related_modules": ["Dedup", "TNseq", "TNscope"],
-      "source_priority_notes": ["UMI 和 consensus 的能力边界高度依赖版本。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "readwriter",
@@ -529,7 +756,7 @@
       "outputs": ["处理后的 BAM/CRAM"],
       "common_questions": ["ReadWriter 是做什么的", "ReadWriter 能过滤哪些读段", "ReadWriter 和其它 BAM 处理模块的关系是什么"],
       "related_modules": ["QualCal", "Dedup", "Realigner"],
-      "source_priority_notes": ["通常作为底层辅助模块回答，不建议冒充完整 workflow。"],
+      "source_priority_notes": [],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -543,50 +770,50 @@
       "outputs": ["各 shard 中间结果", "merge 后 BAM/VCF"],
       "common_questions": ["Distributed Mode 是什么", "大 cohort joint call 怎么分片", "merge 顺序为什么重要"],
       "related_modules": ["GVCFtyper", "Joint Call", "LocusCollector", "Dedup", "BWA"],
-      "source_priority_notes": ["样本顺序和 shard merge 顺序是分布式流程里最容易踩坑的约束。"],
-      "sources": ["Sentieon202503.03.pdf", "thread-019d5249-summary.md", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     },
     {
       "id": "python-api",
       "name": "Python API",
       "aliases": ["python api", "python api engine", "python api 引擎"],
       "category": "architecture",
-      "summary": "Python API 是 Sentieon 提供给二次开发和流程封装的接口层，适合在脚本或平台里集成 Sentieon 能力。",
-      "scope": ["二次开发", "pipeline integration", "平台封装"],
-      "inputs": ["Python 调用参数", "Sentieon 安装环境与 license"],
-      "outputs": ["脚本级调用结果", "流程封装接口"],
-      "common_questions": ["Python API 是什么", "Python API 适合什么场景", "Python API 和命令行工具关系是什么"],
-      "related_modules": ["Distributed Mode", "GeneEditEvaluator", "BCL-FASTQ"],
-      "source_priority_notes": ["第一版主要回答定位和适用场景，不覆盖详细 API surface。"],
-      "sources": ["sentieon-chinese-reference.md"]
+      "summary": "当前本地官方 PDF 未见 Python API 的详细章节；该名称暂按待核验占位保留。",
+      "scope": [],
+      "inputs": [],
+      "outputs": [],
+      "common_questions": ["Python API 在本地官方资料里是否有详细章节"],
+      "related_modules": [],
+      "source_priority_notes": [],
+      "sources": []
     },
     {
       "id": "bcl-fastq",
       "name": "BCL-FASTQ Tool",
       "aliases": ["bcl-fastq", "bcl fastq", "fastq generation", "bcl2fastq"],
       "category": "fastq-generation",
-      "summary": "BCL-FASTQ Tool 是 Sentieon 的 FASTQ 生成相关模块，用于把上游原始测序输出转换成后续分析可用的 FASTQ。",
-      "scope": ["FASTQ generation", "测序原始数据转 FASTQ"],
-      "inputs": ["BCL 或等效原始测序输出"],
-      "outputs": ["FASTQ"],
-      "common_questions": ["BCL-FASTQ 是什么", "FASTQ generation 在 Sentieon 里属于哪一层", "BCL-FASTQ 和后续对齐流程怎么衔接"],
-      "related_modules": ["Alignment", "Sentieon BWA", "Sentieon STAR"],
-      "source_priority_notes": ["当前更多作为架构层模块认知，不是后续主问答热点。"],
-      "sources": ["sentieon-chinese-reference.md"]
+      "summary": "当前本地官方 PDF 未见 BCL-FASTQ Tool 的详细章节；该名称暂按待核验占位保留。",
+      "scope": [],
+      "inputs": [],
+      "outputs": [],
+      "common_questions": ["BCL-FASTQ Tool 在本地官方资料里是否有详细章节"],
+      "related_modules": [],
+      "source_priority_notes": [],
+      "sources": []
     },
     {
       "id": "realigner",
       "name": "Realigner",
       "aliases": ["realigner", "sentieon realigner"],
       "category": "bam-processing",
-      "summary": "Realigner 是 Sentieon 早期和传统流程里的局部重比对模块，更多用于历史 pipeline 和特定 BAM 处理背景。",
-      "scope": ["局部重比对", "传统 BAM 处理"],
+      "summary": "Realigner 是执行 indel realignment 的算法。",
+      "scope": ["局部重比对", "BAM 处理"],
       "inputs": ["BAM/CRAM", "参考基因组", "可选 interval"],
       "outputs": ["realigned BAM/CRAM"],
       "common_questions": ["Realigner 是做什么的", "Realigner 现在还常用吗", "Realigner 属于哪一层模块"],
       "related_modules": ["QualCal", "ReadWriter", "DNAseq"],
-      "source_priority_notes": ["更多用于理解旧流程，不是当前官方推荐主入口。"],
-      "sources": ["Sentieon202503.03.pdf", "sentieon-chinese-reference.md"]
+      "source_priority_notes": [],
+      "sources": ["Sentieon202503.03.pdf"]
     }
   ]
 }

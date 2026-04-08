@@ -1,0 +1,241 @@
+{
+  "version": "2026-04-08",
+  "entries": [
+    {
+      "id": "vcf-indexing-bgzip-tabix",
+      "name": "VCF indexing / bgzip-tabix mismatch",
+      "patterns_any": ["vcf", "tabix", "tbi", "bgzip", "gzip", "索引", "index"],
+      "require_any": ["报错", "失败", "建不了", "fetch", "query", "random access"],
+      "summary": "这更像是 VCF 压缩方式、排序状态或 tabix 索引前提不满足的问题。",
+      "checks": [
+        "先确认文件是不是 bgzip 压缩，而不是普通 gzip。",
+        "再确认文件是否满足 tabix 预期的坐标排序和坐标规则。",
+        "最后检查索引文件是否与当前文件内容匹配。"
+      ],
+      "related_guides": ["bgzip/tabix", "VCF/BCF"],
+      "usage_boundary": [
+        "这是格式/索引层关联判断，不等于具体业务结论。",
+        "如果后面还涉及某个 Sentieon 步骤对输入格式的额外要求，要再回到 Sentieon 官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "contig-naming-mismatch",
+      "name": "Contig naming / sequence dictionary mismatch",
+      "patterns_any": ["contig", "chr", "dictionary", "sequence dictionary", "@sq", "not found", "mismatch"],
+      "require_groups": [
+        ["contig", "chr", "dictionary", "sequence dictionary", "@sq"],
+        ["报错", "失败", "异常", "不一致", "冲突", "mismatch", "not found", "incompatible", "找不到"]
+      ],
+      "exclude_any": ["cram decode", "read group", "@rg"],
+      "summary": "这更像是 contig 命名、顺序或 sequence dictionary 组织不一致的问题。",
+      "checks": [
+        "先确认 FASTA、FAI、dict、VCF/BAM/CRAM header 使用的是同一套 contig 名和顺序。",
+        "再确认 chr 前缀、MT/M 这类命名差异是否在上下游混用。",
+        "如果错误发生在 interval、region query 或 header 合并阶段，也要检查目标 contig 是否真实存在。"
+      ],
+      "related_guides": ["FASTA/FAI", "VCF/BCF", "SAM/BAM/CRAM", "BED/Interval"],
+      "usage_boundary": [
+        "这是参考一致性层关联判断，不直接替代具体业务结论。",
+        "如果后面还涉及 Sentieon 资源包或参考版本选择，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "read-group-header-mismatch",
+      "name": "Read Group / header inconsistency",
+      "patterns_any": ["read group", "readgroup", "@rg", "rgid", "header", "sample", "bam"],
+      "require_any": ["报错", "失败", "不一致", "冲突", "异常", "怎么办"],
+      "summary": "这更像是 BAM header 里的 Read Group 组织不一致，或记录层 RG tag 与 header 不匹配的问题。",
+      "checks": [
+        "先检查 header 中 @RG 的 ID、SM、LB、PL 是否稳定且成套。",
+        "再确认记录里的 RG:Z tag 是否都能在 header 中找到对应 read group。",
+        "如果问题发生在多文件合并或下游 sample 识别阶段，还要检查不同 BAM 之间的 sample/read group 组织是否冲突。"
+      ],
+      "related_guides": ["Read Group", "SAM/BAM/CRAM", "samtools"],
+      "usage_boundary": [
+        "这是 header/read group 层的关联判断，不直接替代具体工具修复命令。",
+        "如果后面涉及 Sentieon app note 对 read group 的特殊要求，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "bed-coordinate-system-mismatch",
+      "name": "BED / interval coordinate-system mismatch",
+      "patterns_any": ["bed", "interval", "区间", "坐标", "差一位", "偏一位", "off by one"],
+      "require_groups": [
+        ["bed", "interval", "区间"],
+        ["坐标", "差一位", "偏一位", "off by one", "不对", "异常", "为什么"]
+      ],
+      "summary": "这更像是 BED / interval 坐标体系与 VCF、SAM/BAM 或工具参数约定不一致的问题。",
+      "checks": [
+        "先确认当前 interval 文件是否真的是 BED，以及工具期望的是 BED 0-based half-open 还是 1-based 区间。",
+        "再确认区间是否在导出、剪切或人工填写过程中发生过 +1/-1 转换。",
+        "如果还涉及 tabix 或 region query，也要同时检查排序、压缩和目标 contig 是否一致。"
+      ],
+      "related_guides": ["BED/Interval", "VCF/BCF", "SAM/BAM/CRAM", "bgzip/tabix"],
+      "usage_boundary": [
+        "这是区间坐标语义层关联判断，不直接替代某个模块参数定义。",
+        "如果后面涉及 Sentieon 某个 interval 参数的精确定义，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "reference-companion-files-mismatch",
+      "name": "Reference FASTA / FAI / dict companion mismatch",
+      "patterns_any": ["fasta", "reference", "fai", "dict", "faidx", "sequence dictionary", "companion"],
+      "require_groups": [
+        ["fasta", "reference"],
+        ["fai", "dict", "faidx", "sequence dictionary"],
+        ["不一致", "对不上", "mismatch", "冲突", "missing", "缺失", "not found", "怎么办"]
+      ],
+      "summary": "这更像是参考 FASTA 与配套 FAI、dict 不是同一套生成物，或 companion files 已过期的问题。",
+      "checks": [
+        "先确认 FASTA、FAI 和 dict 来自同一份参考序列，而不是人工替换 FASTA 后继续沿用旧索引。",
+        "再确认 companion files 中的 contig 名、顺序和长度是否与当前 FASTA 完全一致。",
+        "如果问题出现在 CRAM 解码、header 校验或 region query，也要同时检查下游输入是否引用了旧 reference bundle。"
+      ],
+      "related_guides": ["FASTA/FAI", "SAM/BAM/CRAM"],
+      "usage_boundary": [
+        "这是参考配套文件一致性层关联判断，不直接替代具体修复命令。",
+        "如果某个 Sentieon 流程还要求特定资源包版本，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "cram-random-access-crai-state",
+      "name": "CRAM random-access / CRAI state mismatch",
+      "patterns_any": ["cram", "crai", "random access", "随机访问", "region query", "query"],
+      "require_groups": [
+        ["cram", "crai"],
+        ["不能", "无法", "失败", "报错", "missing", "not found", "随机访问", "region query", "query"]
+      ],
+      "summary": "这更像是 CRAM 的随机访问依赖没有满足，例如缺少 CRAI、索引不匹配，或 region query 的输入状态不对。",
+      "checks": [
+        "先确认 `.crai` 是否存在、可读取，并且与当前 CRAM 内容匹配。",
+        "再确认当前操作确实是按坐标随机访问，而不是把无索引的顺序读取当成 region query。",
+        "如果还涉及解码失败或参考不一致，再继续回到 CRAM/reference 层检查 FASTA、FAI 和 header。"
+      ],
+      "related_guides": ["SAM/BAM/CRAM", "samtools"],
+      "usage_boundary": [
+        "这是 CRAM 随机访问和索引状态层关联判断，不直接替代具体修复命令。",
+        "如果后面还涉及 Sentieon 步骤对 CRAM 输入的额外要求，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "bam-sort-or-index-state",
+      "name": "BAM sort / index state mismatch",
+      "patterns_any": ["bam", "随机访问", "region query", "索引", "index", "排序", "sorted", "bai", "csi"],
+      "require_groups": [
+        ["bam", "bai", "csi"],
+        ["不能", "无法", "失败", "报错", "没排序", "没索引", "排序", "sorted"]
+      ],
+      "summary": "这更像是 BAM 不是坐标排序、索引缺失，或索引与当前文件内容不匹配的问题。",
+      "checks": [
+        "先确认 BAM 是否为 coordinate-sorted，而不是 name-sorted 或其他顺序。",
+        "再确认 .bai / .csi 是否存在、可读取，并且是针对当前 BAM 内容重新生成的。",
+        "如果问题发生在分片读取、region query 或浏览器加载阶段，也要检查 header 中的 contig 组织是否与索引一致。"
+      ],
+      "related_guides": ["SAM/BAM/CRAM", "samtools"],
+      "usage_boundary": [
+        "这是排序/索引状态层关联判断，不直接替代具体业务结论。",
+        "如果后面还涉及 Sentieon 某个步骤对输入 BAM 状态的额外要求，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "cram-reference-mismatch",
+      "name": "CRAM / reference mismatch",
+      "patterns_any": ["cram", "reference mismatch", "decode", "解码", "crai", "reference", "fasta", "fai"],
+      "require_groups": [
+        ["cram", "decode", "解码", "crai"],
+        ["reference", "fasta", "fai", "mismatch", "not found", "异常", "失败", "怎么看"]
+      ],
+      "summary": "这更像是 CRAM 解码所需参考序列、faidx 索引或 contig 组织与输入文件不一致的问题。",
+      "checks": [
+        "先确认用于解码或查询的参考 FASTA 与 FAI 是否成套可用。",
+        "再确认参考 contig 名和顺序是否与 CRAM/header 以及下游输入一致。",
+        "如果错误发生在 region query 或下游读取阶段，也要同时检查索引和 companion files。"
+      ],
+      "related_guides": ["FASTA/FAI", "SAM/BAM/CRAM"],
+      "usage_boundary": [
+        "这是参考一致性层的关联判断，不直接等同于某个调用流程本身的问题。",
+        "如果后面还涉及具体流程资源包版本，要再回到 Sentieon 官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "grep-regex-fixed-string-mismatch",
+      "name": "grep regex / fixed-string mismatch",
+      "patterns_any": ["grep", "egrep", "fgrep", "regex", "regular expression", "fixed string", "-F", "-E", "匹配不到", "没匹配到"],
+      "require_any": ["报错", "失败", "不匹配", "匹配不到", "没匹配到", "invalid regular expression", "no match"],
+      "summary": "这更像是 grep 的正则语义、固定字符串模式或 shell quoting 没对上的问题。",
+      "checks": [
+        "先确认你要的是固定字符串还是正则；固定字符串优先试 `-F`，正则再区分 `-E` 和基础正则。",
+        "如果结果“看起来没报错但就是没结果”，先检查模式本身和引号是否把 shell 元字符保护住了。",
+        "如果 grep 没命中，不要把退出码 1 当成程序崩溃。"
+      ],
+      "related_guides": ["grep"],
+      "usage_boundary": [
+        "这是 grep 匹配语义层的关联判断，不直接替代具体脚本修复。",
+        "如果后面还涉及 Sentieon 脚本里的模块参数，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "sed-script-quoting-or-inplace-mismatch",
+      "name": "sed script quoting / in-place mismatch",
+      "patterns_any": ["sed", "sed -i", "sed -e", "sed -f", "expression", "unknown command", "unterminated", "extra characters", "-i"],
+      "require_any": ["报错", "失败", "unknown command", "unterminated", "extra characters", "char", "expression"],
+      "summary": "这更像是 sed 脚本文本被 shell 改写、分隔符写错，或把 `-i` 的原地修改当成了普通输出。",
+      "checks": [
+        "先把复杂脚本改成单引号包住的单行表达式，或者直接放到独立脚本文件里再用 `-f`。",
+        "如果报错定位到 `char`，优先检查 `s///`、`a/i/c` 这类命令的分隔符和换行位置。",
+        "如果用了 `-i`，先确认是否真的要原地改文件，以及是否需要备份后缀。"
+      ],
+      "related_guides": ["sed", "shell quoting / pipeline basics"],
+      "usage_boundary": [
+        "这是 sed 语法和 shell quoting 的关联判断，不直接替代具体修复命令。",
+        "如果后面还涉及 Sentieon 脚本里的输入文件逻辑，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "awk-field-separator-shell-expansion",
+      "name": "awk field separator / shell expansion",
+      "patterns_any": ["awk", "gawk", "-F", "fs", "field separator", "$1", "$2", "syntax error", "missing }", "unexpected newline"],
+      "require_any": ["报错", "失败", "syntax error", "field", "separator", "shell", "expand"],
+      "summary": "这更像是 awk 的字段分隔符设错，或者 awk 程序没有被 shell 正确保护导致变量提前展开。",
+      "checks": [
+        "先确认字段分隔符是不是应该用 `-F` 或 `FS`，不要默认所有文本都按空格拆列。",
+        "awk 程序建议用单引号包住；需要传 shell 变量时，优先用 `-v`。",
+        "如果 `$1`、`$2` 看起来异常，先确认是不是被 shell 提前展开。"
+      ],
+      "related_guides": ["awk", "shell quoting / pipeline basics"],
+      "usage_boundary": [
+        "这是 awk 字段处理和 shell expansion 的关联判断，不直接替代复杂脚本设计。",
+        "如果后面还涉及 Sentieon 脚本里的模块参数，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    },
+    {
+      "id": "shell-quote-pipeline-syntax",
+      "name": "Shell quoting / pipeline syntax",
+      "patterns_any": ["shell", "bash", "quoting", "quote", "引号", "管道", "pipefail", "unexpected eof", "matching quote", "command not found", "bad substitution", "syntax error"],
+      "require_any": ["报错", "失败", "unexpected eof", "matching quote", "command not found", "syntax error", "bad substitution", "管道"],
+      "summary": "这更像是 shell 引号、变量展开、转义或管道连接写错的问题。",
+      "checks": [
+        "先检查引号是否配对，尤其是单引号和双引号不要混着断开。",
+        "如果命令里有空格、通配符或 `$`，先确认是否需要额外转义或用引号包住。",
+        "如果管道里前一段失败但整体看不出来，先检查 `set -o pipefail` 和每一段命令的退出码。"
+      ],
+      "related_guides": ["shell quoting / pipeline basics", "grep", "sed", "awk"],
+      "usage_boundary": [
+        "这是 shell 解析和管道语义的关联判断，不直接替代 Bash 编程课。",
+        "如果后面还涉及 Sentieon 官方脚本或 workflow，要再回到官方资料确认。"
+      ],
+      "source_notes": ["external-error-reference.md"]
+    }
+  ]
+}

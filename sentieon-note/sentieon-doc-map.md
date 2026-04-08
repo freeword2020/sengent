@@ -20,7 +20,7 @@
 7. troubleshooting
 8. release notes
 
-## 2. 最值得优先看的章节
+## 2. 主要章节
 
 ### Quick Start
 
@@ -32,7 +32,7 @@
 - Linux 环境
 - 小 panel / WES 建议至少 16 GB 内存
 - WGS 建议至少 64 GB 内存
-- 推荐高速 SSD
+- 文档建议使用高速 SSD
 - `SENTIEON_PYTHON`
 - `SENTIEON_LICENSE`
 - `SENTIEON_INSTALL_DIR`
@@ -49,8 +49,8 @@
 
 适用场景:
 
-- `DNAseq`: 常规 germline，尤其不是 diploid 生物时更稳妥
-- `DNAscope`: diploid organism 的短读长 germline 主推流程
+- `DNAseq`: 常规 germline 流程
+- `DNAscope`: diploid organism 的短读长 germline 流程
 - `TNseq` / `TNscope`: somatic
 - `RNA variant calling`: RNA 变异调用
 - `Pangenome`: graph / pangenome 参考框架
@@ -62,7 +62,7 @@
 - `9.3 DNAscope Hybrid`
 - `9.4 Sentieon Pangenome`
 
-这部分价值很高，因为它把传统多步流程包装成单命令，更适合自动化、线程答复、脚本模板生成。
+这部分把传统多步流程包装成单命令，可用于查看 CLI 入口、参数和输出。
 
 ### 专题和 app notes
 
@@ -92,7 +92,7 @@
 - `21 LICSRVR binary`
 - `22 LICCLNT binary`
 
-如果线程里要回答精细参数、兼容 GATK 风格、或者需要解释 `driver --algo` 工作方式，这部分是主参考。
+如果需要回答精细参数、兼容 GATK 风格、或者解释 `driver --algo` 工作方式，这部分可作为主参考。
 
 ### 排障和版本变化
 
@@ -103,8 +103,8 @@
 
 ### Germline
 
-- `DNAscope`: 短读长 germline variant calling，强调准确率，适合 diploid organism
-- `DNAseq`: 更传统的 germline 流程；手册明确提示，非 diploid 样本优先用它
+- `DNAscope`: 短读长 germline variant calling，适合 diploid organism
+- `DNAseq`: 短读长 germline 流程；手册写到当 DNAscope 的 diploid recommendation 不适用时可使用它
 - `DNAscope LongRead`: PacBio HiFi / ONT 长读长 germline
 - `DNAscope Hybrid`: 同一样本短读长 + 长读长联合调用
 - `Pangenome`: 使用 pangenome graph 的短读长流程
@@ -128,7 +128,7 @@
 
 ### `sentieon-cli dnascope`
 
-适合:
+输入类型:
 
 - 短读长 DNA
 - 输入可以是 `FASTQ`、`uBAM/uCRAM`、已对齐 `BAM/CRAM`
@@ -158,7 +158,7 @@
 
 ### `sentieon-cli dnascope-longread`
 
-适合:
+输入类型:
 
 - PacBio HiFi
 - Oxford Nanopore
@@ -180,7 +180,7 @@
 
 ### `sentieon-cli dnascope-hybrid`
 
-适合:
+输入类型:
 
 - 同一样本同时有短读长和长读长
 - 目标是联合提升 SNV / indel / SV / CNV 结果
@@ -200,7 +200,7 @@
 
 ### `sentieon-cli pangenome`
 
-适合:
+使用限制:
 
 - 需要 graph/pangenome 表示来增强复杂区域调用
 
@@ -253,34 +253,34 @@
 ### BWA 内存
 
 - 从已排序 BAM 反转出的 FASTQ 可能把 unmapped reads 堆到末尾，导致 BWA 异常吃内存
-- `BWA fails with error: Killed` 常常是 OOM
+- `BWA fails with error: Killed` 常常对应 OOM
 - 可以从内核日志确认，并调小 BWA 内存参数
 
 ### QualCal 表不匹配
 
 - `none of the QualCal tables is applicable to the input BAM files`
-- 通常说明 recalibration table 和输入 BAM 对不上，或者 RG 头信息不对
+- 说明 recalibration table 和输入 BAM 对不上，或者 RG 头信息不对
 
 ## 7. 分布式与大 cohort
 
-`12.5 Distributed Mode` 很重要，适合回答:
+`12.5 Distributed Mode` 可用于回答:
 
 - 多机分发 BWA
 - shard 化 germline pipeline
 - 大规模 joint calling
 - 云环境对象存储上的 GVCF 分片下载
 
-关键结论:
+关键点:
 
 - 合并 partial results 时顺序必须严格正确
 - GVCF 输入顺序在每个 shard 间必须一致
-- 大 cohort joint calling 推荐关注 `GVCFtyper --genotype_model multinomial`
-- 文档推荐 shard size 约 `100M bases`
+- 大 cohort joint calling 可关注 `GVCFtyper --genotype_model multinomial`
+- 文档给出的 shard size 示例约为 `100M bases`
 - I/O 往往是瓶颈，文档对大规模 joint calling 提到存储吞吐建议约 `600 MBps`
 
-## 8. 近期版本变化里最值得记住的点
+## 8. 近期版本变化摘录
 
-从 release notes 中，比较有现实价值的更新包括:
+从 release notes 中摘录的更新包括:
 
 - `202503`: 新增 hybrid short + long-read variant calling
 - `202503`: 新增 CRAM 3.1 读写支持
@@ -289,20 +289,20 @@
 - `202308.03`: 增加 `SimplifyCigarTransform`
 - `202308.02`: `Dedup` 增加 consensus / UMI-aware metrics
 - `202112.06`: `LongReadSV` 支持 ONT
-- 更早版本起逐步补齐 ONT、小变异调用、分布式能力、更多错误检查
+- 更早版本还记录了 ONT、小变异调用、分布式能力和错误检查相关更新
 
-## 9. 线程使用建议
+## 9. 资料使用顺序
 
-如果线程里要回答 Sentieon 相关问题，优先按这个顺序查:
+如果要在本地资料里继续展开，可按这个顺序查:
 
-1. `thread-019d5249-summary.md`
+1. 本地 PDF 关键词搜索
 2. `sentieon-doc-map.md`
 3. `sentieon-github-map.md`
-4. 本地 PDF 关键词搜索
+4. `thread-019d5249-summary.md`
 5. 在线文档原页
 
 补充判断:
 
-- 需要“官方说明、参数含义、章节原文”时，优先文档站 / PDF
-- 需要“实际脚本、模型列表、安装入口、容器样例、云部署样板”时，优先官方 GitHub
+- 需要“官方说明、参数含义、章节原文”时，看文档站 / PDF
+- 需要“实际脚本、模型列表、安装入口、容器样例、云部署样板”时，看官方 GitHub
 - 需要“中文说明、平台化流程概览、对内沟通材料”时，可参考中文资料站，但技术细节以官方源为准

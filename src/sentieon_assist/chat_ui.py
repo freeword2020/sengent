@@ -9,6 +9,24 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+WELCOME_BORDER_STYLE = "dark_orange3"
+WELCOME_ACCENT_STYLE = "bold dark_orange3"
+WELCOME_SHADOW_STYLE = "bold color(94)"
+USER_BORDER_STYLE = "bright_cyan"
+USER_ACCENT_STYLE = "bold bright_cyan"
+EVENT_BORDER_STYLE = "grey50"
+EVENT_ACCENT_STYLE = "bold grey70"
+ASSISTANT_BORDER_STYLE = "dark_orange3"
+ASSISTANT_ACCENT_STYLE = "bold dark_orange3"
+WELCOME_LOGO_LINES = (
+    "████▓ ████▓ █  █▓ ████▓ ████▓ █  █▓ ████▓",
+    "█▓    █▓    ██ █▓ █▓    █▓    ██ █▓  ██▓ ",
+    " ███▓ ███▓  █ ███ █ ██▓ ███▓  █ ███  ██▓ ",
+    "   █▓ █▓    █  ██ █  █▓ █▓    █  ██  ██▓ ",
+    "████▓ ████▓ █   █ ████▓ ████▓ █   █  ██▓ ",
+    "▓▓▓▓  ▓▓▓▓  ▓   ▓ ▓▓▓▓  ▓▓▓▓  ▓   ▓  ▓▓  ",
+)
+
 
 class ConsoleCallbackWriter:
     encoding = "utf-8"
@@ -39,57 +57,90 @@ def build_console(*, output_fn: Callable[[str], None] | None = None) -> Console:
     return Console(file=ConsoleCallbackWriter(output_fn), force_terminal=False, color_system=None)
 
 
+def _render_logo_line(line: str) -> Text:
+    text = Text()
+    for char in line:
+        if char == "█":
+            text.append(char, style=WELCOME_ACCENT_STYLE)
+        elif char == "▓":
+            text.append(char, style=WELCOME_SHADOW_STYLE)
+        else:
+            text.append(char)
+    return text
+
+
 @dataclass
 class ChatUI:
     console: Console = field(default_factory=build_console)
 
     def render_welcome_panel(self) -> None:
         left = Group(
-            Text("欢迎使用 Sengent", style="bold"),
-            Text("本地 Sentieon 支持助手", style="dim"),
-            Text(""),
-            Text("示例提问", style="bold"),
-            Text("- Sentieon 202503 license 报错"),
-            Text("- install 失败，命令不可用"),
-            Text("- DNAscope 是做什么的"),
+            *[_render_logo_line(line) for line in WELCOME_LOGO_LINES],
         )
         right = Group(
-            Text("我可以帮你做什么", style="bold"),
+            Text("我可以帮你做什么", style=WELCOME_ACCENT_STYLE),
             Text("- 许可证排障"),
             Text("- 安装排障"),
-            Text("- 模块和参数查询"),
-            Text(""),
-            Text("常用命令", style="bold"),
-            Text("- /quit"),
-            Text("- /reset"),
-            Text(""),
-            Text("提问建议", style="bold"),
-            Text("- 优先带上版本号"),
+            Text("- 模块 / 参数 / 参考脚本查询"),
+            Text("常用命令", style=WELCOME_ACCENT_STYLE),
+            Text("- /quit / /reset"),
+            Text("提问建议", style=WELCOME_ACCENT_STYLE),
+            Text("- 优先带版本号"),
             Text("- 报错尽量保留原文"),
         )
-        grid = Table.grid(expand=True)
-        grid.add_column(ratio=1)
-        grid.add_column(ratio=1)
-        grid.add_row(left, right)
+        grid = Table.grid(expand=False, padding=(0, 3))
+        grid.add_column()
+        grid.add_column(width=1, justify="center")
+        grid.add_column()
+        grid.add_row(left, Text("│", style=WELCOME_BORDER_STYLE), right)
         self.console.print(
-            Panel(
+            Panel.fit(
                 grid,
-                title="Sengent",
+                title=Text("Sengent", style=WELCOME_ACCENT_STYLE),
+                border_style=WELCOME_BORDER_STYLE,
             )
         )
-        self.console.print(Rule())
+        self.console.print(Rule(style=WELCOME_BORDER_STYLE))
 
     def render_user_message(self, text: str) -> None:
-        self.console.print(Panel(text, title="你"))
+        self.console.print(
+            Panel(
+                text,
+                title=Text("你", style=USER_ACCENT_STYLE),
+                border_style=USER_BORDER_STYLE,
+            )
+        )
 
     def render_events(self, events: list[str]) -> None:
         if not events:
             return
         body = "\n".join(f"- {event}" for event in events)
-        self.console.print(Panel(body, title="事件流"))
+        self.console.print(
+            Panel(
+                body,
+                title=Text("事件流", style=EVENT_ACCENT_STYLE),
+                border_style=EVENT_BORDER_STYLE,
+            )
+        )
+
+    def _print_assistant_spacing(self) -> None:
+        self.console.print("")
 
     def render_streaming_answer_header(self) -> None:
-        self.console.print(Rule("Sengent"))
+        self._print_assistant_spacing()
+        self.console.print(
+            Rule(
+                Text("Sengent", style=ASSISTANT_ACCENT_STYLE),
+                style=ASSISTANT_BORDER_STYLE,
+            )
+        )
 
     def render_answer(self, text: str) -> None:
-        self.console.print(Panel(text, title="Sengent"))
+        self._print_assistant_spacing()
+        self.console.print(
+            Panel(
+                text,
+                title=Text("Sengent", style=ASSISTANT_ACCENT_STYLE),
+                border_style=ASSISTANT_BORDER_STYLE,
+            )
+        )

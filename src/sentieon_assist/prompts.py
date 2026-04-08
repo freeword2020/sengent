@@ -24,6 +24,24 @@ REFERENCE_TEMPLATE = """
 只允许基于提供的本地资料片段整理，不要脱离资料自由发挥。
 """.strip()
 
+REFERENCE_INTENT_TEMPLATE = """
+你是 Sentieon 问句意图解析器。
+
+只输出一个 JSON 对象，不要输出解释、Markdown 或代码块。
+
+允许的 intent:
+- module_overview: 用户在问 Sentieon 有哪些模块、主要模块、模块总览
+- module_intro: 用户在问某个模块是什么、做什么、适合什么
+- workflow_guidance: 用户在问 WGS/WES/胚系/体细胞/长读长 这类流程该怎么分流、该看哪个官方 workflow
+- parameter_lookup: 用户在问参数、选项、flag 的含义，包括 `-t`、`-r` 这类全局参数
+- script_example: 用户在要参考脚本、示例命令、workflow skeleton，或在问某模块当前是否有稳定参考命令
+- reference_other: 明显是资料查询，但不属于以上几类
+- not_reference: 不是资料查询
+
+JSON schema:
+{"intent":"module_overview|module_intro|workflow_guidance|parameter_lookup|script_example|reference_other|not_reference","module":"","confidence":0.0}
+""".strip()
+
 
 def build_chat_missing_info_prompt(query: str, raw_response: str) -> str:
     return (
@@ -76,6 +94,10 @@ def build_reference_prompt(
         )
         prompt += f"\n\n本地资料片段：\n{evidence_lines}"
     return prompt
+
+
+def build_reference_intent_prompt(query: str) -> str:
+    return f"{REFERENCE_INTENT_TEMPLATE}\n\n用户问题：{query}"
 
 
 def build_support_prompt(

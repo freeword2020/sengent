@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 MODULE_INDEX_FILENAME = "sentieon-modules.json"
-PARAMETER_TOKEN_PATTERN = r"--[A-Za-z0-9][A-Za-z0-9_-]*"
+PARAMETER_TOKEN_PATTERN = r"-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*"
+MODULE_OVERVIEW_GROUPS = (
+    ("Alignment", ("alignment",)),
+    ("Germline Variant Calling", ("germline-variant-calling", "copy-number", "workflow")),
+    ("Somatic Variant Calling", ("somatic-variant-calling",)),
+    ("RNA / Specialized Analysis", ("rna-variant-calling", "specialized-analysis")),
+    ("Preprocess / QC / Support", ("family", "bam-processing", "vcf-filtering", "architecture", "fastq-generation")),
+)
 
 
 def module_index_path(source_directory: str | Path) -> Path:
@@ -66,7 +74,7 @@ def match_module_entries(
 
 def detect_module_query_intent(query: str) -> str:
     normalized = query.lower()
-    if "--" in normalized or any(token in normalized for token in ("参数", "选项", "option")):
+    if re.search(PARAMETER_TOKEN_PATTERN, query) or any(token in normalized for token in ("参数", "选项", "option")):
         return "parameter"
     if any(token in normalized for token in ("输入", "input", "fastq", "ubam", "ucram", "bam", "cram")):
         return "inputs"
@@ -80,9 +88,16 @@ def detect_module_query_intent(query: str) -> str:
 
 
 def detect_parameter_tokens(query: str) -> list[str]:
-    import re
-
     return [match.group(0) for match in re.finditer(PARAMETER_TOKEN_PATTERN, query)]
+
+
+def _parameter_alias_candidates(alias: str) -> list[str]:
+    normalized_alias = alias.lower().strip()
+    if not normalized_alias:
+        return []
+    if normalized_alias.startswith("-"):
+        return [normalized_alias]
+    return [f"--{normalized_alias}", normalized_alias]
 
 
 def match_module_parameter(entry: dict[str, Any], query: str) -> dict[str, Any] | None:
@@ -96,19 +111,13 @@ def match_module_parameter(entry: dict[str, Any], query: str) -> dict[str, Any] 
         best_score = -1
         best_alias = ""
         for alias in aliases:
-            normalized_alias = alias.lower()
-            if not normalized_alias:
-                continue
-            needle = normalized_alias if normalized_alias.startswith("--") else f"--{normalized_alias}"
-            if needle in normalized_query:
-                score = len(needle) + 20
-            elif normalized_alias in normalized_query:
-                score = len(normalized_alias)
-            else:
-                continue
-            if score > best_score:
-                best_score = score
-                best_alias = alias
+            for candidate in _parameter_alias_candidates(alias):
+                if candidate not in normalized_query:
+                    continue
+                score = len(candidate) + (20 if candidate.startswith("-") else 0)
+                if score > best_score:
+                    best_score = score
+                    best_alias = alias
         if best_score >= 0:
             enriched = dict(parameter)
             enriched["matched_alias"] = best_alias
@@ -193,6 +202,136 @@ def build_parameter_evidence(entry: dict[str, Any], parameter: dict[str, Any]) -
     }
 
 
+def format_script_reference_answer(entry: dict[str, Any]) -> str:
+    examples = [item for item in entry.get("script_examples", []) if isinstance(item, dict)]
+    if not examples:
+        return ""
+
+    example = examples[0]
+    name = str(entry.get("name", "")).strip() or "未知模块"
+    summary = str(entry.get("summary", "")).strip()
+    title = str(example.get("title", "")).strip() or "reference script"
+    example_summary = str(example.get("summary", "")).strip()
+    when_to_use = [str(value).strip() for value in example.get("when_to_use", []) if str(value).strip()]
+    command_lines = [str(value).rstrip() for value in example.get("command_lines", []) if str(value).strip()]
+    notes = [str(value).strip() for value in example.get("notes", []) if str(value).strip()]
+
+    intro_lines = [f"{name}：{summary}"]
+    if example_summary:
+        intro_lines.append(f"- 脚本定位：{example_summary}")
+    if when_to_use:
+        intro_lines.append(f"- 适用场景：{'；'.join(when_to_use)}")
+
+    command_section = [f"- {title}"]
+    command_section.extend(f"  {line}" for line in command_lines)
+
+    usage_lines = [f"- {note}" for note in notes] or ["- 这是参考命令骨架，样本名、路径、线程数和参考文件需要按现场替换。"]
+
+    return (
+        "【模块介绍】\n"
+        + "\n".join(intro_lines)
+        + "\n\n【参考命令】\n"
+        + "\n".join(command_section)
+        + "\n\n【使用前提】\n"
+        + "\n".join(usage_lines)
+    )
+
+
+def _is_release_note_only_entry(entry: dict[str, Any]) -> bool:
+    summary = str(entry.get("summary", "")).strip().lower()
+    scope_values = [str(value).strip().lower() for value in entry.get("scope", []) if str(value).strip()]
+    return "release notes" in summary or "release notes mention only" in scope_values
+
+
+def format_unavailable_script_reference_answer(entry: dict[str, Any]) -> str:
+    if not _is_release_note_only_entry(entry):
+        return ""
+    name = str(entry.get("name", "")).strip() or "未知模块"
+    return (
+        "【参考命令】\n"
+        f"- {name}：当前本地官方资料仅见 release notes 级提及，未提供可确定性复用的参考脚本或 CLI 骨架。"
+    )
+
+
+def format_unavailable_parameter_reference_answer(entry: dict[str, Any]) -> str:
+    if not _is_release_note_only_entry(entry):
+        return ""
+    name = str(entry.get("name", "")).strip() or "未知模块"
+    return (
+        "【常用参数】\n"
+        f"- {name}：当前本地官方资料仅见 release notes 级提及，未提供可确定性索引的参数列表。"
+    )
+
+
+def format_parameter_followup_answer(entry: dict[str, Any]) -> str:
+    name = str(entry.get("name", "")).strip() or "未知模块"
+    parameter_names: list[str] = []
+    for parameter in entry.get("parameters", []):
+        if not isinstance(parameter, dict):
+            continue
+        parameter_name = str(parameter.get("name", "")).strip()
+        if not parameter_name or parameter_name in parameter_names:
+            continue
+        parameter_names.append(parameter_name)
+
+    if not parameter_names:
+        return (
+            "【常用参数】\n"
+            f"- 已定位到 {name}，但你这句还没给出具体参数名。\n"
+            "- 当前本地模块索引未收录可直接提示的参数示例，请直接补充完整参数名后再查询。"
+        )
+
+    examples = "；".join(f"{name} 的 {parameter_name} 是什么" for parameter_name in parameter_names[:2])
+    return (
+        "【常用参数】\n"
+        f"- 已定位到 {name}，但你这句还没给出具体参数名。\n"
+        f"- 请直接补充参数名，例如：{examples}。"
+    )
+
+
+def format_module_overview_answer(source_directory: str | Path) -> str:
+    entries = list_module_entries(source_directory)
+    if not entries:
+        return ""
+
+    intro_lines = ["Sentieon 主要模块可以先按下面几组理解："]
+    placeholder_names = [
+        str(entry.get("name", "")).strip()
+        for entry in entries
+        if "待核验占位" in str(entry.get("summary", "")).strip()
+    ]
+    for label, categories in MODULE_OVERVIEW_GROUPS:
+        names: list[str] = []
+        for category in categories:
+            for entry in entries:
+                entry_category = str(entry.get("category", "")).strip()
+                entry_name = str(entry.get("name", "")).strip()
+                if entry_category != category or not entry_name:
+                    continue
+                if entry_name in placeholder_names:
+                    continue
+                if category == "family" and label == "Preprocess / QC / Support" and entry_name != "QC":
+                    continue
+                names.append(entry_name)
+        if names:
+            intro_lines.append(f"- {label}：{'；'.join(names)}")
+    if placeholder_names:
+        intro_lines.append(f"- 待核验占位：{'；'.join(placeholder_names)}")
+
+    parameter_lines = [
+        "- 如果要继续收窄，可直接追问具体模块，例如：DNAscope 是什么；TNscope 和 TNseq 区别；RNAseq 参考脚本。",
+    ]
+
+    return (
+        "【资料查询】\n"
+        "- 命中语义意图：module_overview\n\n"
+        "【模块介绍】\n"
+        + "\n".join(intro_lines)
+        + "\n\n【常用参数】\n"
+        + "\n".join(parameter_lines)
+    )
+
+
 def format_module_reference_answer(entry: dict[str, Any], query: str) -> str:
     intent = detect_module_query_intent(query)
     if intent == "parameter":
@@ -201,6 +340,20 @@ def format_module_reference_answer(entry: dict[str, Any], query: str) -> str:
     name = str(entry.get("name", "")).strip() or "未知模块"
     category = str(entry.get("category", "")).strip()
     summary = str(entry.get("summary", "")).strip()
+    if "待核验占位" in summary:
+        return (
+            "【模块介绍】\n"
+            f"{name}：{summary}\n\n"
+            "【常用参数】\n"
+            "- 当前本地官方资料未提供可用于确定性回答的详细章节。"
+        )
+    if _is_release_note_only_entry(entry):
+        return (
+            "【模块介绍】\n"
+            f"{name}：{summary}\n\n"
+            "【常用参数】\n"
+            "- 当前本地官方资料仅见 release notes 级提及，尚未提供稳定的输入、输出或参数章节。"
+        )
     matched_alias = str(entry.get("matched_alias", "")).strip()
     scope = [str(value).strip() for value in entry.get("scope", []) if str(value).strip()]
     inputs = [str(value).strip() for value in entry.get("inputs", []) if str(value).strip()]

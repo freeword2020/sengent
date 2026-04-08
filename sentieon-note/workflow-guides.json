@@ -1,0 +1,917 @@
+{
+  "version": "202503.03",
+  "entries": [
+    {
+      "id": "tumor-normal-analysis",
+      "name": "Tumor-normal analysis",
+      "priority": 57,
+      "require_any_groups": [
+        ["tumor-normal", "tumor normal", "肿瘤对照", "肿瘤配对"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是有 matched normal 的体细胞流程分流问题。",
+      "guidance": [
+        "如果你明确是 tumor-normal 设计，优先看 TNseq / TNscope 这条 somatic 主线。",
+        "TNseq Typical usage 要求先按 DNAseq 流程分别预处理 Tumor 和 Normal，再进入 somatic calling。",
+        "TNscope Typical usage 明确覆盖 tumor-normal 的 somatic variant 和 structural variant detection。"
+      ],
+      "prerequisites": [
+        "需要同时准备 Tumor 和 Normal 输入，并确认样本 read group 与样本名设置一致。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你的数据是 WGS、WES 还是 panel？",
+        "你现在要的是流程分流，还是下一步要 TNscope 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-only-analysis",
+      "name": "Tumor-only analysis",
+      "priority": 58,
+      "require_any_groups": [
+        ["tumor-only", "tumor only", "单肿瘤", "无对照", "无 matched normal"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是没有 matched normal 的体细胞流程分流问题。",
+      "guidance": [
+        "如果你明确没有 matched normal，优先看 TNscope；manual 明确覆盖 tumor-only 或 tumor-normal 的 somatic variant 和 structural variant detection。",
+        "如果你的问题后面会细化到参考命令，再继续区分是 WGS、WES 还是 panel，以及是否需要 SV 结果。",
+        "manual 也明确提醒：tumor-only 输出里会包含 germline variants。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你的数据是 WGS、WES 还是 panel？",
+        "你现在要的是流程分流，还是下一步要 TNscope 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-normal-wes",
+      "name": "Tumor-normal WES",
+      "priority": 60,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["tumor-normal", "tumor normal", "matched normal", "肿瘤对照", "肿瘤配对", "配对", "有对照"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "示例", "tnseq", "tnscope", "体细胞"],
+      "summary": "这是有配对正常样本（matched normal）的体细胞 WES 流程分流问题。",
+      "guidance": [
+        "如果你明确是 tumor-normal WES，优先看 TNseq / TNscope 这条体细胞主线。",
+        "TNseq Typical usage 要求先按 DNAseq 流程分别预处理 Tumor 和 Normal，再进入 somatic calling。",
+        "TNscope Typical usage 也明确覆盖 tumor-normal 的 somatic variant 和 structural variant detection。"
+      ],
+      "prerequisites": [
+        "需要同时准备 Tumor 和 Normal 输入，并确认样本 read group 与样本名设置一致。",
+        "WES 主线通常还需要确认 target intervals / assay 相关配置。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNseq/TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-only-wes",
+      "name": "Tumor-only WES",
+      "priority": 59,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["tumor-only", "tumor only", "无 matched normal", "无对照", "没对照", "没有对照", "单肿瘤"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "示例", "tnscope", "体细胞"],
+      "summary": "这是没有配对正常样本（matched normal）的体细胞 WES 流程分流问题。",
+      "guidance": [
+        "如果你明确没有 matched normal，WES 主线优先看 TNscope。",
+        "TNscope Typical usage 明确覆盖 tumor-only 的 somatic variant 和 structural variant detection。",
+        "官方手册也明确提醒：tumor-only 输出里会包含 germline variants。"
+      ],
+      "prerequisites": [
+        "WES 主线通常还需要确认 target intervals / assay 相关配置。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "somatic-wes",
+      "name": "Somatic WES",
+      "priority": 58,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["somatic", "体细胞", "tumor", "肿瘤"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "tnseq", "tnscope", "体细胞", "somatic"],
+      "summary": "这是体细胞 WES 的流程分流问题。",
+      "guidance": [
+        "如果你现在只确定到 somatic WES 这一层，先别直接套命令，先确认是 tumor-normal 还是 tumor-only。",
+        "有 matched normal 时优先看 TNseq / TNscope；没有 matched normal 时主线优先看 TNscope。",
+        "WES 主线通常还需要 target intervals / assay 相关配置。"
+      ],
+      "prerequisites": [
+        "需要先确认是否有配对正常样本（matched normal）。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你是 tumor-normal 还是 tumor-only？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "short-read-wes",
+      "name": "Short-read WES",
+      "priority": 46,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "germline", "somatic", "体细胞", "胚系", "diploid", "二倍体"],
+      "summary": "这是短读长 WES 的流程分流问题。",
+      "guidance": [
+        "如果你现在只确定到 short-read WES 这一层，先确认是胚系还是体细胞。",
+        "短读长胚系（short-read germline）WES：如果样本来自二倍体生物（diploid organism），优先看 DNAscope；如果不是二倍体生物（diploid organism），请改看 DNAseq。",
+        "短读长体细胞 WES：优先看 TNseq / TNscope，并确认 target intervals / assay 配置。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及对应 workflow / model 配置。",
+        "WES 主线通常还需要 target intervals / assay 相关配置。"
+      ],
+      "follow_up": [
+        "这是胚系还是体细胞？",
+        "如果是胚系，样本是否来自二倍体生物（diploid organism）？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "short-read-germline-analysis",
+      "name": "Short-read germline analysis",
+      "priority": 53,
+      "require_any_groups": [
+        ["short-read", "short read", "短读长"],
+        ["germline", "胚系"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是短读长胚系主线的流程分流问题。",
+      "guidance": [
+        "如果样本来自 diploid organism，优先看 DNAscope。",
+        "如果样本不是 diploid organism，manual 对 DNAscope 的边界说明仍成立，这时应改看 DNAseq。",
+        "如果后面要细化到参考命令，需要再确认输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及 model bundle。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "样本是否来自 diploid organism？",
+        "你现在要的是流程分流，还是下一步要 DNAscope / DNAseq 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "long-read-analysis",
+      "name": "Long-read analysis",
+      "priority": 52,
+      "require_any_groups": [
+        ["long-read", "long read", "长读长", "pacbio", "hifi", "ont", "nanopore"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是长读长主线的流程分流问题。",
+      "guidance": [
+        "如果是单一 long-read germline 主线，优先看 DNAscope LongRead；manual 写明它是用于 long-read sequence data 的 alignment and germline variant calling pipeline。",
+        "如果你其实是 short-read + long-read 联合分析，而不是纯 long-read 主线，应改看 DNAscope Hybrid。",
+        "如果后面要细化到参考命令，需要再确认是 PacBio HiFi 还是 ONT，以及输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你的数据是 PacBio HiFi 还是 ONT？",
+        "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "hybrid-analysis",
+      "name": "Hybrid analysis",
+      "priority": 64,
+      "require_any_groups": [
+        ["hybrid", "联合分析", "short-read + long-read", "short-read+long-read", "short read + long read", "短读长 + 长读长", "短读长+长读长"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "wgs", "whole genome", "全基因组", "long-read", "long read", "长读长", "short-read", "短读长"],
+      "summary": "这是短读长 + 长读长（short-read + long-read）的联合分析（hybrid）流程分流问题。",
+      "guidance": [
+        "如果你明确是同一样本的 short-read + long-read 联合分析，主线看 DNAscope Hybrid。",
+        "如果其实只有纯 long-read 数据，不应走 hybrid，应回到 DNAscope LongRead。",
+        "如果只有 short-read 数据，也应回到对应的 DNAscope / DNAseq / TNscope 这类 short-read 主线。"
+      ],
+      "prerequisites": [
+        "需要同时准备 short-read 和 long-read 输入，并确认这是同一样本的联合分析场景。",
+        "还需要继续确认要走未对齐输入入口，还是已对齐 BAM/CRAM 入口。"
+      ],
+      "follow_up": [
+        "这是同一样本的 short-read + long-read 联合分析吗？",
+        "输入是原始 FASTQ/uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-modules.json", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "short-read-germline-wes",
+      "name": "Short-read germline WES",
+      "priority": 48,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "germline", "胚系"],
+      "summary": "这是短读长胚系 WES 的流程分流问题。",
+      "guidance": [
+        "如果样本来自 diploid organism，优先看 DNAscope；当前模块索引里 `--assay` 已明确支持 `WGS` / `WES` 取值。",
+        "如果样本不是 diploid organism，DNAscope 的边界说明仍成立，这时应改看 DNAseq。",
+        "如果后面要细化到参考命令，需要再确认输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及 model bundle。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "样本是否来自 diploid organism？",
+        "你现在要的是流程分流，还是下一步要 DNAscope / DNAseq 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-modules.json", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "panel-analysis",
+      "name": "Targeted panel analysis",
+      "priority": 49,
+      "require_any_groups": [
+        ["panel"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是 targeted panel 场景的流程分流问题。",
+      "guidance": [
+        "如果是 short-read germline panel，优先从 DNAscope 主线理解；当前模块索引已明确 DNAscope 适用于 panel 场景。",
+        "如果其实是 somatic panel，应改看 TNscope / TNseq 这条体细胞主线，而不是直接套用 germline panel 路径。",
+        "如果后面要细化到参考命令，需要再确认是 germline 还是 somatic，以及输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。"
+      ],
+      "prerequisites": [
+        "需要先确认这是胚系 panel 还是体细胞 panel。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "这是 germline panel 还是 somatic panel？",
+        "你现在要的是流程分流，还是下一步要 DNAscope / TNscope 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-modules.json", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "short-read-panel",
+      "name": "Short-read panel",
+      "priority": 50,
+      "require_any_groups": [
+        ["panel"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "germline", "somatic", "体细胞", "胚系", "diploid", "二倍体"],
+      "summary": "这是短读长 panel 的流程分流问题。",
+      "guidance": [
+        "如果你现在只确定到 short-read panel 这一层，先确认是胚系还是体细胞。",
+        "短读长胚系（short-read germline）panel：优先从 DNAscope 主线理解；如果样本不属于二倍体生物（diploid organism）边界，就应改看 DNAseq。",
+        "短读长体细胞 panel：优先看 TNseq / TNscope，并确认 capture / target intervals 配置。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及对应 workflow / model 配置。",
+        "panel 主线通常还需要 capture / target intervals 相关配置。"
+      ],
+      "follow_up": [
+        "这是胚系还是体细胞？",
+        "如果是胚系，样本是否来自二倍体生物（diploid organism）？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "somatic-panel",
+      "name": "Somatic panel",
+      "priority": 58,
+      "require_any_groups": [
+        ["panel"],
+        ["somatic", "体细胞", "tumor", "肿瘤"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "tnseq", "tnscope", "体细胞", "somatic"],
+      "summary": "这是体细胞 panel 的流程分流问题。",
+      "guidance": [
+        "如果你现在只确定到 somatic panel 这一层，先确认是 tumor-normal 还是 tumor-only。",
+        "有 matched normal 时优先看 TNseq / TNscope；没有 matched normal 时主线优先看 TNscope。",
+        "panel 主线通常还需要 capture / target intervals 配置。"
+      ],
+      "prerequisites": [
+        "需要先确认是否有配对正常样本（matched normal）。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你是 tumor-normal 还是 tumor-only？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "germline-panel",
+      "name": "Germline panel",
+      "priority": 57,
+      "require_any_groups": [
+        ["panel"],
+        ["germline", "胚系"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "dnascope", "short-read", "diploid", "二倍体"],
+      "summary": "这是胚系 panel 的流程分流问题。",
+      "guidance": [
+        "如果是短读长胚系（short-read germline）panel，优先从 DNAscope 主线理解；当前模块索引已明确 DNAscope 适用于 panel 场景。",
+        "如果样本不属于 DNAscope 推荐的二倍体生物（diploid organism）边界，就应改看 DNAseq。",
+        "如果你后面要细化到参考命令，还需要继续确认输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。"
+      ],
+      "prerequisites": [
+        "需要先确认这是短读长胚系 panel，而不是体细胞 panel。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "样本是否来自 diploid organism？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-modules.json", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-normal-panel",
+      "name": "Tumor-normal panel",
+      "priority": 61,
+      "require_any_groups": [
+        ["panel"],
+        ["tumor-normal", "tumor normal", "matched normal", "肿瘤对照", "肿瘤配对", "配对", "有对照"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "示例", "tnseq", "tnscope", "体细胞"],
+      "summary": "这是有配对正常样本（matched normal）的体细胞 panel 流程分流问题。",
+      "guidance": [
+        "如果你明确是 tumor-normal panel，优先看 TNseq / TNscope 这条体细胞主线。",
+        "TNseq Typical usage 要求先按 DNAseq 流程分别预处理 Tumor 和 Normal，再进入 somatic calling。",
+        "TNscope Typical usage 也明确覆盖 tumor-normal 的 somatic variant 和 structural variant detection。"
+      ],
+      "prerequisites": [
+        "需要同时准备 Tumor 和 Normal 输入，并确认样本 read group 与样本名设置一致。",
+        "panel 主线通常还需要确认 capture / target intervals 配置。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNseq/TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-only-panel",
+      "name": "Tumor-only panel",
+      "priority": 60,
+      "require_any_groups": [
+        ["panel"],
+        ["tumor-only", "tumor only", "无 matched normal", "无对照", "没对照", "没有对照", "单肿瘤"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "示例", "tnscope", "体细胞"],
+      "summary": "这是没有配对正常样本（matched normal）的体细胞 panel 流程分流问题。",
+      "guidance": [
+        "如果你明确没有 matched normal，panel 主线优先看 TNscope。",
+        "TNscope Typical usage 明确覆盖 tumor-only 的 somatic variant 和 structural variant detection。",
+        "官方手册也明确提醒：tumor-only 输出里会包含 germline variants。"
+      ],
+      "prerequisites": [
+        "panel 主线通常还需要确认 capture / target intervals 配置。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "wgs-fastq-input",
+      "name": "WGS FASTQ input",
+      "priority": 57,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["fastq"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "fastq"],
+      "summary": "这是 WGS 下基于 FASTQ 输入的流程分流问题。",
+      "guidance": [
+        "如果你手里是原始 FASTQ，短读长胚系主线通常从 DNAscope / DNAseq 这类从 FASTQ 开始的流程进入。",
+        "如果是体细胞 WGS，也通常先从 FASTQ 进入 DNAseq 预处理，再接 TNseq / TNscope。",
+        "如果你其实已经有对齐结果，而不是原始 FASTQ，就不该继续看 FASTQ 起点的流程骨架。"
+      ],
+      "prerequisites": [
+        "需要确认这是胚系还是体细胞，以及是短读长还是长读长。",
+        "FASTQ 起点通常还需要 read group、参考基因组以及对应的 model / workflow 配置。"
+      ],
+      "follow_up": [
+        "这是短读长还是 PacBio HiFi / ONT 长读长？",
+        "如果是短读长，是胚系还是体细胞？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "wgs-bam-cram-input",
+      "name": "WGS BAM/CRAM input",
+      "priority": 56,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["bam", "cram", "ubam", "ucram"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "bam", "cram"],
+      "summary": "这是 WGS 下基于已对齐 BAM/CRAM 输入的流程分流问题。",
+      "guidance": [
+        "如果你已经有已对齐 BAM/CRAM，重点先确认这些文件是否满足后续步骤要求，而不是直接套用从 FASTQ 起跑的骨架。",
+        "短读长胚系主线通常需要继续区分是走 DNAscope 还是 DNAseq；体细胞主线则继续看 TNseq / TNscope。",
+        "如果你手里其实是 uBAM/uCRAM 这类未完成流程起点的输入，也要先确认是否仍需走完整预处理。"
+      ],
+      "prerequisites": [
+        "需要先确认这些 BAM/CRAM 是否已对齐、是否已完成去重 / 校正等关键前处理。",
+        "还需要确认这是胚系还是体细胞。"
+      ],
+      "follow_up": [
+        "这些是已对齐 BAM/CRAM，还是 uBAM/uCRAM？",
+        "这是胚系还是体细胞？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "wes-fastq-input",
+      "name": "WES FASTQ input",
+      "priority": 59,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["fastq"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "fastq"],
+      "summary": "这是 WES 下基于 FASTQ 输入的流程分流问题。",
+      "guidance": [
+        "如果你手里是 WES 原始 FASTQ，短读长主线通常从 DNAscope / DNAseq 这类 FASTQ 起点流程进入。",
+        "WES 场景还需要同步确认 target intervals / assay 配置，而不是只看比对和 calling 主线。",
+        "如果你其实已经有对齐结果，而不是 FASTQ，就不该继续看 FASTQ 起点的流程骨架。"
+      ],
+      "prerequisites": [
+        "需要确认这是胚系还是体细胞。",
+        "WES 主线通常需要 target intervals / assay 相关配置。"
+      ],
+      "follow_up": [
+        "这是胚系还是体细胞？",
+        "target intervals / assay 配置是否已经明确？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "wes-bam-cram-input",
+      "name": "WES BAM/CRAM input",
+      "priority": 58,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["bam", "cram", "ubam", "ucram"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "bam", "cram"],
+      "summary": "这是 WES 下基于已对齐 BAM/CRAM 输入的流程分流问题。",
+      "guidance": [
+        "如果你已经有已对齐 BAM/CRAM，重点是确认这些文件是否满足后续 WES calling 的前提，而不是回到 FASTQ 起点。",
+        "WES 主线还需要同步确认 target intervals / assay 配置。",
+        "如果这些其实是 uBAM/uCRAM，也要先确认是否仍需走完整预处理。"
+      ],
+      "prerequisites": [
+        "需要确认这些 BAM/CRAM 是否已对齐、是否已完成关键前处理。",
+        "WES 主线通常需要 target intervals / assay 相关配置。"
+      ],
+      "follow_up": [
+        "这些是已对齐 BAM/CRAM，还是 uBAM/uCRAM？",
+        "target intervals / assay 配置是否已经明确？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "panel-fastq-input",
+      "name": "Panel FASTQ input",
+      "priority": 58,
+      "require_any_groups": [
+        ["panel"],
+        ["fastq"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "fastq"],
+      "summary": "这是 panel 下基于 FASTQ 输入的流程分流问题。",
+      "guidance": [
+        "如果你手里是 panel 原始 FASTQ，先确认是胚系 panel 还是体细胞 panel，再决定走 DNAscope / DNAseq 还是 TNseq / TNscope。",
+        "panel 场景通常还需要同步确认 capture / target intervals 配置。",
+        "如果你其实已经有对齐结果，而不是 FASTQ，就不该继续看 FASTQ 起点的流程骨架。"
+      ],
+      "prerequisites": [
+        "需要先确认这是胚系 panel 还是体细胞 panel。",
+        "panel 主线通常需要 capture / target intervals 相关配置。"
+      ],
+      "follow_up": [
+        "这是胚系 panel 还是体细胞 panel？",
+        "capture / target intervals 配置是否已经明确？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "panel-bam-cram-input",
+      "name": "Panel BAM/CRAM input",
+      "priority": 57,
+      "require_any_groups": [
+        ["panel"],
+        ["bam", "cram", "ubam", "ucram"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "输入", "脚本", "示例", "bam", "cram"],
+      "summary": "这是 panel 下基于已对齐 BAM/CRAM 输入的流程分流问题。",
+      "guidance": [
+        "如果你已经有已对齐 BAM/CRAM，重点先确认这些文件是否满足 panel downstream calling 的前提，而不是回到 FASTQ 起点。",
+        "panel 主线通常还需要 capture / target intervals 配置。",
+        "如果这些其实是 uBAM/uCRAM，也要先确认是否仍需走完整预处理。"
+      ],
+      "prerequisites": [
+        "需要先确认这是胚系 panel 还是体细胞 panel。",
+        "panel 主线通常需要 capture / target intervals 相关配置。"
+      ],
+      "follow_up": [
+        "这些是已对齐 BAM/CRAM，还是 uBAM/uCRAM？",
+        "这是胚系 panel 还是体细胞 panel？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "long-read-ont",
+      "name": "Long-read ONT",
+      "priority": 57,
+      "require_any_groups": [
+        ["long-read", "long read", "长读长"],
+        ["ont", "nanopore"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "ont"],
+      "summary": "这是 long-read 场景里 ONT 平台的流程分流问题。",
+      "guidance": [
+        "如果你明确是 ONT 数据，长读长主线仍看 DNAscope LongRead。",
+        "接下来重点确认输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。",
+        "如果你其实不是 ONT，而是 PacBio HiFi，就应切到对应的 HiFi 分流。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。",
+        "还需要确认输入形态。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？",
+        "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "long-read-hifi",
+      "name": "Long-read HiFi",
+      "priority": 57,
+      "require_any_groups": [
+        ["long-read", "long read", "长读长"],
+        ["hifi", "pacbio"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "hifi"],
+      "summary": "这是 long-read 场景里 PacBio HiFi 平台的流程分流问题。",
+      "guidance": [
+        "如果你明确是 PacBio HiFi 数据，长读长主线仍看 DNAscope LongRead。",
+        "接下来重点确认输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM。",
+        "如果你其实不是 HiFi，而是 ONT，就应切到对应的 ONT 分流。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。",
+        "还需要确认输入形态。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？",
+        "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "rna-analysis",
+      "name": "RNA analysis",
+      "priority": 49,
+      "require_any_groups": [
+        ["rna", "rna-seq", "rna seq"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是 RNA 主线的流程分流问题。",
+      "guidance": [
+        "如果你问的是 RNA variant calling，优先看 RNAseq 这条主线。",
+        "当前模块索引里的 RNAseq 骨架已经明确包含 Sentieon STAR -> LocusCollector/Dedup -> RNASplitReadsAtJunction -> Haplotyper/DNAscope。",
+        "如果后面要细化到参考命令，可以直接继续追问 RNAseq 的参考脚本。"
+      ],
+      "prerequisites": [
+        "RNA 主线通常需要 STAR reference，并先完成 RNA 比对。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你要的是 RNA variant calling，还是别的 RNA 相关分析？",
+        "你现在要的是流程分流，还是下一步要 RNAseq 的参考脚本骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-modules.json", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "pangenome-analysis",
+      "name": "Pangenome analysis",
+      "priority": 47,
+      "require_any_groups": [
+        ["pangenome", "graph", "泛基因组"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例"],
+      "summary": "这是 graph / pangenome 参考主线的流程分流问题。",
+      "guidance": [
+        "如果你明确要走 graph / pangenome 参考，主线看 Sentieon Pangenome。",
+        "manual 写明该流程推荐用于 human samples，并且当前只支持 GRCh38 且要求 UCSC-style contig names。",
+        "如果你其实并不需要 graph / pangenome 参考，而是普通线性参考，应回到 DNAscope / DNAseq 这类线性参考主线。"
+      ],
+      "prerequisites": [
+        "需要 pangenome graph 相关资源，例如 HAPL、GBZ 和 population VCF。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你是否明确需要 graph / pangenome 参考，而不是线性参考？",
+        "你现在要的是流程分流，还是下一步要 Sentieon Pangenome 的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "long-read-germline-wgs",
+      "name": "Long-read germline WGS",
+      "priority": 60,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["long-read", "long read", "长读长", "pacbio", "hifi", "ont", "nanopore"]
+      ],
+      "exclude_any": ["脚本", "命令", "示例", "参数", "--"],
+      "prefer_any": ["germline", "胚系", "流程", "指导", "看哪个"],
+      "summary": "这是长读长 WGS 的官方流程分流问题。",
+      "guidance": [
+        "官方长读长主线是 DNAscope LongRead；manual 写明它是用于 long-read sequence data 的 alignment and germline variant calling pipeline。",
+        "该流程适用于 PacBio HiFi 或 ONT 读长数据；可接收 FASTQ、uBAM、uCRAM、BAM 或 CRAM 输入。",
+        "如果你问的是 short-read WGS，不应走 DNAscope LongRead。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。",
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你的数据是 PacBio HiFi 还是 ONT？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "somatic-wgs",
+      "name": "Somatic WGS",
+      "priority": 55,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["somatic", "体细胞", "tumor", "肿瘤"]
+      ],
+      "exclude_any": ["脚本", "命令", "示例", "参数", "--"],
+      "prefer_any": ["流程", "指导", "看哪个", "tumor-normal", "tumor only"],
+      "summary": "这是体细胞 WGS 的官方流程分流问题。",
+      "guidance": [
+        "TNseq Typical usage 对应 tumor-normal analysis 的典型 somatic 主线，并要求先按 DNAseq 流程分别预处理 Tumor 和 Normal。",
+        "TNscope Typical usage 明确覆盖 tumor-only 或 tumor-normal 的 somatic variant 和 structural variant detection。",
+        "如果没有 matched normal，TNscope 章节明确可以跳过 normal 样本输入；但输出里会包含 germline variants。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你有没有 matched normal？",
+        "你现在要的是 TNseq/TNscope 的流程分流，还是后续的参考命令骨架？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-normal-wgs",
+      "name": "Tumor-normal WGS",
+      "priority": 59,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["tumor-normal", "tumor normal", "matched normal", "肿瘤对照", "肿瘤配对", "配对", "有对照"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "somatic", "体细胞", "tnseq", "tnscope", "tumor-normal", "matched normal"],
+      "summary": "这是有 matched normal 的体细胞 WGS 流程分流问题。",
+      "guidance": [
+        "如果你明确是 tumor-normal WGS，优先看 TNseq / TNscope 这条体细胞主线。",
+        "TNseq Typical usage 要求先按 DNAseq 流程分别预处理 Tumor 和 Normal，再进入 somatic calling。",
+        "TNscope Typical usage 也明确覆盖 tumor-normal 的 somatic variant 和 structural variant detection。"
+      ],
+      "prerequisites": [
+        "需要同时准备 Tumor 和 Normal 输入，并确认样本 read group 与样本名设置一致。",
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNseq/TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "tumor-only-wgs",
+      "name": "Tumor-only WGS",
+      "priority": 58,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["tumor-only", "tumor only", "无 matched normal", "无对照", "没对照", "没有对照", "单肿瘤"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "somatic", "体细胞", "tnscope"],
+      "summary": "这是没有 matched normal 的体细胞 WGS 流程分流问题。",
+      "guidance": [
+        "如果你明确没有 matched normal，WGS 主线优先看 TNscope。",
+        "TNscope Typical usage 明确覆盖 tumor-only 的 somatic variant 和 structural variant detection。",
+        "官方手册也明确提醒：tumor-only 输出里会包含 germline variants。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你现在要的是 TNscope 的流程分流，还是后续的参考命令骨架？",
+        "除了 SNV/Indel，你是否还需要 SV 结果？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "germline-wgs",
+      "name": "Germline WGS",
+      "priority": 54,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["germline", "胚系"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "看哪个", "short-read", "long-read", "diploid", "二倍体"],
+      "summary": "这是胚系 WGS 的流程分流问题。",
+      "guidance": [
+        "如果是短读长胚系（short-read germline）WGS，先看样本是否来自二倍体生物（diploid organism）：是则优先看 DNAscope，否则改看 DNAseq。",
+        "如果是长读长胚系（long-read germline）WGS，主线看 DNAscope LongRead，适用于 PacBio HiFi 或 ONT 数据。",
+        "如果你明确要走 graph / pangenome 参考，而不是线性参考，可再分流到 Sentieon Pangenome。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "这是短读长还是 PacBio HiFi / ONT 长读长？",
+        "如果是短读长，样本是否来自二倍体生物（diploid organism）？"
+      ],
+      "script_module": "DNAscope",
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "short-read-wgs",
+      "name": "Short-read WGS",
+      "priority": 53,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"]
+      ],
+      "exclude_any": ["参数", "--"],
+      "prefer_any": ["流程", "指导", "analysis", "germline", "somatic", "体细胞", "胚系", "diploid", "二倍体"],
+      "summary": "这是短读长 WGS 的流程分流问题。",
+      "guidance": [
+        "如果你现在只确定到 short-read WGS 这一层，先确认是胚系还是体细胞。",
+        "短读长胚系（short-read germline）WGS：如果样本来自二倍体生物（diploid organism），优先看 DNAscope；如果不是二倍体生物（diploid organism），请改看 DNAseq。",
+        "短读长体细胞 WGS：优先看 TNseq / TNscope。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及对应 workflow / model 配置。",
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。"
+      ],
+      "follow_up": [
+        "这是胚系还是体细胞？",
+        "如果是胚系，样本是否来自二倍体生物（diploid organism）？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "short-read-germline-wgs",
+      "name": "Short-read germline WGS",
+      "priority": 50,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"],
+        ["germline", "胚系"]
+      ],
+      "exclude_any": ["脚本", "命令", "示例", "参数", "--"],
+      "prefer_any": ["流程", "指导", "看哪个", "diploid", "二倍体"],
+      "summary": "这是短读长胚系 WGS 的官方流程分流问题。",
+      "guidance": [
+        "如果样本来自 diploid organism，官方主线优先看 DNAscope；manual 的 Quick Start 也是用 paired-end Illumina FASTQ 跑 DNAscope。",
+        "manual 明确写明：DNAscope only recommended for use with samples from diploid organisms；for other samples，请改用 DNAseq。",
+        "如果你明确要走 graph / pangenome 参考，而不是线性参考，可再分流到 Sentieon Pangenome。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "样本是否来自 diploid organism？",
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope",
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "pangenome-wgs",
+      "name": "Pangenome WGS",
+      "priority": 45,
+      "require_any_groups": [
+        ["pangenome", "graph", "泛基因组"],
+        ["wgs", "whole genome", "全基因组"]
+      ],
+      "exclude_any": ["脚本", "命令", "示例", "参数", "--"],
+      "prefer_any": ["流程", "指导", "看哪个"],
+      "summary": "这是 pangenome / graph 参考下的 WGS 分流问题。",
+      "guidance": [
+        "Typical usage for Pangenome 对应 pangenome alignment 和 germline variant calling，相比 DNAseq / DNAscope 的线性参考流程，它使用 pangenome graph 数据结构。",
+        "manual 写明该流程推荐用于 human samples。",
+        "官方当前只支持 GRCh38 且要求 UCSC-style contig names（chr1、chr2 这类命名）。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "你是否明确要用 pangenome / graph 参考，而不是线性参考？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "wgs-ambiguous",
+      "name": "WGS workflow routing",
+      "priority": 20,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"]
+      ],
+      "exclude_any": ["脚本", "命令", "示例", "参数", "--"],
+      "prefer_any": ["指导", "怎么做", "怎么选", "看哪个", "流程", "workflow", "pipeline", "分析"],
+      "summary": "如果你只说“WGS 分析”，当前本地官方资料不足以直接定成某一个 Sentieon 流程。",
+      "guidance": [
+        "短读长胚系 WGS：如果样本来自 diploid organism，优先看 DNAscope；如果不是 diploid organism，请改看 DNAseq。",
+        "体细胞 WGS：先看 TNseq / TNscope 这两条 somatic 主线。",
+        "长读长胚系 WGS：看 DNAscope LongRead，适用于 PacBio HiFi 或 ONT 数据。",
+        "如果明确要走 pangenome / graph 参考：看 Sentieon Pangenome；当前只支持 GRCh38 且要求 UCSC-style contig names。"
+      ],
+      "prerequisites": [
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。",
+        "Quick Start: 先设置 SENTIEON_LICENSE、SENTIEON_INSTALL_DIR、SENTIEON_PYTHON、SENTIEON_TMPDIR。"
+      ],
+      "follow_up": [
+        "是胚系还是体细胞？",
+        "是短读长还是 PacBio HiFi / ONT 长读长？",
+        "如果是短读长胚系，样本是否来自 diploid organism？"
+      ],
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    }
+  ]
+}

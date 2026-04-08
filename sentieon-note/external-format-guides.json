@@ -1,0 +1,130 @@
+{
+  "version": "2026-04-08",
+  "entries": [
+    {
+      "id": "sam-bam-cram",
+      "name": "SAM/BAM/CRAM",
+      "aliases": ["sam/bam/cram", "sam", "bam", "cram", "bam/cram", "bai", "csi", "crai"],
+      "summary": "SAM 是文本对齐格式，BAM 是其二进制表示，CRAM 是参考依赖更强的压缩对齐格式。",
+      "details": [
+        "头信息里常见的是 @HD、@SQ、@RG；很多兼容性问题都和 header、contig、read group 一致性有关。",
+        "BAM 常见索引是 .bai 或 .csi；CRAM 常见索引是 .crai。",
+        "随机访问通常依赖坐标排序和索引；如果只是 name-sorted 或索引与当前文件内容不匹配，也会出现 region query 异常。",
+        "CRAM 的解码还经常依赖可用且匹配的参考序列。"
+      ],
+      "troubleshooting": [
+        "如果报错集中在 region query、随机访问或分片读取，先检查文件是否已排序并带有正确索引。",
+        "如果问题涉及 sample、library、lane 或 header 不一致，先检查 @RG 与 @SQ。",
+        "如果是 CRAM 读取或重放失败，优先确认参考序列及其索引是否可用且与文件一致。"
+      ],
+      "usage_boundary": [
+        "只用于解释通用对齐文件结构、索引和 header 规则。",
+        "不单独替代 Sentieon 对某个模块或 workflow 的官方要求。"
+      ],
+      "source_notes": ["external-format-reference.md"],
+      "official_sources": [
+        "https://samtools.github.io/hts-specs/SAMv1.pdf",
+        "https://samtools.github.io/hts-specs/CRAMv3.pdf",
+        "https://www.htslib.org/doc/samtools.html"
+      ]
+    },
+    {
+      "id": "vcf-bcf",
+      "name": "VCF/BCF",
+      "aliases": ["vcf/bcf", "vcf", "bcf"],
+      "summary": "VCF 是文本变异记录格式，BCF 是更适合程序处理的二进制形式。",
+      "details": [
+        "VCF 头部由 ## 元信息行和最后一行 #CHROM ... 列标题组成。",
+        "固定列通常包括 CHROM、POS、ID、REF、ALT、QUAL、FILTER、INFO；有样本列时还会出现 FORMAT 和后续样本数据列。",
+        "INFO 是位点级字段，FORMAT 是样本级字段。",
+        "多数需要随机访问或多文件联动的场景，更稳妥的是 bgzip 压缩并配 tabix/CSI 索引，或直接使用已索引的 BCF。"
+      ],
+      "troubleshooting": [
+        "如果问题集中在 INFO、FORMAT、样本列解析，先区分这是位点级语义还是样本级语义。",
+        "如果报错涉及索引、随机访问或多文件 merge/query，先检查是否是 bgzip 压缩以及 tabix/CSI/BCF 索引是否齐全。",
+        "如果问题涉及 contig、sample 或 header 冲突，先回到 VCF header 和 companion files 的一致性。"
+      ],
+      "usage_boundary": [
+        "只用于解释通用变异文件结构、字段和索引规则。",
+        "不单独替代 Sentieon 对 joint calling、filtering 或 workflow 选型的官方结论。"
+      ],
+      "source_notes": ["external-format-reference.md"],
+      "official_sources": [
+        "https://samtools.github.io/hts-specs/VCFv4.5.pdf",
+        "https://www.htslib.org/doc/bcftools.html"
+      ]
+    },
+    {
+      "id": "read-group",
+      "name": "Read Group",
+      "aliases": ["read group", "readgroup", "@rg", "rg tag", "rgid"],
+      "summary": "Read Group 通常通过 @RG header 行和记录里的 RG:Z tag 关联。",
+      "details": [
+        "常见字段包括 ID、SM、LB、PL 等；很多下游工具会按 sample 或 read group 聚合。",
+        "当多个文件 header 里的 @RG、SM、ID 组织不一致时，容易出现样本混淆、合并或下游解释异常。"
+      ],
+      "troubleshooting": [
+        "如果报错涉及 sample identity、merge 或 header consistency，先回到 @RG 和 RG:Z 的对应关系。",
+        "如果不同 BAM 的 sample/read group 组织不一致，先确认 header 里 ID、SM、LB、PL 是否稳定。"
+      ],
+      "usage_boundary": [
+        "只用于解释通用 read group 结构和下游影响。",
+        "不单独替代 Sentieon 对具体样本组织方式的官方建议。"
+      ],
+      "source_notes": ["external-format-reference.md"],
+      "official_sources": [
+        "https://samtools.github.io/hts-specs/SAMv1.pdf",
+        "https://samtools.github.io/hts-specs/SAMtags.pdf"
+      ]
+    },
+    {
+      "id": "bed-interval",
+      "name": "BED/Interval",
+      "aliases": ["bed", "interval", "bed file", "interval file"],
+      "summary": "BED 常用于区间选择和 interval 输入。",
+      "details": [
+        "BED 规范使用 0-based、half-open 区间；这和 VCF / SAM 常见的 1-based 位置语义不同。",
+        "做区间联动时要先确认是哪个坐标体系，否则常见现象是区间整体偏一位。",
+        "如果一个工具要求 BED 或可索引区间文件，还要同时确认压缩和索引要求。"
+      ],
+      "troubleshooting": [
+        "如果问题集中在 interval 不生效、区间偏移或 region query 结果异常，先确认坐标体系。",
+        "如果还涉及 tabix 或 region fetch，继续检查压缩和索引是否匹配。"
+      ],
+      "usage_boundary": [
+        "只用于解释通用 BED / interval 结构和坐标注意事项。",
+        "不单独替代 Sentieon 对 interval 参数的具体定义。"
+      ],
+      "source_notes": ["external-format-reference.md"],
+      "official_sources": [
+        "https://samtools.github.io/hts-specs/BEDv1.pdf",
+        "https://www.htslib.org/doc/tabix.html"
+      ]
+    },
+    {
+      "id": "fasta-fai",
+      "name": "FASTA/FAI",
+      "aliases": ["fasta", "fai", "dict", "reference fasta", "faidx", "sequence dictionary"],
+      "summary": "参考基因组通常以 FASTA 提供，并配 FAI 随机访问索引。",
+      "details": [
+        "很多下游链路不仅要求参考序列内容可用，还要求 contig 名、顺序和 companion files 一致。",
+        "除了 FAI，很多链路还会依赖 sequence dictionary（常见是 .dict）；这些配套文件最好和 FASTA 一起重新生成。",
+        "当错误集中在 contig not found、reference mismatch、CRAM decode 或 region query 时，常要先回到 FASTA/FAI 层。"
+      ],
+      "troubleshooting": [
+        "如果报错是 reference mismatch、contig 缺失或 CRAM 解码失败，先确认 FASTA 与 FAI 是否成套且与数据一致。",
+        "如果问题集中在 dict、sequence dictionary 或 header 校验失败，也要确认这些 companion files 是否与当前 FASTA 同步生成。",
+        "如果 region query 或随机访问失败，也要检查索引和 contig 组织。"
+      ],
+      "usage_boundary": [
+        "只用于解释通用参考序列和 faidx 索引规则。",
+        "不单独替代 Sentieon 对参考资源包的具体要求。"
+      ],
+      "source_notes": ["external-format-reference.md"],
+      "official_sources": [
+        "https://www.htslib.org/doc/faidx.html",
+        "https://samtools.github.io/hts-specs/SAMv1.pdf"
+      ]
+    }
+  ]
+}

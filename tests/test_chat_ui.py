@@ -1,25 +1,93 @@
 from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.text import Text
 
 from sentieon_assist.chat_events import (
     event_check_missing_info,
     event_detect_issue_type,
     event_prepare_reference_answer,
 )
-from sentieon_assist.chat_ui import ChatUI
+from sentieon_assist.chat_ui import (
+    ASSISTANT_ACCENT_STYLE,
+    ASSISTANT_BORDER_STYLE,
+    EVENT_ACCENT_STYLE,
+    EVENT_BORDER_STYLE,
+    USER_ACCENT_STYLE,
+    USER_BORDER_STYLE,
+    WELCOME_ACCENT_STYLE,
+    WELCOME_BORDER_STYLE,
+    WELCOME_LOGO_LINES,
+    ChatUI,
+)
 
 
-def test_render_welcome_panel_contains_brand_and_examples():
+class CapturingConsole:
+    def __init__(self) -> None:
+        self.renderables: list[object] = []
+
+    def print(self, renderable: object) -> None:
+        self.renderables.append(renderable)
+
+
+def test_render_welcome_panel_contains_brand_poster_and_summary():
     console = Console(record=True, width=100)
     ui = ChatUI(console=console)
 
     ui.render_welcome_panel()
 
     text = console.export_text()
-    assert "Sengent" in text
+    assert WELCOME_LOGO_LINES[0] in text
     assert "我可以帮你做什么" in text
-    assert "示例提问" in text
     assert "提问建议" in text
     assert "/quit" in text
+    assert "示例提问" not in text
+    assert "样本 -> 数据流" not in text
+    assert "o==x" not in text
+
+
+def test_render_welcome_panel_stays_compact_on_wide_terminal():
+    console = Console(record=True, width=180)
+    ui = ChatUI(console=console)
+
+    ui.render_welcome_panel()
+
+    lines = [
+        line.rstrip()
+        for line in console.export_text().splitlines()
+        if line.strip() and set(line.strip()) != {"─"}
+    ]
+    assert max(len(line) for line in lines) < 140
+
+
+def test_render_welcome_panel_uses_tight_vertical_layout():
+    console = Console(record=True, width=100)
+    ui = ChatUI(console=console)
+
+    ui.render_welcome_panel()
+
+    panel_lines = [
+        line
+        for line in console.export_text().splitlines()
+        if line.strip() and set(line.strip()) != {"─"}
+    ]
+    assert len(panel_lines) <= 15
+
+
+def test_render_welcome_panel_uses_brand_palette():
+    console = CapturingConsole()
+    ui = ChatUI(console=console)
+
+    ui.render_welcome_panel()
+
+    panel, rule = console.renderables
+    assert isinstance(panel, Panel)
+    assert panel.border_style == WELCOME_BORDER_STYLE
+    assert isinstance(panel.title, Text)
+    assert panel.title.plain == "Sengent"
+    assert panel.title.style == WELCOME_ACCENT_STYLE
+    assert isinstance(rule, Rule)
+    assert rule.style == WELCOME_BORDER_STYLE
 
 
 def test_render_user_message_marks_user_role():
@@ -33,6 +101,20 @@ def test_render_user_message_marks_user_role():
     assert "DNAscope 是做什么的" in text
 
 
+def test_render_user_message_uses_user_palette():
+    console = CapturingConsole()
+    ui = ChatUI(console=console)
+
+    ui.render_user_message("DNAscope 是做什么的")
+
+    panel = console.renderables[0]
+    assert isinstance(panel, Panel)
+    assert panel.border_style == USER_BORDER_STYLE
+    assert isinstance(panel.title, Text)
+    assert panel.title.plain == "你"
+    assert panel.title.style == USER_ACCENT_STYLE
+
+
 def test_render_answer_marks_sengent_role():
     console = Console(record=True, width=100)
     ui = ChatUI(console=console)
@@ -42,6 +124,21 @@ def test_render_answer_marks_sengent_role():
     text = console.export_text()
     assert "Sengent" in text
     assert "【模块介绍】" in text
+
+
+def test_render_answer_uses_sengent_palette():
+    console = CapturingConsole()
+    ui = ChatUI(console=console)
+
+    ui.render_answer("【模块介绍】\nDNAscope：用于 germline variant calling")
+
+    assert console.renderables[0] == ""
+    panel = console.renderables[1]
+    assert isinstance(panel, Panel)
+    assert panel.border_style == ASSISTANT_BORDER_STYLE
+    assert isinstance(panel.title, Text)
+    assert panel.title.plain == "Sengent"
+    assert panel.title.style == ASSISTANT_ACCENT_STYLE
 
 
 def test_render_event_stream_prints_all_events():
@@ -60,6 +157,55 @@ def test_render_event_stream_prints_all_events():
     assert "事件流" in text
     assert "已识别问题类型：资料查询" in text
     assert "正在整理参考答案" in text
+
+
+def test_render_events_uses_event_palette():
+    console = CapturingConsole()
+    ui = ChatUI(console=console)
+
+    ui.render_events(["已识别问题类型：资料查询"])
+
+    panel = console.renderables[0]
+    assert isinstance(panel, Panel)
+    assert panel.border_style == EVENT_BORDER_STYLE
+    assert isinstance(panel.title, Text)
+    assert panel.title.plain == "事件流"
+    assert panel.title.style == EVENT_ACCENT_STYLE
+
+
+def test_render_streaming_answer_header_uses_sengent_palette():
+    console = CapturingConsole()
+    ui = ChatUI(console=console)
+
+    ui.render_streaming_answer_header()
+
+    assert console.renderables[0] == ""
+    rule = console.renderables[1]
+    assert isinstance(rule, Rule)
+    assert isinstance(rule.title, Text)
+    assert rule.title.plain == "Sengent"
+    assert rule.title.style == ASSISTANT_ACCENT_STYLE
+    assert rule.style == ASSISTANT_BORDER_STYLE
+
+
+def test_render_streaming_answer_header_adds_leading_spacing():
+    console = Console(record=True, width=100)
+    ui = ChatUI(console=console)
+
+    ui.render_streaming_answer_header()
+
+    lines = console.export_text().splitlines()
+    assert lines[0] == ""
+
+
+def test_render_answer_adds_leading_spacing():
+    console = Console(record=True, width=100)
+    ui = ChatUI(console=console)
+
+    ui.render_answer("【模块介绍】\nDNAscope：用于 germline variant calling")
+
+    lines = console.export_text().splitlines()
+    assert lines[0] == ""
 
 
 def test_missing_info_event_text_is_deterministic():

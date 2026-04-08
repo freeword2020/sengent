@@ -5,6 +5,13 @@ import subprocess
 from collections import OrderedDict
 from pathlib import Path
 
+from sentieon_assist.external_guides import (
+    EXTERNAL_ERROR_ASSOCIATION_FILENAME,
+    EXTERNAL_GUIDE_FILENAMES,
+    is_external_error_query,
+    is_external_reference_query,
+)
+
 
 RELEASE_FILE_PATTERN = re.compile(r"Sentieon(?P<release>\d{6}\.\d{2})\.pdf", re.IGNORECASE)
 RELEASE_TEXT_PATTERN = re.compile(r"Release\s*(?P<release>\d{6}\.\d{2})", re.IGNORECASE)
@@ -38,41 +45,55 @@ def _source_priority(path: Path) -> int:
     name = path.name.lower()
     if path.suffix.lower() == ".pdf" and name.startswith("sentieon20"):
         return 0
-    if name == "sentieon-modules.json":
+    if name == "workflow-guides.json":
         return 1
-    if name == "sentieon-doc-map.md":
+    if name == "sentieon-modules.json":
         return 2
-    if name == "sentieon-module-index.md":
+    if name == "sentieon-doc-map.md":
         return 3
-    if name == "sentieon-github-map.md":
+    if name == "sentieon-module-index.md":
         return 4
-    if name.startswith("thread-") and name.endswith("-summary.md"):
+    if name == "sentieon-github-map.md":
         return 5
-    if name == "readme.md":
+    if name == "external-format-guides.json":
         return 6
-    if name == "sentieon-chinese-reference.md":
+    if name == "external-tool-guides.json":
         return 7
+    if name == "external-error-associations.json":
+        return 8
+    if name == "readme.md":
+        return 9
+    if name == "sentieon-chinese-reference.md":
+        return 10
+    if name.startswith("thread-") and name.endswith("-summary.md"):
+        return 11
     return 10
 
 
 def _reference_source_bonus(name: str) -> int:
     lowered = name.lower()
+    if lowered == "workflow-guides.json":
+        return 32
     if lowered == "sentieon-modules.json":
         return 30
-    if lowered == "sentieon-module-index.md":
+    if lowered.startswith("sentieon20") and lowered.endswith(".pdf"):
         return 24
     if lowered == "sentieon-doc-map.md":
-        return 20
-    if lowered == "sentieon-github-map.md":
+        return 18
+    if lowered == "external-format-guides.json":
         return 16
-    if lowered.startswith("thread-") and lowered.endswith("-summary.md"):
+    if lowered == "external-tool-guides.json":
+        return 15
+    if lowered == "external-error-associations.json":
+        return 17
+    if lowered == "sentieon-github-map.md":
         return 12
+    if lowered == "sentieon-module-index.md":
+        return 10
     if lowered == "readme.md":
-        return 8
-    if lowered.startswith("sentieon20") and lowered.endswith(".pdf"):
-        return 6
+        return 4
     if lowered == "sentieon-chinese-reference.md":
-        return 2
+        return 1
     return 0
 
 
@@ -82,7 +103,17 @@ def _source_trust(path: Path) -> str:
         return "official"
     if name == "sentieon-chinese-reference.md":
         return "secondary"
-    if name in {"sentieon-modules.json", "sentieon-doc-map.md", "sentieon-module-index.md", "sentieon-github-map.md", "readme.md"}:
+    if name in {
+        "workflow-guides.json",
+        "sentieon-modules.json",
+        "sentieon-doc-map.md",
+        "sentieon-module-index.md",
+        "sentieon-github-map.md",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+        "readme.md",
+    }:
         return "derived"
     if name.startswith("thread-") and name.endswith("-summary.md"):
         return "derived"
@@ -201,9 +232,19 @@ def collect_source_bundle_metadata(directory: str | Path) -> dict[str, str]:
     return metadata
 
 
-def search_sources(directory: str | Path, keyword: str) -> list[dict[str, str]]:
+def search_sources(
+    directory: str | Path,
+    keyword: str,
+    *,
+    include_external_guides: bool = True,
+    include_external_error_associations: bool = True,
+) -> list[dict[str, str]]:
     matches: list[dict[str, str]] = []
     for source in list_sources(directory):
+        if not include_external_guides and source["name"] in EXTERNAL_GUIDE_FILENAMES:
+            continue
+        if not include_external_error_associations and source["name"] == EXTERNAL_ERROR_ASSOCIATION_FILENAME:
+            continue
         text = extract_source_text(source["path"])
         snippet = _build_snippet(text, keyword)
         if not snippet:
@@ -264,8 +305,15 @@ def collect_source_evidence(
     max_matches: int = 4,
 ) -> list[dict[str, str]]:
     combined: OrderedDict[tuple[str, str], dict[str, str]] = OrderedDict()
+    include_external_guides = is_external_reference_query(query, info=info)
+    include_external_error_associations = is_external_error_query(query, info=info)
     for term in _query_terms(issue_type, query, info):
-        for match in search_sources(directory, term):
+        for match in search_sources(
+            directory,
+            term,
+            include_external_guides=include_external_guides,
+            include_external_error_associations=include_external_error_associations,
+        ):
             key = (match["name"], match["snippet"])
             if key not in combined:
                 combined[key] = match
