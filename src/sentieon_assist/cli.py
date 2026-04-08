@@ -195,6 +195,11 @@ def _build_chat_events(query: str, response: str) -> list[str]:
     return events
 
 
+def _looks_like_new_query(query: str) -> bool:
+    issue_type = classify_query(query)
+    return issue_type != "other" or is_reference_query(query)
+
+
 def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[str]]:
     knowledge_directory: str | None = None
     source_directory: str | None = None
@@ -294,7 +299,7 @@ def chat_loop(
             pending_query = None
             output_fn("已清空当前补问上下文。")
             continue
-        effective_query = query if pending_query is None else f"{pending_query} {query}"
+        effective_query = query if pending_query is None or _looks_like_new_query(query) else f"{pending_query} {query}"
         ui.render_user_message(query)
         clear_status = start_thinking_animation(status_writer=status_writer)
         response = run_query(
@@ -309,7 +314,7 @@ def chat_loop(
         else:
             pending_query = None
         ui.render_events(_build_chat_events(effective_query, response))
-        effective_stream_output_fn = stream_output_fn or output_fn or _default_stream_output_fn
+        effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
         streamed_started = False
 
         def wrapped_stream_output(chunk: str) -> None:

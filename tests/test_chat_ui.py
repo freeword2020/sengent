@@ -17,6 +17,8 @@ def test_render_welcome_panel_contains_brand_and_examples():
     text = console.export_text()
     assert "Sengent" in text
     assert "我可以帮你做什么" in text
+    assert "示例提问" in text
+    assert "提问建议" in text
     assert "/quit" in text
 
 
@@ -61,7 +63,8 @@ def test_render_event_stream_prints_all_events():
 
 
 def test_missing_info_event_text_is_deterministic():
-    assert event_detect_issue_type("license") == "已识别问题类型：license"
+    assert event_detect_issue_type("license") == "已识别问题类型：许可证问题"
+    assert event_detect_issue_type("install") == "已识别问题类型：安装问题"
     assert event_check_missing_info(["version"]) == "发现需要补充的信息：Sentieon 版本"
 
 

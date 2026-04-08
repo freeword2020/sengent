@@ -33,11 +33,11 @@ The current product is an offline CLI harness with:
 
 Primary runtime entry points:
 
-- `python3 -m sentieon_assist.cli "question"`
-- `python3 -m sentieon_assist chat`
-- `python3 -m sentieon_assist doctor`
-- `python3 -m sentieon_assist sources`
-- `python3 -m sentieon_assist search KEYWORD`
+- `python3.11 -m sentieon_assist.cli "question"`
+- `python3.11 -m sentieon_assist chat`
+- `python3.11 -m sentieon_assist doctor`
+- `python3.11 -m sentieon_assist sources`
+- `python3.11 -m sentieon_assist search KEYWORD`
 
 ## Important Architectural Rules
 
@@ -235,8 +235,8 @@ Recommended local testing pattern:
 cd /Users/zhuge/Documents/codex/harness
 export PYTHONPATH=src
 export OLLAMA_KEEP_ALIVE=30m
-python3 -m sentieon_assist doctor
-python3 -m sentieon_assist chat
+python3.11 -m sentieon_assist doctor
+python3.11 -m sentieon_assist chat
 ```
 
 ## Remote Repository Context
@@ -322,7 +322,7 @@ Suggested next thread entry tests:
 cd /Users/zhuge/Documents/codex/harness
 export PYTHONPATH=src
 export OLLAMA_KEEP_ALIVE=30m
-python3 -m sentieon_assist chat
+python3.11 -m sentieon_assist chat
 ```
 
 Then try:

@@ -10,7 +10,10 @@ FIELD_LABELS = {
 }
 
 ISSUE_TYPE_LABELS = {
+    "license": "许可证问题",
+    "install": "安装问题",
     "reference": "资料查询",
+    "other": "其他问题",
 }
 
 

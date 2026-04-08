@@ -68,17 +68,17 @@ The curated Sentieon module index now lives in the mounted source bundle:
 ## Example usage
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist.cli "Sentieon 202503 license 报错，找不到 license 文件"
+PYTHONPATH=src python3.11 -m sentieon_assist.cli "Sentieon 202503 license 报错，找不到 license 文件"
 ```
 
 ```bash
-OLLAMA_MODEL=gemma4:e4b PYTHONPATH=src python3 -m sentieon_assist.cli "Sentieon 202503 install 失败，解压后命令不可用"
+OLLAMA_MODEL=gemma4:e4b PYTHONPATH=src python3.11 -m sentieon_assist.cli "Sentieon 202503 install 失败，解压后命令不可用"
 ```
 
 For customer-site testing without changing shell environment:
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist.cli \
+PYTHONPATH=src python3.11 -m sentieon_assist.cli \
   --knowledge-dir /path/to/customer-knowledge \
   --source-dir /path/to/customer-sources \
   "Sentieon 202503 install 失败，解压后命令不可用"
@@ -87,7 +87,7 @@ PYTHONPATH=src python3 -m sentieon_assist.cli \
 ## Interactive terminal mode
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist chat
+PYTHONPATH=src python3.11 -m sentieon_assist chat
 ```
 
 Then enter questions one by one. Use `/quit` to exit.
@@ -108,7 +108,7 @@ Current chat behavior:
 Use the built-in doctor command before customer-site troubleshooting:
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist doctor
+PYTHONPATH=src python3.11 -m sentieon_assist doctor
 ```
 
 It reports:
@@ -125,7 +125,7 @@ It reports:
 List local reference materials:
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist --source-dir /path/to/customer-sources sources
+PYTHONPATH=src python3.11 -m sentieon_assist --source-dir /path/to/customer-sources sources
 ```
 
 The source list shows a trust tier:
@@ -137,7 +137,7 @@ The source list shows a trust tier:
 Search local reference materials by keyword:
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist --source-dir /path/to/customer-sources search SENTIEON_LICENSE
+PYTHONPATH=src python3.11 -m sentieon_assist --source-dir /path/to/customer-sources search SENTIEON_LICENSE
 ```
 
 When a final answer is backed by mounted materials, the CLI now appends a
@@ -161,11 +161,11 @@ The same `cli` and `chat` entry points can answer local reference questions abou
 Sentieon modules and common parameters, for example:
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist.cli "DNAscope 是做什么的"
+PYTHONPATH=src python3.11 -m sentieon_assist.cli "DNAscope 是做什么的"
 ```
 
 ```bash
-PYTHONPATH=src python3 -m sentieon_assist.cli "sentieon-cli dnascope 的 --pcr_free 是什么"
+PYTHONPATH=src python3.11 -m sentieon_assist.cli "sentieon-cli dnascope 的 --pcr_free 是什么"
 ```
 
 The assistant answers these by preferring mounted local notes and source
@@ -186,6 +186,6 @@ For compact customer-facing output:
 ```bash
 export PYTHONPATH=src
 export OLLAMA_KEEP_ALIVE=30m
-python3 -m sentieon_assist doctor
-python3 -m sentieon_assist chat
+python3.11 -m sentieon_assist doctor
+python3.11 -m sentieon_assist chat
 ```

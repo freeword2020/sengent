@@ -191,6 +191,38 @@ def test_chat_loop_streams_model_output_chunks():
     assert any(clear for text, clear in statuses)
 
 
+def test_chat_loop_uses_default_stream_writer_when_no_stream_output_fn(monkeypatch):
+    prompts = iter(["license 报错", "/quit"])
+    outputs: list[str] = []
+    streamed_chunks: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    monkeypatch.setattr("sentieon_assist.cli._default_stream_output_fn", streamed_chunks.append)
+
+    def fake_stream_generate(prompt: str, on_chunk, **kwargs) -> str:
+        for chunk in ["请告诉我", " Sentieon 版本号，例如 202503.03。"]:
+            on_chunk(chunk)
+        return "请告诉我 Sentieon 版本号，例如 202503.03。"
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_stream_generate=fake_stream_generate,
+    )
+
+    assert code == 0
+    assert streamed_chunks == ["请告诉我", " Sentieon 版本号，例如 202503.03。", "\n"]
+    assert not any(item == "请告诉我" for item in outputs)
+    assert any("Sengent" in item for item in outputs)
+
+
 def test_chat_loop_prefers_explicit_non_stream_model_generate_over_backend_stream(monkeypatch):
     prompts = iter(["Sentieon 202503 license 报错", "/quit"])
     outputs: list[str] = []
@@ -326,6 +358,45 @@ def test_chat_loop_reset_clears_pending_question(monkeypatch):
     assert seen_queries == ["license 报错", "Sentieon 202503 license 报错"]
     assert any("已清空当前补问上下文" in item for item in outputs)
     assert any("【问题判断】" in item for item in outputs)
+
+
+def test_chat_loop_starts_new_query_when_pending_context_exists_but_user_enters_full_new_question(monkeypatch):
+    prompts = iter(["license 报错", "Sentieon 202503 install 失败，命令不可用", "/quit"])
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "license 报错":
+            return "需要补充以下信息：Sentieon 版本"
+        if query == "Sentieon 202503 install 失败，命令不可用":
+            return "【问题判断】\n这是一个 Sentieon 安装相关问题。"
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: (
+            "请告诉我 Sentieon 版本号，例如 202503.03。"
+            if "需要补充以下信息" in prompt
+            else "【问题判断】\n这是一个 Sentieon 安装相关问题。"
+        ),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == ["license 报错", "Sentieon 202503 install 失败，命令不可用"]
+    assert any("安装相关问题" in item for item in outputs)
 
 
 def test_chat_loop_carries_pending_parameter_disambiguation_context(monkeypatch):
