@@ -1,5 +1,10 @@
 from rich.console import Console
 
+from sentieon_assist.chat_events import (
+    event_check_missing_info,
+    event_detect_issue_type,
+    event_prepare_reference_answer,
+)
 from sentieon_assist.chat_ui import ChatUI
 
 
@@ -35,3 +40,30 @@ def test_render_answer_marks_sengent_role():
     text = console.export_text()
     assert "Sengent" in text
     assert "【模块介绍】" in text
+
+
+def test_render_event_stream_prints_all_events():
+    console = Console(record=True, width=100)
+    ui = ChatUI(console=console)
+
+    ui.render_events(
+        [
+            "已识别问题类型：资料查询",
+            "正在检索本地资料",
+            "正在整理参考答案",
+        ]
+    )
+
+    text = console.export_text()
+    assert "事件流" in text
+    assert "已识别问题类型：资料查询" in text
+    assert "正在整理参考答案" in text
+
+
+def test_missing_info_event_text_is_deterministic():
+    assert event_detect_issue_type("license") == "已识别问题类型：license"
+    assert event_check_missing_info(["version"]) == "发现需要补充的信息：Sentieon 版本"
+
+
+def test_reference_path_event_text_is_deterministic():
+    assert event_prepare_reference_answer() == "正在整理参考答案"

@@ -38,5 +38,11 @@ class ChatUI:
     def render_user_message(self, text: str) -> None:
         self.console.print(f"你\n{text}")
 
+    def render_events(self, events: list[str]) -> None:
+        if not events:
+            return
+        body = "\n".join(f"- {event}" for event in events)
+        self.console.print(Panel(body, title="事件流"))
+
     def render_answer(self, text: str) -> None:
         self.console.print(Panel(text, title="Sengent"))
