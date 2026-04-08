@@ -1,14 +1,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 
 
-def build_console() -> Console:
-    return Console()
+class ConsoleCallbackWriter:
+    encoding = "utf-8"
+
+    def __init__(self, output_fn: Callable[[str], None]) -> None:
+        self._output_fn = output_fn
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        self._buffer += text
+        return len(text)
+
+    def flush(self) -> None:
+        if not self._buffer:
+            return
+        text = self._buffer.rstrip("\n")
+        self._buffer = ""
+        if text:
+            self._output_fn(text)
+
+    def isatty(self) -> bool:
+        return False
+
+
+def build_console(*, output_fn: Callable[[str], None] | None = None) -> Console:
+    if output_fn is None:
+        return Console()
+    return Console(file=ConsoleCallbackWriter(output_fn), force_terminal=False, color_system=None)
 
 
 @dataclass
@@ -43,6 +69,9 @@ class ChatUI:
             return
         body = "\n".join(f"- {event}" for event in events)
         self.console.print(Panel(body, title="事件流"))
+
+    def render_streaming_answer_header(self) -> None:
+        self.console.print(Rule("Sengent"))
 
     def render_answer(self, text: str) -> None:
         self.console.print(Panel(text, title="Sengent"))

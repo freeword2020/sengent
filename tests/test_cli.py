@@ -51,14 +51,69 @@ def test_chat_loop_answers_once_and_quits():
         stream_output_fn=outputs.append,
     )
     assert code == 0
-    assert any("进入交互模式" in item for item in outputs)
+    assert any("Sengent" in item for item in outputs)
     assert any("【问题判断】" in item for item in outputs)
     assert any("已退出" in item for item in outputs)
     assert statuses
     assert any(text.startswith("思考中") for text, clear in statuses if not clear)
     assert any(clear for text, clear in statuses)
     assert input_prompts
-    assert input_prompts[0] == "sengent> "
+    assert input_prompts[0] == "Sengent> "
+
+
+def test_chat_loop_renders_user_events_and_answer_in_order(monkeypatch):
+    prompts = iter(["DNAscope 是做什么的", "/quit"])
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "【模块介绍】\nDNAscope：...")
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    joined = "\n".join(outputs)
+    assert joined.index("你") < joined.index("事件流")
+    assert joined.index("事件流") < joined.rindex("Sengent")
+
+
+def test_chat_loop_emits_missing_info_event_before_followup_answer(monkeypatch):
+    prompts = iter(["license 报错", "/quit"])
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "需要补充以下信息：Sentieon 版本")
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "请告诉我 Sentieon 版本号，例如 202503.03。",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    joined = "\n".join(outputs)
+    assert "事件流" in joined
+    assert "发现需要补充的信息" in joined
+    assert joined.index("发现需要补充的信息") < joined.index("请告诉我 Sentieon 版本号，例如 202503.03。")
 
 
 def test_render_chat_response_keeps_structured_answer_stable_without_polish():
@@ -185,7 +240,7 @@ def test_chat_loop_falls_back_to_non_stream_generate_when_stream_fails():
     )
 
     assert code == 0
-    assert "请告诉我 Sentieon 版本号，例如 202503.03。" in outputs
+    assert "请告诉我 Sentieon 版本号，例如 202503.03。" in "\n".join(outputs)
 
 
 def test_chat_loop_carries_pending_question_context(monkeypatch):
@@ -228,7 +283,7 @@ def test_chat_loop_carries_pending_question_context(monkeypatch):
 
     assert code == 0
     assert seen_queries == ["license 报错", "license 报错 202503.03"]
-    assert "请告诉我 Sentieon 版本号，例如 202503.03。" in outputs
+    assert "请告诉我 Sentieon 版本号，例如 202503.03。" in "\n".join(outputs)
     assert any("【问题判断】" in item for item in outputs)
     assert generated_prompts
 

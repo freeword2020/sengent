@@ -5,6 +5,14 @@ import threading
 from typing import Any, Callable
 
 from sentieon_assist.answering import answer_query, answer_reference_query, missing_required_fields
+from sentieon_assist.chat_events import (
+    event_check_missing_info,
+    event_detect_issue_type,
+    event_generate_reply,
+    event_prepare_reference_answer,
+    event_search_sources,
+)
+from sentieon_assist.chat_ui import ChatUI, build_console
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.config import load_config
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
@@ -159,6 +167,34 @@ def _requires_followup(response: str) -> bool:
     return response.startswith("需要补充以下信息") or response.startswith("需要确认模块")
 
 
+def _build_chat_ui(output_fn: Callable[[str], None]) -> ChatUI:
+    if output_fn is print:
+        return ChatUI()
+    return ChatUI(console=build_console(output_fn=output_fn))
+
+
+def _chat_issue_type_and_missing(query: str) -> tuple[str, list[str]]:
+    issue_type = classify_query(query)
+    if issue_type == "other" and is_reference_query(query):
+        return "reference", []
+    info = extract_info_from_query(query)
+    return issue_type, missing_required_fields(issue_type, info)
+
+
+def _build_chat_events(query: str, response: str) -> list[str]:
+    issue_type, missing = _chat_issue_type_and_missing(query)
+    events = [event_detect_issue_type(issue_type)]
+    if issue_type == "reference":
+        events.append(event_search_sources())
+        events.append(event_prepare_reference_answer())
+    else:
+        events.append("正在检查缺失信息")
+        events.append(event_check_missing_info(missing))
+    if not _is_stable_chat_response(response):
+        events.append(event_generate_reply())
+    return events
+
+
 def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[str]]:
     knowledge_directory: str | None = None
     source_directory: str | None = None
@@ -237,6 +273,7 @@ def chat_loop(
 ) -> int:
     require_chat_model(api_probe=api_probe)
     config = load_config()
+    ui = _build_chat_ui(output_fn)
     if warmup_model is not None:
         warmup = warmup_model
     elif model_generate is not None or model_stream_generate is not None:
@@ -244,10 +281,10 @@ def chat_loop(
     else:
         warmup = lambda model, base_url: build_backend_router(config).warmup_primary()
     warmup(config.ollama_model, config.ollama_base_url)
-    output_fn("进入交互模式。输入 /quit 退出，输入 /reset 清空当前补问上下文。")
+    ui.render_welcome_panel()
     pending_query: str | None = None
     while True:
-        query = input_fn("sengent> ").strip()
+        query = input_fn("Sengent> ").strip()
         if not query:
             continue
         if query in {"/quit", "quit", "exit"}:
@@ -258,6 +295,7 @@ def chat_loop(
             output_fn("已清空当前补问上下文。")
             continue
         effective_query = query if pending_query is None else f"{pending_query} {query}"
+        ui.render_user_message(query)
         clear_status = start_thinking_animation(status_writer=status_writer)
         response = run_query(
             effective_query,
@@ -265,20 +303,32 @@ def chat_loop(
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
         )
+        clear_status()
         if _requires_followup(response):
             pending_query = effective_query
         else:
             pending_query = None
+        ui.render_events(_build_chat_events(effective_query, response))
+        effective_stream_output_fn = stream_output_fn or output_fn or _default_stream_output_fn
+        streamed_started = False
+
+        def wrapped_stream_output(chunk: str) -> None:
+            nonlocal streamed_started
+            if not streamed_started:
+                ui.render_streaming_answer_header()
+                streamed_started = True
+            effective_stream_output_fn(chunk)
+
         rendered, streamed = render_chat_response(
             effective_query,
             response,
             model_generate=model_generate,
             model_stream_generate=model_stream_generate,
-            stream_output_fn=stream_output_fn or _default_stream_output_fn,
-            clear_status_fn=clear_status,
+            stream_output_fn=wrapped_stream_output,
+            clear_status_fn=None,
         )
         if not streamed:
-            output_fn(rendered)
+            ui.render_answer(rendered)
 
 
 def print_sources(*, output_fn=print, source_directory: str | None = None) -> int:
