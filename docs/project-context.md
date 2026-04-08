@@ -26,6 +26,8 @@ The current product is an offline CLI harness with:
 - Chinese-first and mixed-language query handling
 - local-reference-backed answers with release/version context
 - interactive chat mode backed by local Ollama
+- a non-fullscreen `Sengent` chat shell rendered with `rich`
+- a startup welcome panel plus per-turn event stream in chat
 - streaming output in chat with a visible `思考中...` status line
 - natural local reference queries for Sentieon modules and common parameters
 
@@ -66,6 +68,14 @@ Key files and responsibilities:
 - `src/sentieon_assist/cli.py`
   CLI entrypoint, chat loop, thinking animation, model warmup, streaming output,
   and natural query routing.
+
+- `src/sentieon_assist/chat_ui.py`
+  `rich`-based non-fullscreen chat rendering, including the `Sengent`
+  welcome panel, user-message display, event stream blocks, and answer panels.
+
+- `src/sentieon_assist/chat_events.py`
+  Deterministic event-text helpers used by chat mode to describe real internal
+  stages without pretending to have tool execution.
 
 - `src/sentieon_assist/answering.py`
   Rule-first answer composition, source-backed model fallback, reference-query
@@ -194,6 +204,17 @@ Completed:
 - parameter answers are slimmer and now default to a compact
   `【常用参数】`-only presentation
 
+### Milestone 7: Sengent Chat Shell
+
+Completed:
+
+- chat startup now renders a Chinese `Sengent` welcome panel every session
+- chat remains non-fullscreen and continues to use normal terminal scrolling
+- each turn now shows `你` -> `事件流` -> `Sengent`
+- event stream output is deterministic and tied to real stages such as issue
+  typing, missing-info checks, local source lookup, and reply generation
+- prompt branding is now `Sengent>`
+
 ## Current Configuration
 
 Main environment variables:
@@ -279,13 +300,15 @@ Most recent verified state in this thread:
 
 - full test suite passed
 - `pytest -q`
-- result: `95 passed in 4.29s`
+- result: `103 passed in 4.26s`
 
 ## Immediate Handoff Notes
 
 If a new thread continues from here, the most relevant current behavior is:
 
-- `chat` prompt is `sengent>`
+- `chat` prompt is `Sengent>`
+- every `chat` session starts with a `Sengent` welcome panel
+- each turn shows a lightweight event stream before the final answer block
 - ambiguous parameters such as `--split_by_sample 是什么` now ask the user to
   confirm the module, and the next turn can be just `Joint Call`
 - reference answers now intentionally hide internal trace blocks and show only

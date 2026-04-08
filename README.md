@@ -22,6 +22,7 @@ That is the main engineering difference between a harness and a raw prompt.
 - Python 3.11+
 - local Ollama HTTP API
 - a local model such as `gemma4:e4b`
+- installed package dependencies now include `rich` for chat-mode terminal rendering
 
 ## Configuration
 
@@ -93,9 +94,13 @@ Then enter questions one by one. Use `/quit` to exit.
 
 Current chat behavior:
 
+- every session starts with a Chinese `Sengent` welcome panel
+- the chat shell is still non-fullscreen; it remains a normal scrolling terminal session
+- each turn now renders `你` -> `事件流` -> `Sengent`
 - all turns show a single-line `思考中...` animation before output starts
 - model-backed turns stream progressively when Ollama returns chunks
 - chat startup warms up the local model to reduce first-turn latency
+- the event stream reflects real internal stages such as issue typing, missing-info checks, and local source lookup
 - rule-first answers remain the backbone; the local model mainly handles natural follow-up wording and answer polishing
 
 ## Environment doctor
