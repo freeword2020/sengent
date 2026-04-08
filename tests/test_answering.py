@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -277,6 +278,58 @@ def test_answer_query_adds_version_warning_when_patch_release_differs(monkeypatc
     assert "【版本提示】" in text
     assert "用户问题版本: 202503.01" in text
     assert "当前资料主版本: 202503.03" in text
+
+
+def test_answer_reference_query_returns_boundary_for_benchmark_claim_without_model():
+    text = answer_reference_query(
+        "为什么在 AWS 上运行一次标准的 Sentieon 30X 全基因组流程的计算成本可被压缩至 1~5 美元左右？",
+        model_fallback=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+    )
+
+    assert "【资料边界】" in text
+    assert "benchmark" in text or "竞品" in text or "精确数值" in text
+
+
+def test_answer_reference_query_returns_boundary_for_competitive_claim_without_model():
+    text = answer_reference_query(
+        "针对 ONT R10.4.1+ 数据中长同聚物区域的 Indel 错误率，Sentieon 模型是如何与 Clair3 拉开差距的？",
+        model_fallback=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+    )
+
+    assert "【资料边界】" in text
+    assert "Clair3" not in text or "不能直接给出确定性结论" in text
+
+
+def test_notebooklm_adversarial_corpus_is_committed_and_complete():
+    path = Path(__file__).resolve().parent / "data" / "notebooklm_adversarial_cases.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload) == 50
+    assert payload[0]["id"] == 1
+    assert payload[-1]["id"] == 50
+    assert len([item for item in payload if item["expected_mode"] == "boundary"]) >= 40
+
+
+def test_answer_reference_query_supports_bwa_interleaved_parameter():
+    text = answer_reference_query("当 FASTQ 是 interleaved 时，Sentieon BWA 的 -p 参数有什么作用？")
+
+    assert "【常用参数】" in text
+    assert "Sentieon BWA 的 -p" in text
+
+
+def test_answer_reference_query_prefers_dnascope_pcr_free_alias_over_model_substring():
+    text = answer_reference_query("对于 PCR-free 建库样本，在运行 DNAscope 时，如何通过 --pcr_indel_model none 来关闭过滤？")
+
+    assert "DNAscope" in text
+    assert "CNVscope" not in text
+    assert "--pcr_free" in text or "--pcr_indel_model" in text
+
+
+def test_answer_reference_query_supports_gvcftyper_emit_mode_parameter():
+    text = answer_reference_query("在 GVCFtyper 中，参数 --emit_mode 设置为 variant、confident 或 all 时有什么区别？")
+
+    assert "【常用参数】" in text
+    assert "GVCFtyper 的 --emit_mode" in text
 
 
 def test_answer_query_skips_version_warning_when_release_family_matches(monkeypatch):

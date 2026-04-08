@@ -161,6 +161,27 @@ def _parameter_alias_candidates(alias: str) -> list[str]:
     return [f"--{normalized_alias}", normalized_alias]
 
 
+def _parameter_match_score(normalized_query: str, candidate: str) -> int:
+    if not candidate or candidate not in normalized_query:
+        return -1
+    best_score = -1
+    start = normalized_query.find(candidate)
+    while start >= 0:
+        end = start + len(candidate)
+        before_ok = start == 0 or not _is_identifier_char(normalized_query[start - 1])
+        after_ok = end == len(normalized_query) or not _is_identifier_char(normalized_query[end])
+        if before_ok and after_ok:
+            score = len(candidate) + (20 if candidate.startswith("-") else 0)
+            if normalized_query == candidate:
+                score += 20
+            elif normalized_query.startswith(candidate):
+                score += 10
+            if score > best_score:
+                best_score = score
+        start = normalized_query.find(candidate, start + 1)
+    return best_score
+
+
 def match_module_parameter(entry: dict[str, Any], query: str) -> dict[str, Any] | None:
     normalized_query = query.lower()
     scored: list[tuple[int, dict[str, Any]]] = []
@@ -173,9 +194,9 @@ def match_module_parameter(entry: dict[str, Any], query: str) -> dict[str, Any] 
         best_alias = ""
         for alias in aliases:
             for candidate in _parameter_alias_candidates(alias):
-                if candidate not in normalized_query:
+                score = _parameter_match_score(normalized_query, candidate)
+                if score < 0:
                     continue
-                score = len(candidate) + (20 if candidate.startswith("-") else 0)
                 if score > best_score:
                     best_score = score
                     best_alias = alias

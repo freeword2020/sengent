@@ -25,6 +25,15 @@
       "scope": ["短读长 DNA", "WGS", "WES", "panel"],
       "inputs": ["FASTQ", "参考基因组 FASTA 及其索引"],
       "outputs": ["SAM/BAM/CRAM 对齐结果"],
+      "parameters": [
+        {
+          "name": "-p",
+          "aliases": ["p", "interleaved"],
+          "summary": "把单个 FASTQ 作为 interleaved paired-end 输入读取。",
+          "details": ["适用于 R1/R2 交织在同一个 FASTQ 流或文件里的 paired-end 数据。", "按 paired-end 方式解释输入后，下游 BAM 会以成对 reads 的方式记录 paired-end 相关 FLAG。"],
+          "values": []
+        }
+      ],
       "common_questions": ["BWA 是做什么的", "BWA 需要什么参考索引", "BWA 为什么会 OOM 或被 killed"],
       "related_modules": ["DNAseq", "DNAscope", "Dedup", "QualCal"],
       "source_priority_notes": [],
@@ -139,9 +148,9 @@
       "parameters": [
         {
           "name": "--pcr_free",
-          "aliases": ["pcr_free"],
+          "aliases": ["pcr_free", "pcr_indel_model"],
           "summary": "按 PCR-free 文库模式调用，适合 PCR-free library prep。",
-          "details": ["内部相当于使用适合 PCR-free 的 indel model。", "Dedup 仍会执行，用于识别 optical duplicates。"],
+          "details": ["内部相当于使用适合 PCR-free 的 indel model。", "在当前本地资料语境里，可理解为与 --pcr_indel_model NONE 对应的 PCR-free 设置。", "Dedup 仍会执行，用于识别 optical duplicates。"],
           "values": []
         },
         {
@@ -449,6 +458,13 @@
       "inputs": ["多个 gVCF", "参考基因组", "可选 shard 配置"],
       "outputs": ["联合分型 VCF", "可选分片结果和 merge 输出"],
       "parameters": [
+        {
+          "name": "--emit_mode",
+          "aliases": ["emit_mode"],
+          "summary": "控制 GVCFtyper 的位点输出策略。",
+          "details": ["release notes 明确记录过 GVCFtyper 新增 --emit_mode all。", "当前本地资料可稳定确认该参数用于控制参考位点和非变异位点的输出范围；若需要 variant、confident、all 的完整逐项差异，仍建议回看对应 manual 章节。"],
+          "values": ["variant", "confident", "all"]
+        },
         {
           "name": "--genotype_model",
           "aliases": ["genotype_model"],

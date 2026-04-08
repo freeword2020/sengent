@@ -30,6 +30,7 @@ from sentieon_assist.module_index import (
 )
 from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
+from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
 from sentieon_assist.rules import match_rule
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
 from sentieon_assist.workflow_index import (
@@ -115,6 +116,27 @@ def format_capability_explanation_answer() -> str:
         "- 资料/脚本查询：帮你查模块介绍、参数含义、输入输出和参考命令骨架。\n\n"
         "【建议下一步】\n"
         "- 直接告诉我你的目标或问题，例如：我要做 WES 分析该怎么选；license 报错原文是什么；DNAscope 是什么。"
+    )
+
+
+def format_reference_boundary_answer(query: str, tags: list[str]) -> str:
+    reasons: list[str] = []
+    if "benchmark" in tags:
+        reasons.append("benchmark / 精确数值")
+    if "comparison" in tags:
+        reasons.append("竞品或方案比较")
+    if "roadmap" in tags:
+        reasons.append("roadmap / 未来规划")
+    if "deep_mechanism" in tags:
+        reasons.append("深度机制拆解")
+    reason_text = "、".join(reasons) or "当前结构化支持边界之外的资料型问题"
+    return (
+        "【资料边界】\n"
+        f"- 这个问题属于 {reason_text}；当前本地支持资料没有足够的结构化证据，不能直接给出确定性结论。\n"
+        "- 现阶段系统稳定支持的是：模块定位、参数语义、输入输出、流程导航和常见排障。\n\n"
+        "【建议下一步】\n"
+        "- 如果你要继续推进，建议把问题收窄到模块是什么、参数怎么用、输入输出是什么、该走哪条流程。\n"
+        "- 如果你需要精确 benchmark、竞品比较、路线图或论文级机制说明，请补充对应 app note、release note、benchmark 文档或官方链接。"
     )
 
 
@@ -460,6 +482,14 @@ def answer_reference_query(
     resolved_intent = parsed_intent or ReferenceIntent()
     if resolved_intent.intent == "not_reference":
         resolved_intent = parse_reference_intent(query, config=app_config)
+    boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
+    if boundary_tags:
+        return format_reference_display(
+            normalize_model_answer(
+                format_reference_boundary_answer(query, boundary_tags),
+                source_context=source_context,
+            )
+        )
     if resolved_intent.intent == "workflow_guidance":
         workflow_entry = match_workflow_entry(query, effective_source_directory)
         if workflow_entry is None:
@@ -529,6 +559,14 @@ def answer_reference_query(
     module_candidate = str(resolved_intent.module or "").strip()
     if not module_matches and module_candidate and resolved_intent.intent in {"module_intro", "parameter_lookup", "script_example"}:
         related_mentions = find_related_module_mentions(module_candidate, effective_source_directory)
+        if not related_mentions:
+            return format_reference_display(
+                normalize_model_answer(
+                    format_reference_boundary_answer(query, ["deep_mechanism"]),
+                    source_context=source_context,
+                    sources=["sentieon-modules.json"],
+                )
+            )
         return format_reference_display(
             normalize_model_answer(
                 format_missing_module_reference_answer(module_candidate, related_mentions),
@@ -681,23 +719,10 @@ def answer_reference_query(
             *module_evidence,
             *[item for item in evidence if item.get("name") != "sentieon-modules.json"],
         ]
-    if not evidence:
-        return "未在本地资料中找到相关模块或参数，请补充更具体的模块名或参数名。"
-    if model_fallback is not None:
-        text = call_model_fallback(model_fallback, "reference", query, {}, evidence)
-        source_names = [item["name"] for item in evidence]
-        return format_reference_display(
-            normalize_model_answer(
-                text,
-                source_context=source_context,
-                sources=source_names,
-            )
-        )
     return format_reference_display(
-        generate_reference_fallback(
-            query,
+        normalize_model_answer(
+            format_reference_boundary_answer(query, ["deep_mechanism"]),
             source_context=source_context,
-            evidence=evidence,
-            config=app_config,
+            sources=[item["name"] for item in evidence],
         )
     )

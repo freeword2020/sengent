@@ -8,6 +8,7 @@ from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.external_guides import is_external_error_query, is_external_reference_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
+from sentieon_assist.reference_boundaries import looks_like_reference_boundary_query
 from sentieon_assist.support_state import SupportSessionState, SupportTask
 
 FIELD_SLOT_LABELS = {
@@ -24,9 +25,52 @@ CAPABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"你(?:能|可以)为我做些说明"),
     re.compile(r"你不是可以提供.*功能"),
     re.compile(r"你(?:能|可以)提供.*功能"),
-    re.compile(r"支持什么"),
+    re.compile(r"你支持什么"),
+    re.compile(r"你支持哪些"),
 )
 GENERIC_MODULE_INTRO_CUES = ("介绍", "是什么", "做什么", "功能", "作用")
+GENERAL_MODULE_QUERY_CUES = GENERIC_MODULE_INTRO_CUES + (
+    "如何",
+    "怎么",
+    "为什么",
+    "区别",
+    "差异",
+    "是否",
+    "能否",
+    "支持",
+    "兼容",
+    "哪些",
+    "哪几类",
+    "从哪里下载",
+)
+OPERATIONAL_REFERENCE_CUES = (
+    "licsrvr",
+    "licclnt",
+    "sdist",
+    "poetry",
+    "sentieon-cli",
+    "sentieon cli",
+    "sentieon driver",
+    "driver",
+    "graviton",
+    "arm",
+    "gpu",
+    "fpga",
+)
+ERROR_REPORT_CUES = (
+    "报错",
+    "错误",
+    "失败",
+    "异常",
+    "无法",
+    "不能",
+    "不行",
+    "killed",
+    "too many open files",
+    "permission denied",
+    "not found",
+    "找不到",
+)
 NON_MODULE_ASCII_TOKENS = {
     "sentieon",
     "license",
@@ -124,6 +168,8 @@ def is_capability_question(query: str) -> bool:
     if not normalized:
         return False
     if any(pattern.search(normalized) for pattern in CAPABILITY_PATTERNS):
+        if extract_explicit_module_candidate(query):
+            return False
         return True
     return normalized in {"介绍一下你自己", "介绍下你自己", "你是谁", "能做哪些支持"}
 
@@ -145,6 +191,16 @@ def normalize_reference_followup_fragment(query: str) -> str:
         if pattern.search(normalized_compact):
             return replacement
     return stripped
+
+
+def _looks_like_error_report(query: str) -> bool:
+    normalized = query.lower()
+    return any(cue in normalized for cue in ERROR_REPORT_CUES)
+
+
+def _looks_like_operational_reference_query(query: str) -> bool:
+    normalized = query.lower()
+    return any(cue in normalized for cue in OPERATIONAL_REFERENCE_CUES)
 
 
 def looks_like_reference_followup(
@@ -237,15 +293,7 @@ def select_support_route(
 ) -> SupportRouteDecision:
     info = extract_info_fn(query)
     issue_type = classify_query_fn(query)
-    if issue_type != "other":
-        return SupportRouteDecision(
-            task="troubleshooting",
-            issue_type=issue_type,
-            parsed_intent=ReferenceIntent(),
-            info=info,
-            reason=f"issue_type:{issue_type}",
-            explicit=True,
-        )
+    explicit_module = extract_explicit_module_candidate(query)
     if is_capability_question(query):
         return SupportRouteDecision(
             task="capability_explanation",
@@ -255,14 +303,48 @@ def select_support_route(
             reason="capability_question",
             explicit=True,
         )
-    explicit_module = extract_explicit_module_candidate(query)
-    if explicit_module and any(cue in query.lower() for cue in GENERIC_MODULE_INTRO_CUES) and not is_external_reference_query(
-        query
-    ):
+    if looks_like_reference_boundary_query(query):
         return SupportRouteDecision(
             task="reference_lookup",
             issue_type=issue_type,
-            parsed_intent=ReferenceIntent(intent="module_intro", module=explicit_module, confidence=0.42),
+            parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.52),
+            info=info,
+            reason="boundary_reference_query",
+            explicit=True,
+        )
+    if issue_type in {"license", "install"} and _looks_like_operational_reference_query(query) and not _looks_like_error_report(
+        query
+    ):
+        parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.41)
+        if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES):
+            parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=0.44)
+        return SupportRouteDecision(
+            task="reference_lookup",
+            issue_type=issue_type,
+            parsed_intent=parsed_intent,
+            info=info,
+            reason=f"{issue_type}_reference_lookup",
+            explicit=True,
+        )
+    if issue_type != "other":
+        return SupportRouteDecision(
+            task="troubleshooting",
+            issue_type=issue_type,
+            parsed_intent=ReferenceIntent(),
+            info=info,
+            reason=f"issue_type:{issue_type}",
+            explicit=True,
+        )
+    if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES) and not is_external_reference_query(query):
+        explicit_intent = "module_intro"
+        if re.search(r"(?<!\w)-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*", query) or any(
+            cue in query.lower() for cue in ("参数", "选项", "flag", "option")
+        ):
+            explicit_intent = "parameter_lookup"
+        return SupportRouteDecision(
+            task="reference_lookup",
+            issue_type=issue_type,
+            parsed_intent=ReferenceIntent(intent=explicit_intent, module=explicit_module, confidence=0.42),
             info=info,
             reason="explicit_module_intro",
             explicit=True,

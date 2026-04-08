@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ class DrillCase:
     forbidden: tuple[str, ...] = ()
 
 
-CASES = (
+LEGACY_CASES = (
     DrillCase(
         name="capability-broad",
         prompt="你能做什么",
@@ -68,6 +69,30 @@ CASES = (
 )
 
 
+def load_notebooklm_cases(repo_root: Path) -> tuple[DrillCase, ...]:
+    payload = json.loads((repo_root / "tests" / "data" / "notebooklm_adversarial_cases.json").read_text())
+    cases: list[DrillCase] = []
+    for item in payload:
+        case_id = int(item["id"])
+        expected_mode = str(item.get("expected_mode", "")).strip()
+        if expected_mode == "boundary":
+            expected = ("【资料边界】",)
+        elif expected_mode == "clarify":
+            expected = ("【需要确认的信息】",)
+        else:
+            expected = tuple(item.get("expected", [])) or ("【资料说明】",)
+        forbidden = ("当前 MVP 仅支持 license 和 install 问题",)
+        cases.append(
+            DrillCase(
+                name=f"notebooklm-{case_id:02d}",
+                prompt=str(item["prompt"]),
+                expected=expected,
+                forbidden=forbidden,
+            )
+        )
+    return tuple(cases)
+
+
 def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = "src"
@@ -99,9 +124,10 @@ def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
+    cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root))
     failures = 0
     print(f"Running adversarial support drill from {repo_root}")
-    for case in CASES:
+    for case in cases:
         ok, details = run_case(repo_root, case)
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {case.name}: {case.prompt}")
@@ -111,7 +137,7 @@ def main() -> int:
     if failures:
         print(f"{failures} adversarial drill case(s) failed.")
         return 1
-    print(f"All {len(CASES)} adversarial drill cases passed.")
+    print(f"All {len(cases)} adversarial drill cases passed.")
     return 0
 
 

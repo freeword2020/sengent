@@ -280,6 +280,34 @@ def test_render_chat_response_keeps_external_error_association_stable_without_po
     assert streamed_calls == []
 
 
+def test_run_query_returns_boundary_for_roadmap_style_reference_prompt():
+    text = run_query("目前发布的 HPRC minigraph-cactus 构建已支持多少个样本网络？Sentieon 如何应对即将发布的大规模 400 样本图谱？")
+
+    assert "【资料边界】" in text
+    assert "roadmap" in text or "未来" in text or "精确数值" in text
+
+
+def test_run_query_returns_boundary_for_install_packaging_reference_prompt():
+    text = run_query("如何通过命令行安装 Sentieon 工具？使用 sdist 安装 sentieon-cli 时，想结合 Poetry 虚拟环境进行依赖管理，具体配置步骤是什么？")
+
+    assert "【资料边界】" in text
+    assert "Poetry" not in text or "结构化证据" in text
+
+
+def test_run_query_returns_boundary_for_license_service_reference_prompt():
+    text = run_query("许可服务的配置方式是什么？在多节点集群环境中，如何配置 LICSRVR 动态分配许可证，并使用 LICCLNT 检查服务器状态？")
+
+    assert "【资料边界】" in text
+    assert "LICSRVR" not in text or "结构化证据" in text
+
+
+def test_run_query_does_not_treat_module_support_prompt_as_capability_question():
+    text = run_query("LongReadUtil 模块对 Oxford Nanopore 的三代单细胞 RNA 测序数据含有细胞条形码时，有哪些针对性的提取与 demultiplexing 支持？")
+
+    assert "【资料边界】" in text
+    assert "【能力说明】" not in text
+
+
 def test_render_chat_response_sanitizes_stable_markdown_artifacts():
     rendered, streamed = render_chat_response(
         "介绍下 Sentieon",
