@@ -1749,6 +1749,20 @@ def test_run_query_prefers_sentieon_module_script_query_over_shell_terms(monkeyp
     assert getattr(seen["parsed_intent"], "intent", "") == "script_example"
 
 
+def test_run_query_routes_broad_capability_prompt_to_support_explanation():
+    text = run_query("你能做什么")
+
+    assert "我可以帮你做这些 Sentieon 技术支持工作" in text
+    assert "当前 MVP 仅支持 license 和 install 问题" not in text
+
+
+def test_run_query_routes_sentieon_capability_prompt_to_support_explanation():
+    text = run_query("你不是可以提供sentieon的功能吗")
+
+    assert "我可以帮你做这些 Sentieon 技术支持工作" in text
+    assert "当前 MVP 仅支持 license 和 install 问题" not in text
+
+
 def test_main_passes_override_directories_to_run_query(monkeypatch):
     seen: dict[str, str] = {}
 

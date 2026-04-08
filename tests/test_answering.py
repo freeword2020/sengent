@@ -2227,3 +2227,23 @@ def test_checked_in_source_directory_exposes_long_read_hifi_fragment_followup_as
     assert "long-read" in text or "长读长" in text
     assert "如果你明确是 PacBio HiFi 数据" in text
     assert "【资料查询】" not in text
+
+
+def test_checked_in_source_directory_does_not_collapse_alignmentstat_into_alignment_family(monkeypatch):
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+
+    monkeypatch.setattr(
+        "sentieon_assist.answering.generate_reference_fallback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not fall back to generic reference synthesis")),
+    )
+
+    text = answer_reference_query(
+        "介绍下AlignmentStat",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="module_intro", module="AlignmentStat", confidence=0.91),
+    )
+
+    assert "Alignment：" not in text
+    assert "AlignmentStat" in text

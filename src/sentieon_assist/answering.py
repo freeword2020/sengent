@@ -14,9 +14,11 @@ from sentieon_assist.external_guides import (
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.module_index import (
     build_module_evidence,
+    find_related_module_mentions,
+    format_missing_module_reference_answer,
     format_module_overview_answer,
-    format_parameter_followup_answer,
     format_module_reference_answer,
+    format_parameter_followup_answer,
     format_parameter_disambiguation,
     format_parameter_reference_answer,
     format_script_reference_answer,
@@ -102,6 +104,18 @@ def missing_required_fields(issue_type: str, info: dict[str, str]) -> list[str]:
 def ask_for_missing(missing_fields: list[str]) -> str:
     labels = [FIELD_LABELS.get(field, field) for field in missing_fields]
     return f"需要补充以下信息：{', '.join(labels)}"
+
+
+def format_capability_explanation_answer() -> str:
+    return (
+        "【能力说明】\n"
+        "我可以帮你做这些 Sentieon 技术支持工作：\n"
+        "- 入门导航：帮你判断 WGS/WES/panel、胚系/体细胞、短读长/长读长 该先看哪条流程。\n"
+        "- 排障：帮你定位 license、安装、运行报错和常见格式/文件问题。\n"
+        "- 资料/脚本查询：帮你查模块介绍、参数含义、输入输出和参考命令骨架。\n\n"
+        "【建议下一步】\n"
+        "- 直接告诉我你的目标或问题，例如：我要做 WES 分析该怎么选；license 报错原文是什么；DNAscope 是什么。"
+    )
 
 
 def _format_source_context(source_context: dict[str, str] | None = None) -> str:
@@ -512,6 +526,16 @@ def answer_reference_query(
             )
         )
     module_matches = match_module_entries(query, effective_source_directory, max_matches=1)
+    module_candidate = str(resolved_intent.module or "").strip()
+    if not module_matches and module_candidate and resolved_intent.intent in {"module_intro", "parameter_lookup", "script_example"}:
+        related_mentions = find_related_module_mentions(module_candidate, effective_source_directory)
+        return format_reference_display(
+            normalize_model_answer(
+                format_missing_module_reference_answer(module_candidate, related_mentions),
+                source_context=source_context,
+                sources=["sentieon-modules.json"],
+            )
+        )
     matched_module = ""
     explicit_module_focus = False
     if module_matches:

@@ -8,6 +8,7 @@ from typing import Any, Callable
 from sentieon_assist.answering import (
     answer_query,
     answer_reference_query,
+    format_capability_explanation_answer,
     missing_required_fields,
     normalize_model_answer,
 )
@@ -16,12 +17,15 @@ from sentieon_assist.chat_ui import ChatUI, build_console
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.config import load_config
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
+from sentieon_assist.external_guides import is_external_error_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
+from sentieon_assist.support_coordinator import plan_support_turn, select_support_route, update_support_state
+from sentieon_assist.support_state import SupportSessionState
 
 try:
     import readline  # noqa: F401
@@ -361,29 +365,14 @@ def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[
     return knowledge_directory, source_directory, args[index:]
 
 
-def run_query(
+def _run_troubleshooting_query(
+    issue_type: str,
     query: str,
     *,
     model_fallback=None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
 ) -> str:
-    issue_type = classify_query(query)
-    if issue_type == "other":
-        parsed_intent = parse_reference_intent(query)
-        if parsed_intent.is_reference:
-            return answer_reference_query(
-                query,
-                model_fallback=model_fallback,
-                source_directory=source_directory,
-                parsed_intent=parsed_intent,
-            )
-        if is_reference_query(query):
-            return answer_reference_query(
-                query,
-                model_fallback=model_fallback,
-                source_directory=source_directory,
-            )
     current_state = "CLASSIFIED"
     current_state = next_state(current_state, has_missing_info=False)
 
@@ -407,6 +396,41 @@ def run_query(
         issue_type,
         query,
         info,
+        model_fallback=model_fallback,
+        knowledge_directory=knowledge_directory,
+        source_directory=source_directory,
+    )
+
+
+def run_query(
+    query: str,
+    *,
+    model_fallback=None,
+    knowledge_directory: str | None = None,
+    source_directory: str | None = None,
+    route_decision=None,
+) -> str:
+    decision = route_decision or select_support_route(
+        query,
+        classify_query_fn=classify_query,
+        parse_reference_intent_fn=parse_reference_intent,
+        is_reference_query_fn=is_reference_query,
+        extract_info_fn=extract_info_from_query,
+        is_external_error_query_fn=is_external_error_query,
+    )
+    if decision.task == "capability_explanation":
+        return format_capability_explanation_answer()
+    if decision.task in {"reference_lookup", "onboarding_guidance"} or decision.issue_type == "other":
+        parsed_intent = decision.parsed_intent if decision.parsed_intent.is_reference else None
+        return answer_reference_query(
+            query,
+            model_fallback=model_fallback,
+            source_directory=source_directory,
+            parsed_intent=parsed_intent,
+        )
+    return _run_troubleshooting_query(
+        decision.issue_type,
+        query,
         model_fallback=model_fallback,
         knowledge_directory=knowledge_directory,
         source_directory=source_directory,
@@ -438,8 +462,7 @@ def chat_loop(
         warmup = lambda model, base_url: build_backend_router(config).warmup_primary()
     warmup(config.ollama_model, config.ollama_base_url)
     ui.render_welcome_panel()
-    pending_query: str | None = None
-    reference_context_query: str | None = None
+    support_state = SupportSessionState()
     while True:
         query = input_fn(_build_input_prompt(input_fn=input_fn)).strip()
         if not query:
@@ -448,21 +471,19 @@ def chat_loop(
             output_fn("已退出交互模式。")
             return 0
         if query == "/reset":
-            pending_query = None
-            reference_context_query = None
+            support_state = support_state.cleared()
             output_fn("已清空当前补问上下文。")
             continue
-        normalized_reference_followup = _normalize_reference_followup_fragment(query)
-        if pending_query is not None and not _looks_like_new_query(query):
-            effective_query = f"{pending_query} {query}"
-        elif (
-            reference_context_query is not None
-            and not _looks_like_new_query(query)
-            and _looks_like_reference_followup(query, model_generate=model_generate)
-        ):
-            effective_query = f"{reference_context_query} {normalized_reference_followup}"
-        else:
-            effective_query = query
+        planned_turn = plan_support_turn(
+            query,
+            support_state,
+            classify_query_fn=classify_query,
+            parse_reference_intent_fn=parse_reference_intent,
+            is_reference_query_fn=is_reference_query,
+            extract_info_fn=extract_info_from_query,
+            is_external_error_query_fn=is_external_error_query,
+        )
+        effective_query = planned_turn.effective_query
         clear_status = start_thinking_animation(
             status_writer=status_writer,
             label=_build_pre_answer_status(effective_query),
@@ -472,16 +493,14 @@ def chat_loop(
             model_fallback=model_fallback,
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
+            route_decision=planned_turn.route,
         )
         clear_status()
-        if _requires_followup(response):
-            pending_query = effective_query
-        else:
-            pending_query = None
-        if _is_reference_answer(response):
-            reference_context_query = effective_query
-        elif not _requires_followup(response):
-            reference_context_query = None
+        support_state = update_support_state(
+            support_state,
+            planned_turn=planned_turn,
+            response=response,
+        )
         effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
         streamed_started = False
         clear_generation_status: Callable[[], None] | None = None

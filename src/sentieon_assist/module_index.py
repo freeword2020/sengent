@@ -39,6 +39,38 @@ def list_module_entries(source_directory: str | Path) -> list[dict[str, Any]]:
     return [entry for entry in load_module_index(source_directory).get("entries", []) if isinstance(entry, dict)]
 
 
+def _is_identifier_char(value: str) -> bool:
+    return value.isascii() and (value.isalnum() or value in {"_", "-"})
+
+
+def _alias_match_score(normalized_query: str, normalized_alias: str) -> int:
+    if not normalized_alias or normalized_alias not in normalized_query:
+        return -1
+    if re.fullmatch(r"[a-z0-9][a-z0-9 _-]*", normalized_alias):
+        best_score = -1
+        start = normalized_query.find(normalized_alias)
+        while start >= 0:
+            end = start + len(normalized_alias)
+            before_ok = start == 0 or not _is_identifier_char(normalized_query[start - 1])
+            after_ok = end == len(normalized_query) or not _is_identifier_char(normalized_query[end])
+            if before_ok and after_ok:
+                score = len(normalized_alias)
+                if normalized_query == normalized_alias:
+                    score += 20
+                elif normalized_query.startswith(normalized_alias):
+                    score += 10
+                if score > best_score:
+                    best_score = score
+            start = normalized_query.find(normalized_alias, start + 1)
+        return best_score
+    score = len(normalized_alias)
+    if normalized_query.startswith(normalized_alias):
+        score += 10
+    if normalized_query == normalized_alias:
+        score += 20
+    return score
+
+
 def match_module_entries(
     query: str,
     source_directory: str | Path,
@@ -54,13 +86,7 @@ def match_module_entries(
         best_alias = ""
         for alias in aliases:
             normalized_alias = alias.lower()
-            if not normalized_alias or normalized_alias not in normalized_query:
-                continue
-            score = len(normalized_alias)
-            if normalized_query.startswith(normalized_alias):
-                score += 10
-            if normalized_query == normalized_alias:
-                score += 20
+            score = _alias_match_score(normalized_query, normalized_alias)
             if score > best_score:
                 best_score = score
                 best_alias = alias
@@ -70,6 +96,41 @@ def match_module_entries(
             scored.append((best_score, enriched))
     scored.sort(key=lambda item: (-item[0], str(item[1].get("name", "")).lower()))
     return [entry for _, entry in scored[:max_matches]]
+
+
+def find_related_module_mentions(module_name: str, source_directory: str | Path) -> list[dict[str, str]]:
+    normalized_name = module_name.lower().strip()
+    mentions: list[dict[str, str]] = []
+    for entry in list_module_entries(source_directory):
+        related_modules = [str(value).strip() for value in entry.get("related_modules", [])]
+        if not any(value.lower() == normalized_name for value in related_modules):
+            continue
+        mentions.append(
+            {
+                "name": str(entry.get("name", "")).strip(),
+                "summary": str(entry.get("summary", "")).strip(),
+            }
+        )
+    return mentions
+
+
+def format_missing_module_reference_answer(module_name: str, related_mentions: list[dict[str, str]] | None = None) -> str:
+    normalized_name = module_name.strip() or "该模块"
+    if related_mentions:
+        names = "；".join(item["name"] for item in related_mentions if item.get("name"))
+        return (
+            "【模块介绍】\n"
+            f"- 当前本地模块索引未收录 {normalized_name} 的独立条目，不能把它直接等同于其他模块家族。\n"
+            f"- 现有资料里只把它作为相关模块提及，当前可追溯到：{names}。\n\n"
+            "【常用参数】\n"
+            "- 如果你现在要确认的是 QC 作用、输入输出或调用位置，建议先追问对应父模块或补充更具体的问题。"
+        )
+    return (
+        "【模块介绍】\n"
+        f"- 当前本地模块索引未收录 {normalized_name} 的独立条目，暂时不能给出确定性的模块介绍。\n\n"
+        "【常用参数】\n"
+        "- 请补充更完整的模块名、父流程，或你想确认的是功能、输入输出还是参考脚本。"
+    )
 
 
 def detect_module_query_intent(query: str) -> str:
