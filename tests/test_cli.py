@@ -87,10 +87,50 @@ def test_chat_loop_answers_once_and_quits():
     assert any("【问题判断】" in item for item in outputs)
     assert any("已退出" in item for item in outputs)
     assert statuses
+    assert any(text == "正在思考中..." for text, clear in statuses if not clear)
     assert any(text.startswith("正在思考中") for text, clear in statuses if not clear)
     assert any(clear for text, clear in statuses)
     assert input_prompts
     assert input_prompts[0] == "Sengent> "
+
+
+def test_chat_loop_emits_thinking_status_before_planning(monkeypatch):
+    prompts = iter(["介绍下 sentieon", "/quit"])
+    outputs: list[str] = []
+    statuses: list[tuple[str, bool]] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    import sentieon_assist.cli as cli_module
+
+    original_plan_support_turn = cli_module.plan_support_turn
+    saw_thinking_before_planning = False
+
+    def wrapped_plan_support_turn(*args, **kwargs):
+        nonlocal saw_thinking_before_planning
+        saw_thinking_before_planning = any(
+            text == "正在思考中..." for text, clear in statuses if not clear
+        )
+        return original_plan_support_turn(*args, **kwargs)
+
+    monkeypatch.setattr("sentieon_assist.cli.plan_support_turn", wrapped_plan_support_turn)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        status_writer=lambda text, clear=False: statuses.append((text, clear)),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert saw_thinking_before_planning is True
 
 
 def test_chat_loop_help_includes_feedback_entrypoint():

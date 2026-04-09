@@ -128,7 +128,7 @@ def start_thinking_animation(
     label: str = "思考中",
 ) -> Callable[[], None]:
     writer = status_writer or _default_status_writer
-    frames = (f"{label}.", f"{label}..", f"{label}...")
+    frames = (f"{label}...", f"{label}.", f"{label}..")
     stop_event = threading.Event()
     writer(frames[0], clear=False)
 
@@ -598,28 +598,32 @@ def chat_loop(
                 turn_history=turn_history,
             )
             continue
-        planned_turn = plan_support_turn(
-            query,
-            support_state,
-            classify_query_fn=classify_query,
-            parse_reference_intent_fn=parse_reference_intent,
-            is_reference_query_fn=is_reference_query,
-            extract_info_fn=extract_info_from_query,
-            is_external_error_query_fn=is_external_error_query,
-        )
-        effective_query = planned_turn.effective_query
-        clear_status = start_thinking_animation(
-            status_writer=status_writer,
-            label=_build_pre_answer_status(effective_query),
-        )
-        response = run_query(
-            effective_query,
-            model_fallback=model_fallback,
-            knowledge_directory=knowledge_directory,
-            source_directory=source_directory,
-            route_decision=planned_turn.route,
-        )
-        clear_status()
+        clear_status: Callable[[], None] | None = None
+        try:
+            clear_status = start_thinking_animation(
+                status_writer=status_writer,
+                label=_build_pre_answer_status(query),
+            )
+            planned_turn = plan_support_turn(
+                query,
+                support_state,
+                classify_query_fn=classify_query,
+                parse_reference_intent_fn=parse_reference_intent,
+                is_reference_query_fn=is_reference_query,
+                extract_info_fn=extract_info_from_query,
+                is_external_error_query_fn=is_external_error_query,
+            )
+            effective_query = planned_turn.effective_query
+            response = run_query(
+                effective_query,
+                model_fallback=model_fallback,
+                knowledge_directory=knowledge_directory,
+                source_directory=source_directory,
+                route_decision=planned_turn.route,
+            )
+        finally:
+            if clear_status is not None:
+                clear_status()
         support_state = update_support_state(
             support_state,
             planned_turn=planned_turn,
