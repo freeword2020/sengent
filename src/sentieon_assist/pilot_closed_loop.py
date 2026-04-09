@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from sentieon_assist.feedback_runtime import default_feedback_path, load_feedback_records
 from sentieon_assist.pilot_readiness import (
     LEGACY_MVP_FALLBACK,
     GateResult,
@@ -134,14 +135,40 @@ class TighteningRecommendation:
 
 
 @dataclass(frozen=True)
+class OptimizationFocusItem:
+    priority: int
+    bucket: str
+    count: int
+    target_files: tuple[str, ...]
+    why_now: str
+    suggested_action: str
+    sample_cases: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "priority": self.priority,
+            "bucket": self.bucket,
+            "count": self.count,
+            "target_files": list(self.target_files),
+            "why_now": self.why_now,
+            "suggested_action": self.suggested_action,
+            "sample_cases": list(self.sample_cases),
+        }
+
+
+@dataclass(frozen=True)
 class PilotClosedLoopReport:
     repo_root: str
     pilot_readiness: PilotReadinessReport
     feedback_single_turn: PilotSuiteResult
     feedback_multi_turn: PilotSuiteResult
+    runtime_feedback_single_turn: PilotSuiteResult
+    runtime_feedback_multi_turn: PilotSuiteResult
+    runtime_feedback_pending_count: int
     scorecard: ClosedLoopScorecard
     baseline: BaselineDelta | None
     recommendations: tuple[TighteningRecommendation, ...]
+    optimization_queue: tuple[OptimizationFocusItem, ...]
 
     @property
     def ok(self) -> bool:
@@ -149,6 +176,8 @@ class PilotClosedLoopReport:
             self.pilot_readiness.ok
             and self.feedback_single_turn.ok
             and self.feedback_multi_turn.ok
+            and self.runtime_feedback_single_turn.ok
+            and self.runtime_feedback_multi_turn.ok
             and self.scorecard.gate_failures == 0
             and self.scorecard.mvp_fallback_hits == 0
             and self.scorecard.wrong_reset_count == 0
@@ -161,9 +190,13 @@ class PilotClosedLoopReport:
             "pilot_readiness": self.pilot_readiness.to_dict(),
             "feedback_single_turn": self.feedback_single_turn.to_dict(),
             "feedback_multi_turn": self.feedback_multi_turn.to_dict(),
+            "runtime_feedback_single_turn": self.runtime_feedback_single_turn.to_dict(),
+            "runtime_feedback_multi_turn": self.runtime_feedback_multi_turn.to_dict(),
+            "runtime_feedback_pending_count": self.runtime_feedback_pending_count,
             "scorecard": self.scorecard.to_dict(),
             "baseline": self.baseline.to_dict() if self.baseline is not None else None,
             "recommendations": [item.to_dict() for item in self.recommendations],
+            "optimization_queue": [item.to_dict() for item in self.optimization_queue],
         }
 
 
@@ -216,7 +249,69 @@ def load_feedback_session_cases(repo_root: Path) -> tuple[FeedbackSessionCase, .
     return tuple(cases)
 
 
-def _evaluate_feedback_single_turn(repo_root: Path, cases: tuple[FeedbackSingleTurnCase, ...]) -> PilotSuiteResult:
+def load_runtime_feedback_intake(
+    path: Path,
+) -> tuple[tuple[FeedbackSingleTurnCase, ...], tuple[FeedbackSessionCase, ...], int]:
+    records = load_feedback_records(path)
+    single_turn_cases: list[FeedbackSingleTurnCase] = []
+    session_cases: list[FeedbackSessionCase] = []
+    pending_count = 0
+    for record in records:
+        captured_turns = record.get("captured_turns", [])
+        if not isinstance(captured_turns, list) or not captured_turns:
+            pending_count += 1
+            continue
+        expected_mode = str(record.get("expected_mode", "")).strip()
+        expected_task = str(record.get("expected_task", "")).strip()
+        if not (expected_mode and expected_task):
+            pending_count += 1
+            continue
+        record_id = str(record.get("record_id", f"runtime-{len(single_turn_cases) + len(session_cases) + 1}"))
+        source = str(record.get("source", "runtime-feedback"))
+        scope = str(record.get("scope", "last")).strip() or "last"
+        if scope == "session" and len(captured_turns) > 1:
+            turns: list[PilotSessionTurnCase] = []
+            for index, turn in enumerate(captured_turns):
+                actual_mode = str(turn.get("response_mode", "")).strip() or "doc"
+                actual_task = str(turn.get("task", "")).strip() or "reference_lookup"
+                turns.append(
+                    PilotSessionTurnCase(
+                        prompt=str(turn["prompt"]),
+                        expected_mode=expected_mode if index == len(captured_turns) - 1 else actual_mode,
+                        expected_task=expected_task if index == len(captured_turns) - 1 else actual_task,
+                        expected=(),
+                        expected_reused_anchor=bool(turn.get("reused_anchor", False)),
+                    )
+                )
+            session_cases.append(
+                FeedbackSessionCase(
+                    case_id=record_id,
+                    source=source,
+                    turns=tuple(turns),
+                )
+            )
+            continue
+        focus_turn = captured_turns[-1]
+        single_turn_cases.append(
+            FeedbackSingleTurnCase(
+                case_id=record_id,
+                source=source,
+                prompt=str(focus_turn["prompt"]),
+                expected_mode=expected_mode,
+                expected_task=expected_task,
+                expected=(),
+            )
+        )
+    return tuple(single_turn_cases), tuple(session_cases), pending_count
+
+
+def _evaluate_feedback_single_turn(
+    repo_root: Path,
+    cases: tuple[FeedbackSingleTurnCase, ...],
+    *,
+    suite_name: str = "feedback-single-turn",
+    suite_label: str = "feedback-single-turn",
+) -> PilotSuiteResult:
     source_directory = repo_root / "sentieon-note"
     failures: list[PilotEvalFailure] = []
     mvp_fallback_hits = 0
@@ -226,7 +321,7 @@ def _evaluate_feedback_single_turn(repo_root: Path, cases: tuple[FeedbackSingleT
         failure = bucket_failure(
             case=case,
             result=result,
-            suite="feedback-single-turn",
+            suite=suite_name,
             case_id=f"{case.source}:{case.case_id}",
         )
         if failure is not None:
@@ -234,7 +329,7 @@ def _evaluate_feedback_single_turn(repo_root: Path, cases: tuple[FeedbackSingleT
     wrong_anchor_reuse_count = sum(1 for failure in failures if failure.bucket == "wrong_anchor_reuse")
     wrong_reset_count = sum(1 for failure in failures if failure.bucket == "wrong_reset")
     return PilotSuiteResult(
-        name="feedback-single-turn",
+        name=suite_label,
         total=len(cases),
         passed=len(cases) - len(failures),
         failed=len(failures),
@@ -245,7 +340,13 @@ def _evaluate_feedback_single_turn(repo_root: Path, cases: tuple[FeedbackSingleT
     )
 
 
-def _evaluate_feedback_sessions(repo_root: Path, cases: tuple[FeedbackSessionCase, ...]) -> PilotSuiteResult:
+def _evaluate_feedback_sessions(
+    repo_root: Path,
+    cases: tuple[FeedbackSessionCase, ...],
+    *,
+    suite_name: str = "feedback-multi-turn",
+    suite_label: str = "feedback-multi-turn",
+) -> PilotSuiteResult:
     source_directory = repo_root / "sentieon-note"
     failures: list[PilotEvalFailure] = []
     total_turns = 0
@@ -258,7 +359,7 @@ def _evaluate_feedback_sessions(repo_root: Path, cases: tuple[FeedbackSessionCas
             failure = bucket_failure(
                 case=turn,
                 result=result,
-                suite="feedback-multi-turn",
+                suite=suite_name,
                 case_id=f"{case.source}:{case.case_id}",
                 turn_index=turn_index,
             )
@@ -267,7 +368,7 @@ def _evaluate_feedback_sessions(repo_root: Path, cases: tuple[FeedbackSessionCas
     wrong_anchor_reuse_count = sum(1 for failure in failures if failure.bucket == "wrong_anchor_reuse")
     wrong_reset_count = sum(1 for failure in failures if failure.bucket == "wrong_reset")
     return PilotSuiteResult(
-        name="feedback-multi-turn",
+        name=suite_label,
         total=total_turns,
         passed=total_turns - len(failures),
         failed=len(failures),
@@ -301,12 +402,16 @@ def score_closed_loop_report(
     *,
     feedback_single_turn: PilotSuiteResult,
     feedback_multi_turn: PilotSuiteResult,
+    runtime_feedback_single_turn: PilotSuiteResult | None = None,
+    runtime_feedback_multi_turn: PilotSuiteResult | None = None,
 ) -> ClosedLoopScorecard:
     suites = (
         pilot_report.pilot_single_turn,
         pilot_report.pilot_multi_turn,
         feedback_single_turn,
         feedback_multi_turn,
+        runtime_feedback_single_turn or PilotSuiteResult("runtime-feedback-single-turn", 0, 0, 0, (), 0, 0, 0),
+        runtime_feedback_multi_turn or PilotSuiteResult("runtime-feedback-multi-turn", 0, 0, 0, (), 0, 0, 0),
     )
     gate_failures = sum(1 for gate in pilot_report.gates if not gate.ok)
     bucket_counts = collect_bucket_counts(suites)
@@ -314,11 +419,15 @@ def score_closed_loop_report(
         pilot_report.mvp_fallback_hits
         + feedback_single_turn.mvp_fallback_hits
         + feedback_multi_turn.mvp_fallback_hits
+        + (runtime_feedback_single_turn.mvp_fallback_hits if runtime_feedback_single_turn else 0)
+        + (runtime_feedback_multi_turn.mvp_fallback_hits if runtime_feedback_multi_turn else 0)
     )
     wrong_reset_count = (
         pilot_report.wrong_reset_count
         + feedback_single_turn.wrong_reset_count
         + feedback_multi_turn.wrong_reset_count
+        + (runtime_feedback_single_turn.wrong_reset_count if runtime_feedback_single_turn else 0)
+        + (runtime_feedback_multi_turn.wrong_reset_count if runtime_feedback_multi_turn else 0)
     )
     penalty = gate_failures * GATE_FAILURE_PENALTY + mvp_fallback_hits * MVP_FALLBACK_PENALTY
     penalty += sum(BUCKET_WEIGHTS.get(bucket, 5) * count for bucket, count in bucket_counts.items())
@@ -398,33 +507,109 @@ def generate_tightening_recommendations(scorecard: ClosedLoopScorecard) -> tuple
     return tuple(recommendations)
 
 
+def build_optimization_queue(
+    scorecard: ClosedLoopScorecard,
+    *,
+    suites: tuple[PilotSuiteResult, ...],
+    limit: int = 3,
+) -> tuple[OptimizationFocusItem, ...]:
+    if limit <= 0:
+        return ()
+    failures_by_bucket: dict[str, list[PilotEvalFailure]] = {}
+    for suite in suites:
+        for failure in suite.failures:
+            failures_by_bucket.setdefault(failure.bucket, []).append(failure)
+
+    queue: list[OptimizationFocusItem] = []
+    ranked_buckets = sorted(
+        (
+            (bucket, count)
+            for bucket, count in scorecard.bucket_counts.items()
+            if count > 0 and bucket in RECOMMENDATION_MAP
+        ),
+        key=lambda item: (-BUCKET_WEIGHTS.get(item[0], 0), -item[1], item[0]),
+    )
+    for priority, (bucket, count) in enumerate(ranked_buckets[:limit], start=1):
+        mapping = RECOMMENDATION_MAP[bucket]
+        sample_cases = tuple(
+            failure.case_id
+            for failure in failures_by_bucket.get(bucket, [])[:3]
+        )
+        queue.append(
+            OptimizationFocusItem(
+                priority=priority,
+                bucket=bucket,
+                count=count,
+                target_files=tuple(mapping["target_files"]),
+                why_now=str(mapping["why_now"]),
+                suggested_action=str(mapping["suggested_action"]),
+                sample_cases=sample_cases,
+            )
+        )
+    return tuple(queue)
+
+
 def run_pilot_closed_loop(
     repo_root: Path,
     *,
     baseline_path: Path | None = None,
     json_out: Path | None = None,
+    runtime_feedback_path: Path | None = None,
+    focus_limit: int = 3,
     command_gate_runner=run_command_gate,
 ) -> PilotClosedLoopReport:
     pilot_report = run_pilot_readiness_evaluation(repo_root, command_gate_runner=command_gate_runner)
     feedback_single_turn = _evaluate_feedback_single_turn(repo_root, load_feedback_single_turn_cases(repo_root))
     feedback_multi_turn = _evaluate_feedback_sessions(repo_root, load_feedback_session_cases(repo_root))
+    runtime_path = runtime_feedback_path or default_feedback_path()
+    runtime_single_cases, runtime_session_cases, runtime_pending_count = load_runtime_feedback_intake(runtime_path)
+    runtime_feedback_single_turn = _evaluate_feedback_single_turn(
+        repo_root,
+        runtime_single_cases,
+        suite_name="runtime-feedback-single-turn",
+        suite_label="runtime-feedback-single-turn",
+    )
+    runtime_feedback_multi_turn = _evaluate_feedback_sessions(
+        repo_root,
+        runtime_session_cases,
+        suite_name="runtime-feedback-multi-turn",
+        suite_label="runtime-feedback-multi-turn",
+    )
     scorecard = score_closed_loop_report(
         pilot_report,
         feedback_single_turn=feedback_single_turn,
         feedback_multi_turn=feedback_multi_turn,
+        runtime_feedback_single_turn=runtime_feedback_single_turn,
+        runtime_feedback_multi_turn=runtime_feedback_multi_turn,
     )
     baseline = None
     if baseline_path is not None:
         baseline = compare_against_baseline(scorecard, _read_json(baseline_path))
     recommendations = generate_tightening_recommendations(scorecard)
+    optimization_queue = build_optimization_queue(
+        scorecard,
+        suites=(
+            pilot_report.pilot_single_turn,
+            pilot_report.pilot_multi_turn,
+            feedback_single_turn,
+            feedback_multi_turn,
+            runtime_feedback_single_turn,
+            runtime_feedback_multi_turn,
+        ),
+        limit=focus_limit,
+    )
     report = PilotClosedLoopReport(
         repo_root=str(repo_root),
         pilot_readiness=pilot_report,
         feedback_single_turn=feedback_single_turn,
         feedback_multi_turn=feedback_multi_turn,
+        runtime_feedback_single_turn=runtime_feedback_single_turn,
+        runtime_feedback_multi_turn=runtime_feedback_multi_turn,
+        runtime_feedback_pending_count=runtime_pending_count,
         scorecard=scorecard,
         baseline=baseline,
         recommendations=recommendations,
+        optimization_queue=optimization_queue,
     )
     if json_out is not None:
         json_out.write_text(json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -441,9 +626,12 @@ def format_pilot_closed_loop_summary(report: PilotClosedLoopReport) -> str:
         report.pilot_readiness.pilot_multi_turn,
         report.feedback_single_turn,
         report.feedback_multi_turn,
+        report.runtime_feedback_single_turn,
+        report.runtime_feedback_multi_turn,
     ):
         status = "PASS" if suite.ok else "FAIL"
         lines.append(f"[{status}] {suite.name}: {suite.passed}/{suite.total} passed")
+    lines.append(f"Runtime feedback pending triage: {report.runtime_feedback_pending_count}")
     lines.append(f"Quality score: {report.scorecard.quality_score}")
     lines.append(f"Risk level: {report.scorecard.risk_level}")
     lines.append(f"Gate failures: {report.scorecard.gate_failures}")
@@ -469,6 +657,17 @@ def format_pilot_closed_loop_summary(report: PilotClosedLoopReport) -> str:
             )
     else:
         lines.append("Tightening recommendations: none; keep collecting fresh pilot failures.")
+    if report.optimization_queue:
+        lines.append("Optimization queue:")
+        for item in report.optimization_queue:
+            sample_text = f" | sample: {', '.join(item.sample_cases)}" if item.sample_cases else ""
+            lines.append(
+                f"- P{item.priority} {item.bucket} x{item.count}: "
+                + ", ".join(item.target_files)
+                + sample_text
+            )
+    else:
+        lines.append("Optimization queue: none")
     if report.ok:
         lines.append("Pilot closed loop is stable.")
     else:

@@ -1,3 +1,4 @@
+import json
 import sys
 
 from sentieon_assist.cli import _build_input_prompt
@@ -90,6 +91,124 @@ def test_chat_loop_answers_once_and_quits():
     assert any(clear for text, clear in statuses)
     assert input_prompts
     assert input_prompts[0] == "Sengent> "
+
+
+def test_chat_loop_help_includes_feedback_entrypoint():
+    prompts = iter(["/help", "/quit"])
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert any("/feedback" in item for item in outputs)
+    assert any("/feedback session" in item for item in outputs)
+
+
+def test_chat_loop_feedback_writes_last_turn_record(tmp_path, monkeypatch):
+    feedback_path = tmp_path / "runtime-feedback.jsonl"
+    prompts = iter(
+        [
+            "DNAscope 是做什么的",
+            "/feedback",
+            "模块介绍太泛了",
+            "希望它先说明适用场景",
+            "module",
+            "reference",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "【模块介绍】\nDNAscope：用于 germline variant calling")
+
+    code = main(
+        ["--feedback-path", str(feedback_path), "chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert feedback_path.exists()
+    records = [json.loads(line) for line in feedback_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["scope"] == "last"
+    assert record["summary"] == "模块介绍太泛了"
+    assert record["expected_answer"] == "希望它先说明适用场景"
+    assert record["expected_mode"] == "module_intro"
+    assert record["expected_task"] == "reference_lookup"
+    assert len(record["captured_turns"]) == 1
+    assert record["captured_turns"][0]["prompt"] == "DNAscope 是做什么的"
+    assert record["captured_turns"][0]["response"].startswith("【模块介绍】")
+    assert any("已记录问题反馈" in item for item in outputs)
+
+
+def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
+    feedback_path = tmp_path / "runtime-feedback.jsonl"
+    prompts = iter(
+        [
+            "能提供个wes参考脚本吗",
+            "短读长二倍体呢",
+            "/feedback session",
+            "第二轮才给到脚本",
+            "第一轮就该更明确说明下一步",
+            "",
+            "",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "能提供个wes参考脚本吗":
+            return "【流程指导】\n- 先确认胚系还是体细胞。\n\n【需要确认的信息】\n- 样本是否来自二倍体生物（diploid organism）？"
+        if query == "能提供个wes参考脚本吗 短读长二倍体呢":
+            return "【参考命令】\n- sentieon-cli dnascope ..."
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["--feedback-path", str(feedback_path), "chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == ["能提供个wes参考脚本吗", "能提供个wes参考脚本吗 短读长二倍体呢"]
+    records = [json.loads(line) for line in feedback_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["scope"] == "session"
+    assert record["summary"] == "第二轮才给到脚本"
+    assert record["expected_answer"] == "第一轮就该更明确说明下一步"
+    assert len(record["captured_turns"]) == 2
+    assert record["captured_turns"][0]["prompt"] == "能提供个wes参考脚本吗"
+    assert record["captured_turns"][1]["prompt"] == "短读长二倍体呢"
 
 
 def test_chat_loop_passes_terse_example_followup_with_workflow_context(monkeypatch):

@@ -1287,9 +1287,10 @@ def test_checked_in_source_directory_exposes_ambiguous_wgs_workflow_guidance():
     )
 
     assert "【流程指导】" in text
-    assert "短读长胚系 WGS" in text
-    assert "体细胞 WGS" in text
-    assert "长读长胚系 WGS" in text
+    assert "这是短读长 WGS 的流程分流问题" in text
+    assert "短读长胚系（short-read germline）WGS" in text
+    assert "短读长体细胞 WGS" in text
+    assert "长读长胚系 WGS" not in text
     assert "Sentieon BWA" not in text
     assert "WgsMetricsAlgo" not in text
 
@@ -1306,12 +1307,30 @@ def test_checked_in_source_directory_exposes_ambiguous_wgs_script_request_as_wor
     )
 
     assert "【流程指导】" in text
-    assert "短读长胚系 WGS" in text
-    assert "体细胞 WGS" in text
-    assert "长读长胚系 WGS" in text
+    assert "这是短读长 WGS 的流程分流问题" in text
+    assert "短读长胚系（short-read germline）WGS" in text
+    assert "短读长体细胞 WGS" in text
+    assert "长读长胚系 WGS" not in text
     assert "【需要确认的信息】" in text
     assert "**" not in text
     assert "`" not in text
+
+
+def test_checked_in_source_directory_defaults_brief_wgs_script_request_to_short_read_guidance():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个 wgs 参考脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【流程指导】" in text
+    assert "这是短读长 WGS 的流程分流问题" in text
+    assert "长读长胚系 WGS" not in text
+    assert "PacBio HiFi / ONT" not in text
 
 
 def test_checked_in_source_directory_exposes_short_read_germline_wgs_guidance():

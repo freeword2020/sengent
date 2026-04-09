@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sys
 import threading
+from pathlib import Path
 from typing import Any, Callable
 
 from sentieon_assist.answering import (
@@ -19,6 +20,17 @@ from sentieon_assist.config import load_config
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 from sentieon_assist.external_guides import is_external_error_query
 from sentieon_assist.extractor import extract_info_from_query
+from sentieon_assist.feedback_runtime import (
+    FeedbackTurnSnapshot,
+    append_feedback_record,
+    build_feedback_record,
+    default_feedback_path,
+    format_chat_help,
+    format_feedback_hint,
+    normalize_expected_mode,
+    normalize_expected_task,
+    normalize_feedback_scope,
+)
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
@@ -346,23 +358,120 @@ def _build_pre_answer_status(query: str) -> str:
     return "正在思考中"
 
 
-def parse_global_options(args: list[str]) -> tuple[str | None, str | None, list[str]]:
+def parse_global_options(args: list[str]) -> tuple[str | None, str | None, str | None, list[str]]:
     knowledge_directory: str | None = None
     source_directory: str | None = None
+    feedback_path: str | None = None
     index = 0
     while index < len(args):
         option = args[index]
-        if option not in {"--knowledge-dir", "--source-dir"}:
+        if option not in {"--knowledge-dir", "--source-dir", "--feedback-path"}:
             break
         index += 1
         if index >= len(args):
             raise ValueError(f"missing value for {option}")
         if option == "--knowledge-dir":
             knowledge_directory = args[index]
+        elif option == "--feedback-path":
+            feedback_path = args[index]
         else:
             source_directory = args[index]
         index += 1
-    return knowledge_directory, source_directory, args[index:]
+    return knowledge_directory, source_directory, feedback_path, args[index:]
+
+
+def _parse_feedback_command(query: str) -> str | None:
+    stripped = query.strip()
+    if not stripped.startswith("/feedback"):
+        return None
+    parts = stripped.split(maxsplit=1)
+    if len(parts) == 1:
+        return ""
+    return parts[1]
+
+
+def _record_feedback_turn(
+    *,
+    prompt: str,
+    planned_turn,
+    response: str,
+) -> FeedbackTurnSnapshot:
+    return FeedbackTurnSnapshot(
+        prompt=prompt,
+        effective_query=planned_turn.effective_query,
+        response=response,
+        task=planned_turn.route.task,
+        issue_type=planned_turn.route.issue_type,
+        route_reason=planned_turn.route.reason,
+        parsed_intent_intent=planned_turn.route.parsed_intent.intent,
+        parsed_intent_module=planned_turn.route.parsed_intent.module,
+        response_mode="capability" if planned_turn.route.task == "capability_explanation" and response.startswith("【能力说明】") else "",
+        reused_anchor=planned_turn.reused_anchor,
+    )
+
+
+def _finalize_feedback_turn(snapshot: FeedbackTurnSnapshot) -> FeedbackTurnSnapshot:
+    from sentieon_assist.adversarial_sessions import classify_response_mode
+
+    return FeedbackTurnSnapshot(
+        prompt=snapshot.prompt,
+        effective_query=snapshot.effective_query,
+        response=snapshot.response,
+        task=snapshot.task,
+        issue_type=snapshot.issue_type,
+        route_reason=snapshot.route_reason,
+        parsed_intent_intent=snapshot.parsed_intent_intent,
+        parsed_intent_module=snapshot.parsed_intent_module,
+        response_mode=classify_response_mode(snapshot.response, task=snapshot.task),
+        reused_anchor=snapshot.reused_anchor,
+    )
+
+
+def _handle_feedback_command(
+    raw_argument: str,
+    *,
+    input_fn=input,
+    output_fn=print,
+    feedback_path: str | None,
+    turn_history: list[FeedbackTurnSnapshot],
+) -> None:
+    if not turn_history:
+        output_fn("当前还没有可反馈的回答。请先完成至少一轮对话。")
+        return
+    requested_scope = normalize_feedback_scope(raw_argument)
+    if not requested_scope:
+        requested_scope = normalize_feedback_scope(
+            input_fn("反馈范围 [last/session，回车默认 last]: ").strip()
+        )
+    scope = requested_scope or "last"
+    summary = input_fn("请描述哪里不理想（可直接回车跳过）: ").strip()
+    expected_answer = input_fn("你期望它怎么答（可直接回车跳过）: ").strip()
+    expected_mode = normalize_expected_mode(
+        input_fn(
+            "可选：期望回答类型 capability/workflow/module/parameter/script/doc/external/boundary/clarify（回车跳过）: "
+        ).strip()
+    )
+    expected_task = normalize_expected_task(
+        input_fn("可选：期望任务 capability/reference/workflow/troubleshooting（回车跳过）: ").strip()
+    )
+    captured_turns = turn_history if scope == "session" else [turn_history[-1]]
+    resolved_feedback_path = Path(feedback_path) if feedback_path else default_feedback_path()
+    record = build_feedback_record(
+        scope=scope,
+        captured_turns=captured_turns,
+        summary=summary,
+        expected_answer=expected_answer,
+        expected_mode=expected_mode,
+        expected_task=expected_task,
+        feedback_path=resolved_feedback_path,
+    )
+    append_feedback_record(resolved_feedback_path, record)
+    scope_label = "整段会话" if scope == "session" else "最近一轮"
+    output_fn(f"已记录问题反馈：{scope_label}。路径：{resolved_feedback_path}")
+    if expected_mode and expected_task:
+        output_fn("这条反馈已带期望 mode/task，后续 closed loop 可直接回放。")
+    else:
+        output_fn("这条反馈已进入待分诊队列；你也可以下次补充期望 mode/task。")
 
 
 def _run_troubleshooting_query(
@@ -450,6 +559,7 @@ def chat_loop(
     stream_output_fn: Callable[[str], None] | None = None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
+    feedback_path: str | None = None,
 ) -> int:
     require_chat_model(api_probe=api_probe)
     config = load_config()
@@ -463,6 +573,7 @@ def chat_loop(
     warmup(config.ollama_model, config.ollama_base_url)
     ui.render_welcome_panel()
     support_state = SupportSessionState()
+    turn_history: list[FeedbackTurnSnapshot] = []
     while True:
         query = input_fn(_build_input_prompt(input_fn=input_fn)).strip()
         if not query:
@@ -470,9 +581,22 @@ def chat_loop(
         if query in {"/quit", "quit", "exit"}:
             output_fn("已退出交互模式。")
             return 0
+        if query == "/help":
+            output_fn(format_chat_help())
+            continue
         if query == "/reset":
             support_state = support_state.cleared()
             output_fn("已清空当前补问上下文。")
+            continue
+        feedback_argument = _parse_feedback_command(query)
+        if feedback_argument is not None:
+            _handle_feedback_command(
+                feedback_argument,
+                input_fn=input_fn,
+                output_fn=output_fn,
+                feedback_path=feedback_path,
+                turn_history=turn_history,
+            )
             continue
         planned_turn = plan_support_turn(
             query,
@@ -500,6 +624,15 @@ def chat_loop(
             support_state,
             planned_turn=planned_turn,
             response=response,
+        )
+        turn_history.append(
+            _finalize_feedback_turn(
+                _record_feedback_turn(
+                    prompt=query,
+                    planned_turn=planned_turn,
+                    response=response,
+                )
+            )
         )
         effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
         streamed_started = False
@@ -529,6 +662,7 @@ def chat_loop(
         )
         if not streamed:
             ui.render_answer(rendered)
+        output_fn(format_feedback_hint())
 
 
 def print_sources(*, output_fn=print, source_directory: str | None = None) -> int:
@@ -570,12 +704,13 @@ def main(
 ) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     try:
-        cli_knowledge_directory, cli_source_directory, args = parse_global_options(args)
+        cli_knowledge_directory, cli_source_directory, cli_feedback_path, args = parse_global_options(args)
     except ValueError as error:
         output_fn(str(error))
         return 2
     effective_knowledge_directory = knowledge_directory or cli_knowledge_directory
     effective_source_directory = source_directory or cli_source_directory
+    effective_feedback_path = cli_feedback_path
     if args and args[0] == "chat":
         try:
             return chat_loop(
@@ -589,6 +724,7 @@ def main(
                 stream_output_fn=stream_output_fn,
                 knowledge_directory=effective_knowledge_directory,
                 source_directory=effective_source_directory,
+                feedback_path=effective_feedback_path,
             )
         except RuntimeError as error:
             output_fn(str(error))

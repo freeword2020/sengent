@@ -8,6 +8,59 @@ from typing import Any
 
 WORKFLOW_GUIDE_FILENAME = "workflow-guides.json"
 WORKFLOW_QUERY_NOISE_PATTERN = re.compile(r"示例脚本|参考脚本|示例命令|参考命令|脚本|命令|示例")
+GENERIC_WGS_TERMS = ("wgs", "whole genome", "全基因组")
+EXPLICIT_LONG_READ_TERMS = (
+    "long-read",
+    "long read",
+    "长读长",
+    "ont",
+    "nanopore",
+    "hifi",
+    "pacbio",
+)
+EXPLICIT_HYBRID_TERMS = (
+    "hybrid",
+    "联合分析",
+    "short-read + long-read",
+    "short-read+long-read",
+    "short read + long read",
+    "短读长 + 长读长",
+    "短读长+长读长",
+)
+GENERIC_WGS_SPECIALIZATION_TERMS = (
+    "germline",
+    "胚系",
+    "somatic",
+    "体细胞",
+    "tumor",
+    "肿瘤",
+    "tumor-only",
+    "tumor only",
+    "tumor-normal",
+    "tumor normal",
+    "matched normal",
+    "配对",
+    "对照",
+    "diploid",
+    "二倍体",
+    "polyploid",
+    "non-diploid",
+    "多倍体",
+    "多倍",
+    "cnv",
+    "copy number",
+    "拷贝数",
+    "pangenome",
+    "graph",
+    "泛基因组",
+    "fastq",
+    "bam",
+    "cram",
+    "ubam",
+    "ucram",
+)
+SHORT_READ_TERMS = ("short-read", "short read", "短读长", "illumina", "element", "ultima")
+SHORT_READ_WGS_ENTRY_IDS = {"short-read-wgs"}
 
 
 def workflow_index_path(source_directory: str | Path) -> Path:
@@ -115,6 +168,33 @@ def _normalize_workflow_query(query: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def _contains_term(normalized_query: str, terms: tuple[str, ...]) -> bool:
+    return any(term in normalized_query for term in terms)
+
+
+def _should_default_wgs_to_short_read(normalized_query: str) -> bool:
+    if not _contains_term(normalized_query, GENERIC_WGS_TERMS):
+        return False
+    if _contains_term(normalized_query, SHORT_READ_TERMS):
+        return False
+    if _contains_term(normalized_query, EXPLICIT_LONG_READ_TERMS):
+        return False
+    if _contains_term(normalized_query, EXPLICIT_HYBRID_TERMS):
+        return False
+    if _contains_term(normalized_query, GENERIC_WGS_SPECIALIZATION_TERMS):
+        return False
+    return True
+
+
+def _generic_wgs_short_read_bonus(entry: dict[str, Any], normalized_query: str) -> int:
+    entry_id = str(entry.get("id", "")).strip().lower()
+    if entry_id not in SHORT_READ_WGS_ENTRY_IDS:
+        return 0
+    if not _should_default_wgs_to_short_read(normalized_query):
+        return 0
+    return 100
+
+
 def match_workflow_entry(
     query: str,
     source_directory: str | Path,
@@ -124,10 +204,14 @@ def match_workflow_entry(
     normalized_query = _normalize_workflow_query(query)
     scored: list[tuple[int, dict[str, Any]]] = []
     for entry in list_workflow_entries(source_directory):
+        entry_id = str(entry.get("id", "")).strip().lower()
+        effective_query = normalized_query
+        if entry_id in SHORT_READ_WGS_ENTRY_IDS and _should_default_wgs_to_short_read(normalized_query):
+            effective_query = f"{normalized_query} short-read"
         if require_script_module and not workflow_script_module(entry):
             continue
         exclude_any = workflow_exclude_any(entry)
-        if _contains_any(normalized_query, exclude_any):
+        if _contains_any(effective_query, exclude_any):
             continue
 
         require_any_groups = workflow_require_any_groups(entry)
@@ -135,7 +219,7 @@ def match_workflow_entry(
             matched_groups = 0
             group_score = 0
             for group in require_any_groups:
-                matched_terms = [value for value in group if value in normalized_query]
+                matched_terms = [value for value in group if value in effective_query]
                 if not matched_terms:
                     matched_groups = -1
                     break
@@ -148,7 +232,8 @@ def match_workflow_entry(
 
         prefer_any = workflow_prefer_any(entry)
         score = workflow_priority(entry) + group_score
-        score += sum(len(value) for value in prefer_any if value in normalized_query)
+        score += sum(len(value) for value in prefer_any if value in effective_query)
+        score += _generic_wgs_short_read_bonus(entry, normalized_query)
         scored.append((score, entry))
 
     if not scored:

@@ -19,7 +19,7 @@
     "id": 3,
     "name": "wgs-to-polyploid-script",
     "turns": [
-      {"prompt": "能提供个wgs参考脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "能提供个wgs参考脚本吗", "expected": ["【流程指导】", "这是短读长 WGS 的流程分流问题"], "reused_anchor": false},
       {"prompt": "短读长多倍体呢", "expected": ["【参考命令】", "Haplotyper"], "reused_anchor": true}
     ]
   },
@@ -27,7 +27,7 @@
     "id": 4,
     "name": "wgs-to-ont-followup",
     "turns": [
-      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "这是短读长 WGS 的流程分流问题"], "reused_anchor": false},
       {"prompt": "那 ONT 呢", "expected": ["【流程指导】", "DNAscope LongRead"], "reused_anchor": true}
     ]
   },
@@ -35,7 +35,7 @@
     "id": 5,
     "name": "wgs-to-hifi-followup",
     "turns": [
-      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "这是短读长 WGS 的流程分流问题"], "reused_anchor": false},
       {"prompt": "那 HiFi 呢", "expected": ["【流程指导】", "DNAscope LongRead"], "reused_anchor": true}
     ]
   },
@@ -67,7 +67,7 @@
     "id": 9,
     "name": "wgs-to-hybrid-followup",
     "turns": [
-      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "这是短读长 WGS 的流程分流问题"], "reused_anchor": false},
       {"prompt": "那 hybrid 呢", "expected": ["【流程指导】", "DNAscope Hybrid"], "reused_anchor": true}
     ]
   },
@@ -107,7 +107,7 @@
     "id": 14,
     "name": "wgs-to-bam-followup",
     "turns": [
-      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "这是短读长 WGS 的流程分流问题"], "reused_anchor": false},
       {"prompt": "那 BAM 呢", "expected": ["【流程指导】", "BAM/CRAM"], "reused_anchor": true}
     ]
   },

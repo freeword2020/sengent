@@ -13,12 +13,15 @@ from sentieon_assist.pilot_readiness import (
 from sentieon_assist.pilot_closed_loop import (
     BaselineDelta,
     ClosedLoopScorecard,
+    OptimizationFocusItem,
+    build_optimization_queue,
     collect_bucket_counts,
     compare_against_baseline,
     format_pilot_closed_loop_summary,
     generate_tightening_recommendations,
     load_feedback_session_cases,
     load_feedback_single_turn_cases,
+    load_runtime_feedback_intake,
     run_pilot_closed_loop,
     score_closed_loop_report,
 )
@@ -80,6 +83,61 @@ def test_load_feedback_corpora():
     assert session_cases
     assert all(case.source for case in single_turn_cases)
     assert all(case.source for case in session_cases)
+
+
+def test_load_runtime_feedback_intake_splits_scorable_and_pending(tmp_path: Path):
+    runtime_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "record_id": "rt-1",
+                        "source": "runtime-feedback",
+                        "scope": "last",
+                        "expected_mode": "script",
+                        "expected_task": "reference_lookup",
+                        "captured_turns": [
+                            {
+                                "prompt": "能提供个 joint call 参考脚本吗",
+                                "response": "【参考命令】\n- sentieon driver --algo GVCFtyper ...",
+                                "task": "reference_lookup",
+                                "response_mode": "script",
+                                "reused_anchor": False,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "record_id": "rt-2",
+                        "source": "runtime-feedback",
+                        "scope": "session",
+                        "captured_turns": [
+                            {
+                                "prompt": "DNAscope 的 --pcr_free 是什么",
+                                "response": "【常用参数】\n- DNAscope 的 --pcr_free ...",
+                                "task": "reference_lookup",
+                                "response_mode": "parameter",
+                                "reused_anchor": False,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    single_turn_cases, session_cases, pending_count = load_runtime_feedback_intake(runtime_path)
+
+    assert len(single_turn_cases) == 1
+    assert len(session_cases) == 0
+    assert pending_count == 1
+    assert single_turn_cases[0].case_id == "rt-1"
 
 
 def test_collect_bucket_counts_aggregates_all_suites():
@@ -158,9 +216,67 @@ def test_generate_tightening_recommendations_orders_high_risk_buckets_first():
     assert any(rec.bucket == "wrong_script_handoff" for rec in recommendations)
 
 
+def test_build_optimization_queue_limits_top_buckets_and_carries_examples():
+    scorecard = ClosedLoopScorecard(
+        quality_score=68,
+        risk_level="critical",
+        gate_failures=0,
+        bucket_counts={
+            "wrong_reset": 2,
+            "wrong_script_handoff": 3,
+            "over_clarify": 4,
+        },
+        mvp_fallback_hits=0,
+        wrong_reset_count=2,
+    )
+    suites = (
+        _suite(
+            "feedback-single-turn",
+            (
+                _failure("wrong_script_handoff", suite="feedback", case_id="bad-script-1"),
+                _failure("wrong_script_handoff", suite="feedback", case_id="bad-script-2"),
+                _failure("over_clarify", suite="feedback", case_id="over-clarify-1"),
+                _failure("wrong_reset", suite="feedback", case_id="reset-1"),
+            ),
+        ),
+    )
+
+    queue = build_optimization_queue(scorecard, suites=suites, limit=2)
+
+    assert len(queue) == 2
+    assert isinstance(queue[0], OptimizationFocusItem)
+    assert queue[0].bucket == "wrong_reset"
+    assert queue[0].sample_cases
+    assert any("bad-script" in case_id for case_id in queue[1].sample_cases)
+
+
 def test_run_pilot_closed_loop_writes_json_and_summary(tmp_path: Path):
     repo_root = Path(__file__).resolve().parent.parent
     json_out = tmp_path / "pilot-loop.json"
+    runtime_feedback_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_feedback_path.write_text(
+        json.dumps(
+            {
+                "record_id": "rt-1",
+                "source": "runtime-feedback",
+                "scope": "last",
+                "expected_mode": "script",
+                "expected_task": "reference_lookup",
+                "captured_turns": [
+                    {
+                        "prompt": "能提供个 joint call 参考脚本吗",
+                        "response": "【参考命令】\n- sentieon driver --algo GVCFtyper ...",
+                        "task": "reference_lookup",
+                        "response_mode": "script",
+                        "reused_anchor": False,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     def fake_gate_runner(name: str, command: tuple[str, ...], root: Path) -> GateResult:
         return GateResult(name=name, ok=True, summary="pass", details="pass", returncode=0)
@@ -168,6 +284,7 @@ def test_run_pilot_closed_loop_writes_json_and_summary(tmp_path: Path):
     report = run_pilot_closed_loop(
         repo_root,
         json_out=json_out,
+        runtime_feedback_path=runtime_feedback_path,
         command_gate_runner=fake_gate_runner,
     )
 
@@ -177,7 +294,11 @@ def test_run_pilot_closed_loop_writes_json_and_summary(tmp_path: Path):
     assert "pilot_readiness" in payload
     assert "scorecard" in payload
     assert "recommendations" in payload
+    assert "optimization_queue" in payload
+    assert "runtime_feedback_single_turn" in payload
 
     summary = format_pilot_closed_loop_summary(report)
     assert "Quality score:" in summary
     assert "Risk level:" in summary
+    assert "Runtime feedback pending triage:" in summary
+    assert "Optimization queue:" in summary

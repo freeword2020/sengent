@@ -18,6 +18,7 @@ from sentieon_assist.chat_ui import (
     WELCOME_ACCENT_STYLE,
     WELCOME_BORDER_STYLE,
     WELCOME_LOGO_LINES,
+    WELCOME_SUBTITLE,
     ChatUI,
 )
 
@@ -38,9 +39,14 @@ def test_render_welcome_panel_contains_brand_poster_and_summary():
 
     text = console.export_text()
     assert WELCOME_LOGO_LINES[0] in text
+    assert WELCOME_SUBTITLE in text
     assert "我可以帮你做什么" in text
+    assert "模块、参数、参考脚本查询" in text
     assert "提问建议" in text
     assert "/quit" in text
+    assert "/help" in text
+    assert "/feedback" in text
+    assert "/help  /quit  /reset  /feedback" in text
     assert "示例提问" not in text
     assert "样本 -> 数据流" not in text
     assert "o==x" not in text
@@ -71,7 +77,7 @@ def test_render_welcome_panel_uses_tight_vertical_layout():
         for line in console.export_text().splitlines()
         if line.strip() and set(line.strip()) != {"─"}
     ]
-    assert len(panel_lines) <= 15
+    assert len(panel_lines) <= 16
 
 
 def test_render_welcome_panel_uses_brand_palette():

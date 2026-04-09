@@ -40,3 +40,42 @@ def test_match_workflow_entry_tolerates_malformed_runtime_hints(tmp_path):
 
     assert matched is not None
     assert matched["id"] == "valid"
+
+
+def test_match_workflow_entry_defaults_generic_wgs_to_short_read_when_long_read_is_unspecified(tmp_path):
+    source_directory = tmp_path
+    payload = {
+        "version": "test",
+        "entries": [
+            {
+                "id": "wgs-ambiguous",
+                "name": "WGS routing",
+                "priority": 20,
+                "require_any_groups": [["wgs"]],
+                "prefer_any": ["脚本", "分析"],
+                "summary": "generic wgs",
+            },
+            {
+                "id": "short-read-wgs",
+                "name": "Short-read WGS",
+                "priority": 53,
+                "require_any_groups": [["wgs"], ["short-read", "短读长"]],
+                "prefer_any": ["脚本", "分析"],
+                "summary": "default short-read wgs",
+            },
+            {
+                "id": "long-read-wgs",
+                "name": "Long-read WGS",
+                "priority": 60,
+                "require_any_groups": [["wgs"], ["long-read", "长读长", "ont"]],
+                "prefer_any": ["脚本", "分析"],
+                "summary": "explicit long-read wgs",
+            },
+        ],
+    }
+    (source_directory / "workflow-guides.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    matched = match_workflow_entry("我要做wgs分析，能给个示例脚本吗", source_directory)
+
+    assert matched is not None
+    assert matched["id"] == "short-read-wgs"

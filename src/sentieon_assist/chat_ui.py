@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
+from rich.align import Align
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.rule import Rule
@@ -12,12 +13,14 @@ from rich.text import Text
 WELCOME_BORDER_STYLE = "dark_orange3"
 WELCOME_ACCENT_STYLE = "bold dark_orange3"
 WELCOME_SHADOW_STYLE = "bold color(94)"
+WELCOME_SUBTITLE_STYLE = "dark_orange3"
 USER_BORDER_STYLE = "bright_cyan"
 USER_ACCENT_STYLE = "bold bright_cyan"
 EVENT_BORDER_STYLE = "grey50"
 EVENT_ACCENT_STYLE = "bold grey70"
 ASSISTANT_BORDER_STYLE = "dark_orange3"
 ASSISTANT_ACCENT_STYLE = "bold dark_orange3"
+WELCOME_SUBTITLE = "Sentieon Local Support Agent 1.0"
 WELCOME_LOGO_LINES = (
     "████▓ ████▓ █  █▓ ████▓ ████▓ █  █▓ ████▓",
     "█▓    █▓    ██ █▓ █▓    █▓    ██ █▓  ██▓ ",
@@ -75,24 +78,25 @@ class ChatUI:
 
     def render_welcome_panel(self) -> None:
         left = Group(
+            Text(""),
             *[_render_logo_line(line) for line in WELCOME_LOGO_LINES],
+            Align.center(Text(WELCOME_SUBTITLE, style=WELCOME_SUBTITLE_STYLE)),
         )
         right = Group(
             Text("我可以帮你做什么", style=WELCOME_ACCENT_STYLE),
             Text("- 许可证排障"),
             Text("- 安装排障"),
-            Text("- 模块 / 参数 / 参考脚本查询"),
+            Text("- 模块、参数、参考脚本查询"),
             Text("常用命令", style=WELCOME_ACCENT_STYLE),
-            Text("- /quit / /reset"),
+            Text("- /help  /quit  /reset  /feedback"),
             Text("提问建议", style=WELCOME_ACCENT_STYLE),
             Text("- 优先带版本号"),
             Text("- 报错尽量保留原文"),
         )
         grid = Table.grid(expand=False, padding=(0, 3))
         grid.add_column()
-        grid.add_column(width=1, justify="center")
         grid.add_column()
-        grid.add_row(left, Text("│", style=WELCOME_BORDER_STYLE), right)
+        grid.add_row(left, right)
         self.console.print(
             Panel.fit(
                 grid,
