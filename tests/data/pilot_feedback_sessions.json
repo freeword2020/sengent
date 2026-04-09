@@ -1,0 +1,43 @@
+[
+  {
+    "id": "wes-clarify-to-script",
+    "source": "interactive-trial",
+    "turns": [
+      {
+        "prompt": "能提供个wes参考脚本吗",
+        "expected_mode": "clarify",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【流程指导】", "【需要确认的信息】"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "短读长二倍体呢",
+        "expected_mode": "script",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【参考命令】", "sentieon-cli dnascope"],
+        "expected_reused_anchor": true
+      }
+    ]
+  },
+  {
+    "id": "parameter-then-doc-reset",
+    "source": "interactive-trial",
+    "turns": [
+      {
+        "prompt": "DNAscope 的 --pcr_free 是什么",
+        "expected_mode": "parameter",
+        "expected_task": "reference_lookup",
+        "expected": ["【常用参数】", "DNAscope 的 --pcr_free"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "LICSRVR、Poetry",
+        "expected_mode": "doc",
+        "expected_task": "reference_lookup",
+        "expected": ["【资料说明】", "LICSRVR", "Poetry"],
+        "expected_reused_anchor": false,
+        "reset_context": true
+      }
+    ]
+  }
+]

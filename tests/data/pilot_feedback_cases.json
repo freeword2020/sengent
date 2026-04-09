@@ -1,0 +1,34 @@
+[
+  {
+    "id": "capability-overview",
+    "source": "interactive-trial",
+    "prompt": "你有什么功能",
+    "expected_mode": "capability",
+    "expected_task": "capability_explanation",
+    "expected": ["【能力说明】", "Sentieon 技术支持工作"]
+  },
+  {
+    "id": "doc-licsrvr-poetry",
+    "source": "interactive-trial",
+    "prompt": "LICSRVR、Poetry",
+    "expected_mode": "doc",
+    "expected_task": "reference_lookup",
+    "expected": ["【资料说明】", "LICSRVR", "Poetry"]
+  },
+  {
+    "id": "script-short-read-diploid-wgs",
+    "source": "interactive-trial",
+    "prompt": "短读长二倍体wgs脚本有吗",
+    "expected_mode": "script",
+    "expected_task": "onboarding_guidance",
+    "expected": ["【参考命令】", "sentieon-cli dnascope"]
+  },
+  {
+    "id": "boundary-svsolver",
+    "source": "notebooklm",
+    "prompt": "在流程后期，SVSolver 模块是如何对 DNAscope 输出的 Break-end (BND) 候选项进行组装与最终定型输出的？",
+    "expected_mode": "boundary",
+    "expected_task": "reference_lookup",
+    "expected": ["【资料边界】"]
+  }
+]
