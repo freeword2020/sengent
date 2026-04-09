@@ -418,7 +418,7 @@ def select_support_route(
             issue_type=issue_type,
             parsed_intent=ReferenceIntent(intent=explicit_intent, module=explicit_module, confidence=0.42),
             info=info,
-            reason="explicit_module_intro",
+            reason=explicit_intent,
             explicit=True,
         )
     if is_external_error_query_fn(query, info):

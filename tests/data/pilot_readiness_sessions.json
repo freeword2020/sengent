@@ -1,0 +1,118 @@
+[
+  {
+    "id": "wes-clarify-to-script",
+    "turns": [
+      {
+        "prompt": "能提供个wes参考脚本吗",
+        "expected_mode": "clarify",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【流程指导】", "【需要确认的信息】"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "短读长二倍体呢",
+        "expected_mode": "script",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【参考命令】", "sentieon-cli dnascope"],
+        "expected_reused_anchor": true
+      }
+    ]
+  },
+  {
+    "id": "wgs-clarify-to-fastq-script",
+    "turns": [
+      {
+        "prompt": "能提供个 wgs 参考脚本吗",
+        "expected_mode": "clarify",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【流程指导】", "【需要确认的信息】"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "短读长二倍体，输入是 FASTQ",
+        "expected_mode": "script",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【参考命令】", "sentieon-cli dnascope"],
+        "expected_reused_anchor": true
+      }
+    ]
+  },
+  {
+    "id": "wes-to-somatic-followup",
+    "turns": [
+      {
+        "prompt": "我要做wes分析，能给个示例脚本吗",
+        "expected_mode": "clarify",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【流程指导】", "WES"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "那 somatic 呢",
+        "expected_mode": "clarify",
+        "expected_task": "onboarding_guidance",
+        "expected": ["TNseq / TNscope"],
+        "expected_reused_anchor": true
+      }
+    ]
+  },
+  {
+    "id": "ont-to-hybrid-followup",
+    "turns": [
+      {
+        "prompt": "能提供个ont分析脚本吗",
+        "expected_mode": "script",
+        "expected_task": "onboarding_guidance",
+        "expected": ["【参考命令】", "DNAscope LongRead"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "那 hybrid 呢",
+        "expected_mode": "script",
+        "expected_task": "reference_lookup",
+        "expected": ["【参考命令】", "DNAscope Hybrid"],
+        "expected_reused_anchor": true
+      }
+    ]
+  },
+  {
+    "id": "parameter-then-doc-reset",
+    "turns": [
+      {
+        "prompt": "DNAscope 的 --pcr_free 是什么",
+        "expected_mode": "parameter",
+        "expected_task": "reference_lookup",
+        "expected": ["【常用参数】", "DNAscope 的 --pcr_free"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "LICSRVR、Poetry",
+        "expected_mode": "doc",
+        "expected_task": "reference_lookup",
+        "expected": ["【资料说明】", "LICSRVR", "Poetry"],
+        "expected_reused_anchor": false,
+        "reset_context": true
+      }
+    ]
+  },
+  {
+    "id": "capability-then-module-reset",
+    "turns": [
+      {
+        "prompt": "你有什么功能",
+        "expected_mode": "capability",
+        "expected_task": "capability_explanation",
+        "expected": ["【能力说明】", "Sentieon 技术支持工作"],
+        "expected_reused_anchor": false
+      },
+      {
+        "prompt": "介绍下sentieon dnascope",
+        "expected_mode": "module_intro",
+        "expected_task": "reference_lookup",
+        "expected": ["【模块介绍】", "DNAscope"],
+        "expected_reused_anchor": false,
+        "reset_context": true
+      }
+    ]
+  }
+]

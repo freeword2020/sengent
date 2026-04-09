@@ -1,0 +1,79 @@
+[
+  {
+    "id": "capability-01",
+    "prompt": "你有什么功能",
+    "expected_mode": "capability",
+    "expected_task": "capability_explanation",
+    "expected": ["【能力说明】", "Sentieon 技术支持工作"]
+  },
+  {
+    "id": "module-01",
+    "prompt": "介绍下AlignmentStat",
+    "expected_mode": "module_intro",
+    "expected_task": "reference_lookup",
+    "expected": ["AlignmentStat", "未收录", "QC"]
+  },
+  {
+    "id": "parameter-01",
+    "prompt": "GVCFtyper 的 --emit_mode 是什么",
+    "expected_mode": "parameter",
+    "expected_task": "reference_lookup",
+    "expected": ["【常用参数】", "GVCFtyper 的 --emit_mode", "variant；confident；all"]
+  },
+  {
+    "id": "workflow-01",
+    "prompt": "能提供个 wes 参考脚本吗",
+    "expected_mode": "clarify",
+    "expected_task": "onboarding_guidance",
+    "expected": ["【流程指导】", "【需要确认的信息】"]
+  },
+  {
+    "id": "script-01",
+    "prompt": "短读长二倍体wgs脚本有吗",
+    "expected_mode": "script",
+    "expected_task": "onboarding_guidance",
+    "expected": ["【参考命令】", "sentieon-cli dnascope"]
+  },
+  {
+    "id": "script-02",
+    "prompt": "短读长多倍体wgs脚本有吗",
+    "expected_mode": "script",
+    "expected_task": "onboarding_guidance",
+    "expected": ["【参考命令】", "Haplotyper", "DNAseq"]
+  },
+  {
+    "id": "script-03",
+    "prompt": "能提供个 joint  call 参考脚本吗",
+    "expected_mode": "script",
+    "expected_task": "reference_lookup",
+    "expected": ["【参考命令】", "GVCFtyper"]
+  },
+  {
+    "id": "doc-01",
+    "prompt": "LICSRVR、Poetry",
+    "expected_mode": "doc",
+    "expected_task": "reference_lookup",
+    "expected": ["【资料说明】", "LICSRVR", "Poetry"]
+  },
+  {
+    "id": "doc-02",
+    "prompt": "为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？",
+    "expected_mode": "doc",
+    "expected_task": "reference_lookup",
+    "expected": ["【资料说明】", "-t", "CPU"]
+  },
+  {
+    "id": "boundary-01",
+    "prompt": "在流程后期，SVSolver 模块是如何对 DNAscope 输出的 Break-end (BND) 候选项进行组装与最终定型输出的？",
+    "expected_mode": "boundary",
+    "expected_task": "reference_lookup",
+    "expected": ["【资料边界】"]
+  },
+  {
+    "id": "external-error-01",
+    "prompt": "BAM 报错说 read group 不一致怎么办",
+    "expected_mode": "external_error",
+    "expected_task": "troubleshooting",
+    "expected": ["【关联判断】", "Read Group"]
+  }
+]
