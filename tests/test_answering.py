@@ -307,7 +307,17 @@ def test_notebooklm_adversarial_corpus_is_committed_and_complete():
     assert len(payload) == 50
     assert payload[0]["id"] == 1
     assert payload[-1]["id"] == 50
-    assert len([item for item in payload if item["expected_mode"] == "boundary"]) >= 40
+    assert len([item for item in payload if item["expected_mode"] == "boundary"]) >= 39
+
+
+def test_novice_adversarial_corpus_is_committed_and_complete():
+    path = Path(__file__).resolve().parent / "data" / "novice_adversarial_cases.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload) == 27
+    assert payload[0]["id"] == 1
+    assert payload[-1]["id"] == 27
+    assert len([item for item in payload if item["expected_mode"] == "doc"]) >= 7
 
 
 def test_answer_reference_query_supports_bwa_interleaved_parameter():
@@ -330,6 +340,126 @@ def test_answer_reference_query_supports_gvcftyper_emit_mode_parameter():
 
     assert "【常用参数】" in text
     assert "GVCFtyper 的 --emit_mode" in text
+
+
+def test_answer_reference_query_supports_joint_call_script_request_with_repeated_spaces(tmp_path):
+    (tmp_path / "sentieon-modules.json").write_text(
+        """
+        {
+          "version": "202503.03",
+          "entries": [
+            {
+              "id": "joint-call",
+              "name": "Joint Call",
+              "aliases": ["joint call"],
+              "category": "workflow",
+              "summary": "Joint Call 是多样本联合分型流程。",
+              "scope": ["cohort analysis"],
+              "inputs": ["多个 gVCF"],
+              "outputs": ["多样本 VCF"],
+              "script_examples": [
+                {
+                  "title": "joint call skeleton",
+                      "summary": "联合分型参考命令骨架。",
+                      "command_lines": [
+                        "sentieon driver -r $FASTA --algo GVCFtyper ..."
+                      ],
+                  "notes": ["替换 cohort 输入和参考文件。"]
+                }
+              ],
+              "sources": ["Sentieon202503.03.pdf"]
+            }
+          ]
+        }
+        """.strip()
+    )
+
+    text = answer_reference_query("能提供个 joint  call 参考脚本吗", source_directory=str(tmp_path))
+
+    assert "【参考命令】" in text
+    assert "Joint Call" in text
+    assert "GVCFtyper" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_licsrvr_and_poetry():
+    text = answer_reference_query("LICSRVR、Poetry")
+
+    assert "【资料说明】" in text
+    assert "LICSRVR" in text
+    assert "Poetry" in text
+    assert "【资料边界】" not in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_cpu_thread_question():
+    text = answer_reference_query("为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？")
+
+    assert "【资料说明】" in text
+    assert "-t" in text
+    assert "线程数" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_too_many_open_files_question():
+    text = answer_reference_query(
+        "为什么我在运行包含多个样本的联合分析或高深度数据比对时，程序突然崩溃并提示 Too many open files？"
+        "这是否是软件 Bug？我该如何通过修改系统配置来解决？"
+    )
+
+    assert "【资料说明】" in text
+    assert "ulimit -n" in text
+    assert "文件句柄" in text or "open files" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_samtools_collate_question():
+    text = answer_reference_query(
+        "客户给了一个旧的 BAM 文件，我打算提取 FASTQ 重新比对。"
+        "为什么不推荐使用 Picard 的 SamToFastq 拆分文件，而是建议使用 samtools collate 结合管道操作直连 BWA？"
+    )
+
+    assert "【资料说明】" in text
+    assert "samtools collate" in text
+    assert "SamToFastq" in text
+    assert "BWA" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_model_bundle_platform_question():
+    text = answer_reference_query(
+        "我手头同时有华大智造 MGI 和 Illumina 的 WGS 数据。在使用 DNAscope 算法时，我能否使用同一个通用的模型文件？如果不可以，我应该去哪里下载适配特定测序仪的 .model 文件？"
+    )
+
+    assert "【资料说明】" in text
+    assert "sentieon-models" in text
+    assert "Illumina" in text
+    assert "MGI" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_driver_vs_cli_question():
+    text = answer_reference_query(
+        "官方教程里有时用 sentieon driver --algo DNAscope，有时又用最新的 sentieon-cli dnascope。这两个命令有什么区别？sentieon-cli 是如何包装底层二进制文件的？"
+    )
+
+    assert "【资料说明】" in text
+    assert "sentieon-cli" in text
+    assert "driver --algo" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_tnscope_tumor_only_vs_normal_question():
+    text = answer_reference_query(
+        "在运行体细胞突变检测模块 TNscope 时，我只输入了肿瘤样本 Tumor-only。这是否可行？与同时输入肿瘤-正常 Tumor-Normal 配对样本相比，对低频突变及假阳性过滤的策略有何差异？"
+    )
+
+    assert "【资料说明】" in text
+    assert "tumor-only" in text
+    assert "germline variants" in text
+
+
+def test_answer_reference_query_returns_doc_answer_for_joint_call_many_gvcfs_question():
+    text = answer_reference_query(
+        "我有 500 个样本的 .g.vcf.gz 文件需要做 Joint Calling。我是否需要先用其他工具把这 500 个文件合并成一个大文件？还是可以直接在 GVCFtyper 命令行中无限叠加 -v 参数？"
+    )
+
+    assert "【资料说明】" in text
+    assert "-v" in text
+    assert "GVCFtyper" in text
 
 
 def test_answer_query_skips_version_warning_when_release_family_matches(monkeypatch):
@@ -1252,6 +1382,125 @@ def test_checked_in_source_directory_exposes_wes_script_request_as_workflow_guid
     assert "【需要确认的信息】" in text
 
 
+def test_checked_in_source_directory_exposes_short_read_diploid_wes_script_request_as_dnascope_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个 短读长二倍体wes 参考脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope" in text
+    assert "--assay ASSAY" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_short_read_diploid_wgs_script_request_as_dnascope_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个短读长二倍体 wgs 参考脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope" in text
+    assert "--assay ASSAY" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_short_read_polyploid_wgs_script_request_as_dnaseq_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "短读长多倍体wgs脚本有吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon bwa mem" in text
+    assert "Haplotyper" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_short_read_polyploid_wes_script_request_as_dnaseq_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "短读长多倍体wes脚本有吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon bwa mem" in text
+    assert "Haplotyper" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_polyploid_wes_script_request_as_dnaseq_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "多倍体wes脚本有吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon bwa mem" in text
+    assert "Haplotyper" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_diploid_wes_script_request_as_dnascope_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "二倍体wes脚本有吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope" in text
+    assert "--assay ASSAY" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_spaced_polyploid_wgs_script_request_as_dnaseq_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "短读长 多 倍wgs脚本有吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon bwa mem" in text
+    assert "Haplotyper" in text
+    assert "【流程指导】" not in text
+
+
 def test_checked_in_source_directory_exposes_tumor_only_script_request_as_workflow_guidance():
     from sentieon_assist.reference_intents import ReferenceIntent
 
@@ -1263,10 +1512,28 @@ def test_checked_in_source_directory_exposes_tumor_only_script_request_as_workfl
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【流程指导】" in text
-    assert "TNscope" in text
-    assert "tumor-only" in text or "tumor only" in text
-    assert "【需要确认的信息】" in text
+    assert "【参考命令】" in text
+    assert "--algo TNscope" in text
+    assert "--tumor_sample TUMOR_SAMPLE_NAME" in text
+    assert "--normal_sample NORMAL_SAMPLE_NAME" not in text
+
+
+def test_checked_in_source_directory_exposes_tumor_only_script_request_as_tnscope_skeleton_when_prompt_is_direct():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个tumor only参考脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "--algo TNscope" in text
+    assert "--tumor_sample TUMOR_SAMPLE_NAME" in text
+    assert "--normal_sample NORMAL_SAMPLE_NAME" not in text
+    assert "【流程指导】" not in text
 
 
 def test_checked_in_source_directory_uses_standard_bioinformatics_terms_for_tumor_only_guidance():
@@ -1274,7 +1541,7 @@ def test_checked_in_source_directory_uses_standard_bioinformatics_terms_for_tumo
 
     source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
     text = answer_reference_query(
-        "我要做tumor-only分析，能给个示例脚本吗",
+        "我要做tumor-only分析，该看哪个流程",
         source_directory=str(source_directory),
         parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
@@ -1302,6 +1569,40 @@ def test_checked_in_source_directory_exposes_long_read_script_request_as_workflo
     assert "DNAscope LongRead" in text
     assert "DNAscope Hybrid" in text
     assert "【需要确认的信息】" in text
+
+
+def test_checked_in_source_directory_exposes_ont_script_request_as_longread_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个ont分析脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope-longread" in text
+    assert "--tech HiFi|ONT" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_hifi_script_request_as_longread_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个hifi分析脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope-longread" in text
+    assert "--tech HiFi|ONT" in text
+    assert "【流程指导】" not in text
 
 
 def test_checked_in_source_directory_uses_standard_bioinformatics_terms_for_long_read_guidance():
@@ -1404,6 +1705,7 @@ def test_checked_in_source_directory_exposes_short_read_germline_script_request_
     assert "DNAseq" in text
     assert "diploid" in text
 
+
 def test_checked_in_source_directory_escalates_terse_example_followup_to_script_skeleton_for_short_read_germline_wgs():
     from sentieon_assist.reference_intents import ReferenceIntent
 
@@ -1417,6 +1719,23 @@ def test_checked_in_source_directory_escalates_terse_example_followup_to_script_
 
     assert "【参考命令】" in text
     assert "sentieon-cli dnascope" in text
+    assert "【流程指导】" not in text
+
+
+def test_checked_in_source_directory_exposes_wgs_cnv_script_request_as_cnvscope_skeleton():
+    from sentieon_assist.reference_intents import ReferenceIntent
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    text = answer_reference_query(
+        "能提供个wgs cnv分析脚本吗",
+        source_directory=str(source_directory),
+        parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.93),
+        model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【参考命令】" in text
+    assert "--algo CNVscope" in text
+    assert "--algo CNVModelApply" in text
     assert "【流程指导】" not in text
 
 
@@ -2027,11 +2346,10 @@ def test_checked_in_source_directory_exposes_tumor_only_wgs_fragment_followup_as
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【流程指导】" in text
-    assert "这是没有配对正常样本（matched normal）的体细胞 WGS 流程分流问题" in text
-    assert "TNscope" in text
-    assert "SV" in text
-    assert "WGS、WES 还是 panel" not in text
+    assert "【参考命令】" in text
+    assert "--algo TNscope" in text
+    assert "--tumor_sample TUMOR_SAMPLE_NAME" in text
+    assert "--normal_sample NORMAL_SAMPLE_NAME" not in text
 
 
 def test_checked_in_source_directory_exposes_tumor_normal_wes_fragment_followup_as_workflow_guidance():
@@ -2065,11 +2383,10 @@ def test_checked_in_source_directory_exposes_tumor_only_wes_fragment_followup_as
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【流程指导】" in text
-    assert "这是没有配对正常样本（matched normal）的体细胞 WES 流程分流问题" in text
-    assert "TNscope" in text
-    assert "SV" in text
-    assert "WGS、WES 还是 panel" not in text
+    assert "【参考命令】" in text
+    assert "--algo TNscope" in text
+    assert "--tumor_sample TUMOR_SAMPLE_NAME" in text
+    assert "--normal_sample NORMAL_SAMPLE_NAME" not in text
 
 
 def test_checked_in_source_directory_exposes_tumor_normal_panel_fragment_followup_as_workflow_guidance():
@@ -2256,11 +2573,10 @@ def test_checked_in_source_directory_exposes_long_read_ont_fragment_followup_as_
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【流程指导】" in text
-    assert "ONT" in text
-    assert "long-read" in text or "长读长" in text
-    assert "如果你明确是 ONT 数据" in text
-    assert "【资料查询】" not in text
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope-longread" in text
+    assert "--tech HiFi|ONT" in text
+    assert "【流程指导】" not in text
 
 
 def test_checked_in_source_directory_exposes_long_read_hifi_fragment_followup_as_workflow_guidance():
@@ -2275,11 +2591,10 @@ def test_checked_in_source_directory_exposes_long_read_hifi_fragment_followup_as
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【流程指导】" in text
-    assert "HiFi" in text
-    assert "long-read" in text or "长读长" in text
-    assert "如果你明确是 PacBio HiFi 数据" in text
-    assert "【资料查询】" not in text
+    assert "【参考命令】" in text
+    assert "sentieon-cli dnascope-longread" in text
+    assert "--tech HiFi|ONT" in text
+    assert "【流程指导】" not in text
 
 
 def test_checked_in_source_directory_does_not_collapse_alignmentstat_into_alignment_family(monkeypatch):

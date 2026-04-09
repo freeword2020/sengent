@@ -565,6 +565,20 @@
             "manual tumor-normal 示例假定 tumor 和 normal 已完成各自预处理。"
           ],
           "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+        },
+        {
+          "title": "TNscope tumor-only skeleton",
+          "summary": "官方 manual 的 tumor-only 体细胞调用骨架。",
+          "when_to_use": ["tumor-only somatic calling", "tumor only", "单肿瘤（tumor-only）", "无配对正常样本（matched normal）"],
+          "command_lines": [
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i TUMOR_DEDUPED_BAM [-q TUMOR_RECAL_DATA.TABLE] --algo TNscope --tumor_sample TUMOR_SAMPLE_NAME [--dbsnp DBSNP] OUT_TN_VCF",
+            "sentieon driver -t NUMBER_THREADS -r REFERENCE -i TUMOR_DEDUPED_BAM [-q TUMOR_RECAL_DATA.TABLE] --algo TNscope --tumor_sample TUMOR_SAMPLE_NAME --pon PANEL_OF_NORMAL_VCF [--dbsnp DBSNP] OUT_TN_VCF"
+          ],
+          "notes": [
+            "manual 6.2 明确给出了不带 normal 输入的 tumor-only 变体。",
+            "如果有通用 panel of normal，可在 tumor-only 命令里补 --pon PANEL_OF_NORMAL_VCF。"
+          ],
+          "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
         }
       ],
       "common_questions": ["TNscope 是做什么的", "TNscope 和 TNsnv 区别是什么", "TNscope 是否支持 primer/UMI 相关处理"],

@@ -1,0 +1,154 @@
+[
+  {
+    "id": 1,
+    "name": "wes-clarify-to-diploid-script",
+    "turns": [
+      {"prompt": "能提供个wes参考脚本吗", "expected": ["【流程指导】", "【需要确认的信息】"], "reused_anchor": false},
+      {"prompt": "短读长二倍体呢", "expected": ["【参考命令】", "sentieon-cli dnascope"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 2,
+    "name": "wes-to-somatic-followup",
+    "turns": [
+      {"prompt": "我要做wes分析，能给个示例脚本吗", "expected": ["【流程指导】", "短读长胚系"], "reused_anchor": false},
+      {"prompt": "那 somatic 呢", "expected": ["【流程指导】", "TNseq / TNscope"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 3,
+    "name": "wgs-to-polyploid-script",
+    "turns": [
+      {"prompt": "能提供个wgs参考脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "短读长多倍体呢", "expected": ["【参考命令】", "Haplotyper"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 4,
+    "name": "wgs-to-ont-followup",
+    "turns": [
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "那 ONT 呢", "expected": ["【流程指导】", "DNAscope LongRead"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 5,
+    "name": "wgs-to-hifi-followup",
+    "turns": [
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "那 HiFi 呢", "expected": ["【流程指导】", "DNAscope LongRead"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 6,
+    "name": "longread-to-ont-script",
+    "turns": [
+      {"prompt": "我要做long-read分析，能给个示例脚本吗", "expected": ["【流程指导】", "长读长主线"], "reused_anchor": false},
+      {"prompt": "那 ONT 呢", "expected": ["【参考命令】", "DNAscope LongRead"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 7,
+    "name": "longread-to-hifi-script",
+    "turns": [
+      {"prompt": "我要做long-read分析，能给个示例脚本吗", "expected": ["【流程指导】", "长读长主线"], "reused_anchor": false},
+      {"prompt": "那 HiFi 呢", "expected": ["【参考命令】", "DNAscope LongRead"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 8,
+    "name": "longread-to-hybrid-followup",
+    "turns": [
+      {"prompt": "我要做long-read分析，能给个示例脚本吗", "expected": ["【流程指导】", "长读长主线"], "reused_anchor": false},
+      {"prompt": "那 hybrid 呢", "expected": ["【流程指导】", "DNAscope Hybrid"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 9,
+    "name": "wgs-to-hybrid-followup",
+    "turns": [
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "那 hybrid 呢", "expected": ["【流程指导】", "DNAscope Hybrid"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 10,
+    "name": "tumor-script-then-new-ont-request",
+    "turns": [
+      {"prompt": "能提供个tumor only参考脚本吗", "expected": ["【参考命令】", "--algo TNscope"], "reused_anchor": false},
+      {"prompt": "我要做ont分析，能给个示例脚本吗", "expected": ["【参考命令】", "DNAscope LongRead"], "reused_anchor": false}
+    ]
+  },
+  {
+    "id": 11,
+    "name": "parameter-then-doc-request",
+    "turns": [
+      {"prompt": "DNAscope 的 --pcr_free 是什么", "expected": ["【常用参数】", "DNAscope 的 --pcr_free"], "reused_anchor": false},
+      {"prompt": "LICSRVR、Poetry", "expected": ["【资料说明】", "LICSRVR", "Poetry"], "reused_anchor": false}
+    ]
+  },
+  {
+    "id": 12,
+    "name": "capability-then-module-request",
+    "turns": [
+      {"prompt": "你有什么功能", "expected": ["【能力说明】", "Sentieon 技术支持工作"], "reused_anchor": false},
+      {"prompt": "介绍下sentieon dnascope", "expected": ["【模块介绍】", "DNAscope"], "reused_anchor": false}
+    ]
+  },
+  {
+    "id": 13,
+    "name": "joint-script-then-parameter",
+    "turns": [
+      {"prompt": "能提供个 joint  call 参考脚本吗", "expected": ["【参考命令】", "GVCFtyper"], "reused_anchor": false},
+      {"prompt": "GVCFtyper 的 --emit_mode 是什么", "expected": ["【常用参数】", "GVCFtyper 的 --emit_mode"], "reused_anchor": false}
+    ]
+  },
+  {
+    "id": 14,
+    "name": "wgs-to-bam-followup",
+    "turns": [
+      {"prompt": "我要做wgs分析，能给个示例脚本吗", "expected": ["【流程指导】", "WGS 分析"], "reused_anchor": false},
+      {"prompt": "那 BAM 呢", "expected": ["【流程指导】", "BAM/CRAM"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 15,
+    "name": "wes-to-fastq-followup",
+    "turns": [
+      {"prompt": "我要做wes分析，能给个示例脚本吗", "expected": ["【流程指导】", "短读长胚系"], "reused_anchor": false},
+      {"prompt": "那 FASTQ 呢", "expected": ["【流程指导】", "FASTQ"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 16,
+    "name": "panel-to-germline-followup",
+    "turns": [
+      {"prompt": "我要做panel分析，能给个示例脚本吗", "expected": ["【流程指导】", "targeted panel"], "reused_anchor": false},
+      {"prompt": "那 germline 呢", "expected": ["【流程指导】", "胚系 panel"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 17,
+    "name": "panel-to-somatic-followup",
+    "turns": [
+      {"prompt": "我要做panel分析，能给个示例脚本吗", "expected": ["【流程指导】", "targeted panel"], "reused_anchor": false},
+      {"prompt": "那 somatic 呢", "expected": ["【流程指导】", "体细胞 panel"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 18,
+    "name": "noisy-wes-clarify-to-diploid-script",
+    "turns": [
+      {"prompt": " 能提供个   WES   参考脚本 吗 ", "expected": ["【流程指导】", "WES"], "reused_anchor": false},
+      {"prompt": " 短读长  二倍体  呢 ", "expected": ["【参考命令】", "sentieon-cli dnascope"], "reused_anchor": true}
+    ]
+  },
+  {
+    "id": 19,
+    "name": "doc-then-capability-reset",
+    "turns": [
+      {"prompt": "LICSRVR、Poetry", "expected": ["【资料说明】", "LICSRVR"], "reused_anchor": false},
+      {"prompt": "你有什么功能", "expected": ["【能力说明】", "Sentieon 技术支持工作"], "reused_anchor": false}
+    ]
+  }
+]

@@ -64,3 +64,53 @@
 
 - 外部格式/工具资料层只用于解释通用格式规范、工具定位和排错关联。
 - 它们不会单独承担 Sentieon workflow 选型，也不会覆盖 Sentieon manual / app note 的主结论。
+
+运行时字段约定:
+
+- `sentieon-modules.json` 和 `workflow-guides.json` 当前同时承载“知识事实”和“运行时提示”。
+- 维护时要把这两类字段分开理解，避免把路由规则直接写进自然语言描述里。
+
+1. 事实字段
+
+- `name`、`aliases`、`category`
+- `summary`、`description`
+- `inputs`、`outputs`
+- `parameters`
+- `related_modules`
+- `sources`
+- `guidance`
+- `questions`
+
+这些字段用于回答“是什么、输入输出是什么、参数怎么用、该怎么理解”。
+
+2. 运行时提示字段
+
+- `script_module`
+- `direct_script_handoff`
+- `priority`
+- `prefer_any`
+- `exclude_any`
+- `require_any`
+- `require_all`
+
+这些字段用于帮助程序决定：
+
+- 当前 query 更像命中哪个 workflow/module
+- 什么时候可以从 `workflow guidance` 直接下沉到 `script skeleton`
+- 多个候选项同时命中时该如何收敛
+
+推荐类型约定:
+
+- `script_module`: JSON string
+- `direct_script_handoff`: JSON boolean，不要写成 `"true"` / `"false"` 字符串
+- `priority`: JSON integer，不要写成 `"high"` 这类语义字符串
+- `prefer_any` / `exclude_any`: JSON string list
+- `require_any` / `require_all`: JSON string list
+- `require_any_groups`: JSON list of string lists
+
+3. 维护原则
+
+- 新增模块或流程资料时，先补事实字段，再补最少量的运行时提示字段。
+- 如果一个行为只能靠写很长的 `guidance/summary` 才能触发路由，说明规则应该进代码，不应该硬塞进知识文本。
+- `sources` 只记录证据来源，不承担“这个条目是否该优先命中”的职责。
+- 如果某个 JSON 条目开始同时解释事实、承载路由、还夹带回答模板，说明这一层已经过载，需要回到代码层重新拆职责。

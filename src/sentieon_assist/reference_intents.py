@@ -8,6 +8,7 @@ from sentieon_assist.config import AppConfig, load_config
 from sentieon_assist.external_guides import is_external_reference_query
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_reference_intent_prompt
+from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
 
 
 VALID_REFERENCE_INTENTS = {
@@ -67,6 +68,10 @@ SCRIPT_HEURISTIC_MODULES = {
 PARAMETER_TOKEN_PATTERN = re.compile(r"(?<!\w)-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
+def _collapse_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
 @dataclass(frozen=True)
 class ReferenceIntent:
     intent: str = "not_reference"
@@ -123,17 +128,57 @@ def _extract_first_json_object(text: str) -> str:
     return ""
 
 
-def _detect_reference_module(query: str) -> str:
+def detect_reference_module_hint(query: str) -> str:
     normalized = query.lower()
+    collapsed = _collapse_whitespace(normalized)
+    compact = re.sub(r"\s+", "", normalized)
     for needle, canonical in MODULE_HINTS:
-        if needle in normalized:
+        normalized_needle = needle.lower()
+        if (
+            normalized_needle in normalized
+            or normalized_needle in collapsed
+            or normalized_needle.replace(" ", "") in compact
+        ):
             return canonical
     return ""
 
 
+def _looks_like_operational_doc_reference(query: str) -> bool:
+    normalized = query.lower()
+    if ("核心" in query or "cpu" in normalized) and any(cue in normalized for cue in ("占用", "资源", "线程", "thread")):
+        return True
+    if any(cue in normalized for cue in ("gpu", "fpga", "nvidia", "arm", "graviton")):
+        return True
+    if "sentieon driver" in normalized and "sentieon-cli" in normalized:
+        return True
+    if any(cue in normalized for cue in ("joint call", "gvcftyper", ".g.vcf", "g.vcf")) and "-v" in normalized:
+        return True
+    if "tnscope" in normalized and "tumor-only" in normalized and any(
+        cue in normalized for cue in ("tumor-normal", "tumor normal", "matched normal")
+    ):
+        return True
+    return False
+
+
+def _looks_like_license_doc_reference(query: str) -> bool:
+    normalized = query.lower()
+    return any(cue in normalized for cue in ("licclnt", "licsrvr")) and any(
+        cue in query for cue in ("哪个", "哪条", "工具", "binary", "命令")
+    )
+
+
+def _has_parameter_language(normalized: str) -> bool:
+    if "参数" in normalized or "flag" in normalized or "option" in normalized:
+        return True
+    if "选项" in normalized and "候选项" not in normalized:
+        return True
+    return False
+
+
 def _heuristic_reference_intent(query: str) -> ReferenceIntent:
     normalized = query.lower()
-    module = _detect_reference_module(query)
+    module = detect_reference_module_hint(query)
+    has_parameter_cue = bool(PARAMETER_TOKEN_PATTERN.search(query)) or _has_parameter_language(normalized)
     strong_script_cues = ("脚本", "示例脚本", "参考脚本", "示例命令", "参考命令", "命令骨架", "skeleton")
     hybrid_followup_terms = (
         "hybrid",
@@ -194,6 +239,9 @@ def _heuristic_reference_intent(query: str) -> ReferenceIntent:
         "graph",
         "diploid",
         "二倍体",
+        "polyploid",
+        "多倍体",
+        "多倍",
         "non-diploid",
         "非二倍体",
     )
@@ -220,10 +268,17 @@ def _heuristic_reference_intent(query: str) -> ReferenceIntent:
     if has_workflow_domain and not module:
         if has_workflow_guidance_cue or has_strong_script_cue:
             return ReferenceIntent(intent="workflow_guidance", confidence=0.45)
+    if _looks_like_license_doc_reference(query) or _looks_like_operational_doc_reference(query):
+        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41)
+    boundary_tags = detect_reference_boundary_tags(query)
+    if boundary_tags:
+        if module and has_parameter_cue:
+            return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.42)
+        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41)
     if any(cue in query for cue in ("脚本", "示例", "命令", "workflow", "pipeline")):
         if module in SCRIPT_HEURISTIC_MODULES:
             return ReferenceIntent(intent="script_example", module=module, confidence=0.4)
-    if PARAMETER_TOKEN_PATTERN.search(query) or any(token in normalized for token in ("参数", "选项", "flag", "option")):
+    if has_parameter_cue:
         if module or PARAMETER_TOKEN_PATTERN.search(query):
             return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.38)
     if not module and is_external_reference_query(query):
@@ -282,11 +337,9 @@ def parse_reference_intent(
     config: AppConfig | None = None,
 ) -> ReferenceIntent:
     heuristic = _heuristic_reference_intent(query)
-    if heuristic.intent in {"workflow_guidance", "parameter_lookup"}:
+    if heuristic.intent in {"workflow_guidance", "parameter_lookup", "reference_other"}:
         return heuristic
     if heuristic.intent == "script_example" and heuristic.module:
-        return heuristic
-    if heuristic.intent == "reference_other" and is_external_reference_query(query):
         return heuristic
 
     app_config = config or load_config()

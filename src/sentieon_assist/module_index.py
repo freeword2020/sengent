@@ -7,7 +7,7 @@ from typing import Any
 
 
 MODULE_INDEX_FILENAME = "sentieon-modules.json"
-PARAMETER_TOKEN_PATTERN = r"-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*"
+PARAMETER_TOKEN_PATTERN = r"(?<![A-Za-z0-9_])-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*"
 MODULE_OVERVIEW_GROUPS = (
     ("Alignment", ("alignment",)),
     ("Germline Variant Calling", ("germline-variant-calling", "copy-number", "workflow")),
@@ -15,6 +15,14 @@ MODULE_OVERVIEW_GROUPS = (
     ("RNA / Specialized Analysis", ("rna-variant-calling", "specialized-analysis")),
     ("Preprocess / QC / Support", ("family", "bam-processing", "vcf-filtering", "architecture", "fastq-generation")),
 )
+
+
+def _has_parameter_language(normalized: str) -> bool:
+    if "参数" in normalized or "option" in normalized:
+        return True
+    if "选项" in normalized and "候选项" not in normalized:
+        return True
+    return False
 
 
 def module_index_path(source_directory: str | Path) -> Path:
@@ -77,7 +85,7 @@ def match_module_entries(
     *,
     max_matches: int = 3,
 ) -> list[dict[str, Any]]:
-    normalized_query = query.lower()
+    normalized_query = re.sub(r"\s+", " ", query.lower()).strip()
     scored: list[tuple[int, dict[str, Any]]] = []
     for entry in list_module_entries(source_directory):
         aliases = [str(value).strip() for value in entry.get("aliases", [])]
@@ -135,7 +143,7 @@ def format_missing_module_reference_answer(module_name: str, related_mentions: l
 
 def detect_module_query_intent(query: str) -> str:
     normalized = query.lower()
-    if re.search(PARAMETER_TOKEN_PATTERN, query) or any(token in normalized for token in ("参数", "选项", "option")):
+    if re.search(PARAMETER_TOKEN_PATTERN, query) or _has_parameter_language(normalized):
         return "parameter"
     if any(token in normalized for token in ("输入", "input", "fastq", "ubam", "ucram", "bam", "cram")):
         return "inputs"
@@ -284,12 +292,36 @@ def build_parameter_evidence(entry: dict[str, Any], parameter: dict[str, Any]) -
     }
 
 
-def format_script_reference_answer(entry: dict[str, Any]) -> str:
+def _select_script_example(entry: dict[str, Any], query: str = "") -> dict[str, Any] | None:
     examples = [item for item in entry.get("script_examples", []) if isinstance(item, dict)]
     if not examples:
+        return None
+
+    normalized_query = str(query).lower()
+    compact_query = re.sub(r"[\s_-]+", "", normalized_query)
+    if not normalized_query:
+        return examples[0]
+
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for index, example in enumerate(examples):
+        score = -index
+        title = str(example.get("title", "")).strip().lower()
+        summary = str(example.get("summary", "")).strip().lower()
+        when_to_use = [str(value).strip().lower() for value in example.get("when_to_use", []) if str(value).strip()]
+        for token in [title, summary, *when_to_use]:
+            compact_token = re.sub(r"[\s_-]+", "", token)
+            if token and (token in normalized_query or (compact_token and compact_token in compact_query)):
+                score += max(4, len(token))
+        scored.append((score, example))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1]
+
+
+def format_script_reference_answer(entry: dict[str, Any], query: str = "") -> str:
+    example = _select_script_example(entry, query=query)
+    if example is None:
         return ""
 
-    example = examples[0]
     name = str(entry.get("name", "")).strip() or "未知模块"
     summary = str(entry.get("summary", "")).strip()
     title = str(example.get("title", "")).strip() or "reference script"

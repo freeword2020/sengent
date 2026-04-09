@@ -36,8 +36,83 @@ def _contains_any(normalized_query: str, values: list[str]) -> bool:
     return any(value and value in normalized_query for value in values)
 
 
+def _coerce_string_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(value).strip().lower() for value in raw if str(value).strip()]
+
+
+def _coerce_string_groups(raw: Any) -> list[list[str]]:
+    if not isinstance(raw, list):
+        return []
+    groups: list[list[str]] = []
+    for group in raw:
+        normalized_group = _coerce_string_list(group)
+        if normalized_group:
+            groups.append(normalized_group)
+    return groups
+
+
+def _coerce_int(raw: Any, default: int = 0) -> int:
+    if isinstance(raw, bool):
+        return int(raw)
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return default
+    return default
+
+
+def _coerce_bool(raw: Any) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    if isinstance(raw, int):
+        return raw != 0
+    return False
+
+
+def workflow_script_module(entry: dict[str, Any]) -> str:
+    raw = entry.get("script_module", "")
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()
+
+
+def workflow_allows_direct_script_handoff(entry: dict[str, Any]) -> bool:
+    return _coerce_bool(entry.get("direct_script_handoff", False))
+
+
+def workflow_exclude_any(entry: dict[str, Any]) -> list[str]:
+    return _coerce_string_list(entry.get("exclude_any", []))
+
+
+def workflow_require_any_groups(entry: dict[str, Any]) -> list[list[str]]:
+    return _coerce_string_groups(entry.get("require_any_groups", []))
+
+
+def workflow_prefer_any(entry: dict[str, Any]) -> list[str]:
+    return _coerce_string_list(entry.get("prefer_any", []))
+
+
+def workflow_priority(entry: dict[str, Any]) -> int:
+    return _coerce_int(entry.get("priority", 0))
+
+
 def _normalize_workflow_query(query: str) -> str:
-    return WORKFLOW_QUERY_NOISE_PATTERN.sub(" ", query.lower())
+    normalized = WORKFLOW_QUERY_NOISE_PATTERN.sub(" ", query.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    normalized = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fffA-Za-z0-9])", "", normalized)
+    normalized = re.sub(r"(?<=[A-Za-z0-9])\s+(?=[\u4e00-\u9fff])", "", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def match_workflow_entry(
@@ -49,23 +124,18 @@ def match_workflow_entry(
     normalized_query = _normalize_workflow_query(query)
     scored: list[tuple[int, dict[str, Any]]] = []
     for entry in list_workflow_entries(source_directory):
-        if require_script_module and not str(entry.get("script_module", "")).strip():
+        if require_script_module and not workflow_script_module(entry):
             continue
-        exclude_any = [str(value).strip().lower() for value in entry.get("exclude_any", []) if str(value).strip()]
+        exclude_any = workflow_exclude_any(entry)
         if _contains_any(normalized_query, exclude_any):
             continue
 
-        require_any_groups = entry.get("require_any_groups", [])
-        if not isinstance(require_any_groups, list):
-            continue
+        require_any_groups = workflow_require_any_groups(entry)
         if require_any_groups:
             matched_groups = 0
             group_score = 0
             for group in require_any_groups:
-                if not isinstance(group, list):
-                    continue
-                normalized_group = [str(value).strip().lower() for value in group if str(value).strip()]
-                matched_terms = [value for value in normalized_group if value in normalized_query]
+                matched_terms = [value for value in group if value in normalized_query]
                 if not matched_terms:
                     matched_groups = -1
                     break
@@ -76,8 +146,8 @@ def match_workflow_entry(
         else:
             group_score = 0
 
-        prefer_any = [str(value).strip().lower() for value in entry.get("prefer_any", []) if str(value).strip()]
-        score = int(entry.get("priority", 0)) + group_score
+        prefer_any = workflow_prefer_any(entry)
+        score = workflow_priority(entry) + group_score
         score += sum(len(value) for value in prefer_any if value in normalized_query)
         scored.append((score, entry))
 

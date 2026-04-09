@@ -140,6 +140,139 @@ def test_chat_loop_passes_terse_example_followup_with_workflow_context(monkeypat
     assert any("【参考命令】" in item for item in outputs)
 
 
+def test_chat_loop_does_not_reuse_parameter_anchor_for_new_reference_request(monkeypatch):
+    prompts = iter(
+        [
+            "GVCFtyper 的 --emit_mode 是什么",
+            "能提供个 wes 参考脚本吗",
+            "能提供个 joint call 参考脚本吗",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "GVCFtyper 的 --emit_mode 是什么":
+            return "【常用参数】\n- GVCFtyper 的 --emit_mode：..."
+        if query == "能提供个 wes 参考脚本吗":
+            return "【流程指导】\n- 先按 WES 主线分流。"
+        if query == "能提供个 joint call 参考脚本吗":
+            return "【参考命令】\n- sentieon driver --algo GVCFtyper ..."
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == [
+        "GVCFtyper 的 --emit_mode 是什么",
+        "能提供个 wes 参考脚本吗",
+        "能提供个 joint call 参考脚本吗",
+    ]
+
+
+def test_chat_loop_switches_workflow_anchor_when_new_request_is_standalone(monkeypatch):
+    prompts = iter(
+        [
+            "能提供个tumor only参考脚本吗",
+            "能提供个ont分析脚本吗",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "能提供个tumor only参考脚本吗":
+            return "【流程指导】\n- 这是 tumor-only 主线。"
+        if query == "能提供个ont分析脚本吗":
+            return "【流程指导】\n- 这是 long-read 主线。"
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == [
+        "能提供个tumor only参考脚本吗",
+        "能提供个ont分析脚本吗",
+    ]
+
+
+def test_chat_loop_does_not_reuse_open_clarification_slots_for_new_standalone_request(monkeypatch):
+    prompts = iter(
+        [
+            "能提供个 wes 参考脚本吗",
+            "LICSRVR、Poetry",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "能提供个 wes 参考脚本吗":
+            return "【流程指导】\n- 这是 WES 主线。\n\n【需要确认的信息】\n- 样本是否来自二倍体生物（diploid organism）？"
+        if query == "LICSRVR、Poetry":
+            return "【资料说明】\n- LICSRVR ...\n- Poetry ..."
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == [
+        "能提供个 wes 参考脚本吗",
+        "LICSRVR、Poetry",
+    ]
+
+
 def test_chat_loop_does_not_require_user_message_renderer(monkeypatch):
     prompts = iter(["DNAscope 是做什么的", "/quit"])
     outputs: list[str] = []
@@ -290,15 +423,152 @@ def test_run_query_returns_boundary_for_roadmap_style_reference_prompt():
 def test_run_query_returns_boundary_for_install_packaging_reference_prompt():
     text = run_query("如何通过命令行安装 Sentieon 工具？使用 sdist 安装 sentieon-cli 时，想结合 Poetry 虚拟环境进行依赖管理，具体配置步骤是什么？")
 
-    assert "【资料边界】" in text
-    assert "Poetry" not in text or "结构化证据" in text
+    assert "【资料说明】" in text
+    assert "Poetry" in text
 
 
 def test_run_query_returns_boundary_for_license_service_reference_prompt():
     text = run_query("许可服务的配置方式是什么？在多节点集群环境中，如何配置 LICSRVR 动态分配许可证，并使用 LICCLNT 检查服务器状态？")
 
+    assert "【资料说明】" in text
+    assert "LICSRVR" in text
+
+
+def test_run_query_supports_too_many_open_files_troubleshooting_prompt():
+    text = run_query(
+        "为什么我在运行包含多个样本的联合分析或高深度数据比对时，程序突然崩溃并提示 Too many open files？"
+        "这是否是软件 Bug？我该如何通过修改系统配置来解决？"
+    )
+
+    assert "【资料说明】" in text
+    assert "ulimit -n" in text
+    assert "文件句柄" in text or "open files" in text
+    assert "【资料边界】" not in text
+
+
+def test_run_query_supports_thread_count_guidance_for_low_cpu_utilization_prompt():
+    text = run_query("为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？")
+
+    assert "【资料说明】" in text
+    assert "-t" in text or "NUMBER_THREADS" in text
+    assert "线程" in text or "CPU" in text
+    assert "【能力说明】" not in text
+
+
+def test_run_query_supports_driver_vs_cli_doc_prompt():
+    text = run_query(
+        "官方教程里有时用 sentieon driver --algo DNAscope，有时又用最新的 sentieon-cli dnascope。"
+        "这两个命令有什么区别？sentieon-cli 是如何包装底层二进制文件的？"
+    )
+
+    assert "【资料说明】" in text
+    assert "sentieon driver" in text
+    assert "sentieon-cli" in text
+    assert "【资料边界】" not in text
+
+
+def test_run_query_supports_dnascope_pcr_free_question_with_hyphenated_alias():
+    text = run_query(
+        "客户明确说明样本使用的是 PCR-free 建库方案。在运行 DNAscope 流程时，"
+        "我需要修改哪个特定参数例如 --pcr_indel_model none 或 --pcr-free 来防止软件对 Indel 进行不必要的 PCR 伪影过滤？"
+    )
+
+    assert "【常用参数】" in text
+    assert "DNAscope 的 --pcr_free" in text
+    assert "PCR-free" in text
+    assert "【资料边界】" not in text
+
+
+def test_run_query_does_not_fall_back_to_capability_for_wes_model_mismatch_prompt():
+    text = run_query(
+        "我的数据是 Agilent SureSelect 捕获的外显子数据，如果我直接使用了 DNAscope Illumina WGS 机器学习模型进行过滤，"
+        "变异检测的准确率会发生什么变化？"
+    )
+
+    assert "【能力说明】" not in text
     assert "【资料边界】" in text
-    assert "LICSRVR" not in text or "结构化证据" in text
+
+
+def test_run_query_supports_tnscope_tumor_only_vs_tumor_normal_prompt():
+    text = run_query(
+        "在运行体细胞突变检测模块 TNscope 时，我只输入了肿瘤样本 Tumor-only。"
+        "这是否可行？与同时输入肿瘤-正常 Tumor-Normal 配对样本相比，对低频突变及假阳性过滤的策略有何差异？"
+    )
+
+    assert "TNscope" in text
+    assert "tumor-only" in text or "tumor only" in text
+    assert "tumor-normal" in text or "tumor normal" in text
+    assert "germline" in text or "胚系变异" in text
+    assert "【资料边界】" not in text
+
+
+def test_run_query_routes_verbose_pcr_free_prompt_to_parameter_answer():
+    text = run_query(
+        "客户明确说明样本使用的是 PCR-free 无扩增建库方案。在运行 DNAscope 流程时，我需要修改哪个特定参数例如 --pcr_indel_model none 或 --pcr-free 来防止软件对 Indel 进行不必要的 PCR 伪影过滤？"
+    )
+
+    assert "【常用参数】" in text
+    assert "DNAscope 的 --pcr_free" in text or "--pcr_indel_model" in text
+
+
+def test_run_query_prefers_parameter_answer_when_pcr_free_prompt_mentions_command_line():
+    text = run_query("对于 PCR-free 建库样本，在运行 DNAscope 时，如何通过命令行参数如 --pcr_indel_model none 来关闭对 PCR 引入 Indel 的过滤？")
+
+    assert "【常用参数】" in text
+    assert "DNAscope 的 --pcr_free" in text
+
+
+def test_run_query_returns_boundary_for_wes_wgs_model_accuracy_prompt():
+    text = run_query(
+        "我的数据是 Agilent SureSelect 捕获的外显子 WES 数据，如果我直接使用了 DNAscope Illumina WGS 机器学习模型进行过滤，变异检测的准确率会发生什么变化？"
+    )
+
+    assert "【资料边界】" in text
+    assert "【能力说明】" not in text
+
+
+def test_run_query_returns_boundary_for_samtools_collate_vs_picard_prompt():
+    text = run_query(
+        "客户给了一个旧的 BAM 文件，我打算提取 FASTQ 重新比对。为什么不推荐使用 Picard 的 SamToFastq 拆分文件，而是建议使用 samtools collate 结合管道操作直连 BWA？"
+    )
+
+    assert "【资料说明】" in text
+    assert "samtools collate" in text
+    assert "SamToFastq" in text
+    assert "BWA" in text
+
+
+def test_run_query_returns_doc_answer_for_cpu_thread_usage_prompt():
+    text = run_query("为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？")
+
+    assert "【资料说明】" in text
+    assert "-t" in text
+
+
+def test_run_query_returns_doc_answer_for_license_tool_selection_prompt():
+    text = run_query(
+        "当我配置好本地 License 服务器后，如果分析任务报错提示 License 获取失败，我该使用哪个官方二进制工具如 LICCLNT 来测试服务器连通性并检查可用授权数？"
+    )
+
+    assert "【资料说明】" in text
+    assert "LICCLNT" in text
+
+
+def test_run_query_returns_boundary_for_bwa_turbo_prompt():
+    text = run_query(
+        "听说 Sentieon BWA-turbo 能把比对速度再提升 4 倍。这是需要额外下载一个软件，还是只需要在现有的 BWA 命令中通过 -x 参数挂载特定的 .model 文件即可启用？"
+    )
+
+    assert "【资料边界】" in text
+
+
+def test_run_query_returns_boundary_for_svsolver_break_end_prompt():
+    text = run_query(
+        "在流程后期，SVSolver 模块是如何对 DNAscope 输出的 Break-end (BND) 候选项进行组装与最终定型输出的？"
+    )
+
+    assert "【资料边界】" in text
+    assert "具体参数名" not in text
 
 
 def test_run_query_does_not_treat_module_support_prompt_as_capability_question():
@@ -858,6 +1128,44 @@ def test_chat_loop_canonicalizes_short_read_wgs_fragment_followup(monkeypatch):
     assert code == 0
     assert seen_queries == ["我要做wgs分析，能给个示例脚本吗", "我要做wgs分析，能给个示例脚本吗 那 short-read 呢"]
     assert any("短读长 WGS" in item for item in outputs)
+
+
+def test_chat_loop_reuses_wgs_anchor_for_polyploid_short_read_followup(monkeypatch):
+    prompts = iter(["我要做wgs分析，能给个示例脚本吗", "我的是多倍体，wgs，短读长的", "/quit"])
+    outputs: list[str] = []
+    seen_queries: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_output(message: str) -> None:
+        outputs.append(message)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        seen_queries.append(query)
+        if query == "我要做wgs分析，能给个示例脚本吗":
+            return "【流程指导】\n- 先按胚系/体细胞和短读长/长读长分流。\n\n【需要确认的信息】\n- 是胚系还是体细胞？\n- 是短读长还是 PacBio HiFi / ONT 长读长？\n- 如果是短读长胚系，样本是否来自二倍体生物（diploid organism）？"
+        if query == "我要做wgs分析，能给个示例脚本吗 我的是多倍体，wgs，短读长的":
+            return "【参考命令】\n- sentieon bwa mem ...\n- --algo Haplotyper ..."
+        raise AssertionError(f"unexpected query: {query}")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=fake_output,
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert seen_queries == [
+        "我要做wgs分析，能给个示例脚本吗",
+        "我要做wgs分析，能给个示例脚本吗 我的是多倍体，wgs，短读长的",
+    ]
+    assert any("【参考命令】" in item for item in outputs)
 
 
 def test_chat_loop_short_read_wes_panel_fragment_followup_for_wes(monkeypatch):

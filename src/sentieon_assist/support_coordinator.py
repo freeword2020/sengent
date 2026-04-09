@@ -7,8 +7,7 @@ from typing import Callable
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.external_guides import is_external_error_query, is_external_reference_query
 from sentieon_assist.extractor import extract_info_from_query
-from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
-from sentieon_assist.reference_boundaries import looks_like_reference_boundary_query
+from sentieon_assist.reference_intents import ReferenceIntent, detect_reference_module_hint, parse_reference_intent
 from sentieon_assist.support_state import SupportSessionState, SupportTask
 
 FIELD_SLOT_LABELS = {
@@ -20,6 +19,8 @@ FIELD_SLOT_LABELS = {
 }
 CAPABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"你(?:能|可以)做什么"),
+    re.compile(r"你有(?:什么|哪些)功能"),
+    re.compile(r"你有(?:什么|哪些)能力"),
     re.compile(r"可以帮我做什么"),
     re.compile(r"能帮我做什么"),
     re.compile(r"你(?:能|可以)为我做些说明"),
@@ -72,13 +73,25 @@ ERROR_REPORT_CUES = (
     "找不到",
 )
 NON_MODULE_ASCII_TOKENS = {
+    "agilent",
+    "arm",
+    "cpu",
+    "fpga",
     "sentieon",
+    "gpu",
+    "graviton",
+    "illumina",
     "license",
     "install",
     "fastq",
     "bam",
     "cram",
+    "mgi",
+    "nvidia",
+    "pcr",
+    "pcr-free",
     "vcf",
+    "sureselect",
     "wes",
     "wgs",
     "panel",
@@ -90,6 +103,67 @@ NON_MODULE_ASCII_TOKENS = {
 }
 DEICTIC_REFERENCE_FOLLOWUP_PATTERN = re.compile(
     r"^(?:这个|那个|那这个|这条|那条|这一条|那一条)(?:模块|流程|方向|方案)?(?:呢|怎么样|咋样|如何)?$"
+)
+TERSE_REFERENCE_FOLLOWUP_CUES = (
+    "我就要个示例",
+    "我只要个示例",
+    "给个示例",
+    "来个示例",
+    "示例也行",
+    "示例就行",
+    "来个脚本",
+    "脚本也行",
+    "就要脚本",
+    "给我个脚本",
+    "示例脚本也可以",
+    "脚本呢",
+    "参数呢",
+    "输入呢",
+    "输出呢",
+)
+WORKFLOW_FACT_FRAGMENT_TOKENS = (
+    "短读长",
+    "长读长",
+    "胚系",
+    "体细胞",
+    "二倍体",
+    "非二倍体",
+    "多倍体",
+    "多倍",
+    "polyploid",
+    "non-diploid",
+    "hifi",
+    "ont",
+    "pacbio",
+    "nanopore",
+    "fastq",
+    "bam",
+    "cram",
+    "tumor-only",
+    "tumor only",
+    "tumor-normal",
+    "tumor normal",
+    "joint call",
+    "wes",
+    "wgs",
+    "panel",
+)
+STANDALONE_REQUEST_CUES = (
+    "能提供",
+    "提供个",
+    "给个",
+    "介绍",
+    "是什么",
+    "做什么",
+    "参数",
+    "脚本",
+    "命令",
+    "为什么",
+    "如何",
+    "怎么",
+    "支持",
+    "区别",
+    "分析",
 )
 REFERENCE_FOLLOWUP_CANONICAL_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -118,15 +192,21 @@ REFERENCE_FOLLOWUP_CANONICAL_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:hybrid|联合分析|short[- ]read\s*\+\s*long[- ]read|short\s+read\s*\+\s*long\s+read|短读长\s*\+\s*长读长)\s*(?:呢|的话呢|怎么样|如何)?$"
+        ),
+        "那 hybrid 呢",
+    ),
+    (
+        re.compile(
             r"(?:那|如果换成|换成|改成|改走)?\s*(?:短读长|short[- ]read)\s*(?:呢|的话呢|怎么样|如何)?$"
         ),
         "那 short-read 呢",
     ),
     (
         re.compile(
-            r"(?:那|如果换成|换成|改成|改走)?\s*(?:hybrid|联合分析|short[- ]read\s*\+\s*long[- ]read|short\s+read\s*\+\s*long\s+read|短读长\s*\+\s*长读长)\s*(?:呢|的话呢|怎么样|如何)?$"
+            r"(?:那|如果换成|换成|改成|改走)?\s*(?:长读长|long[- ]read)\s*(?:呢|的话呢|怎么样|如何)?$"
         ),
-        "那 hybrid 呢",
+        "那 long-read 呢",
     ),
 )
 REFERENCE_RESPONSE_PREFIXES = (
@@ -175,6 +255,9 @@ def is_capability_question(query: str) -> bool:
 
 
 def extract_explicit_module_candidate(query: str) -> str:
+    hinted_module = detect_reference_module_hint(query)
+    if hinted_module:
+        return hinted_module
     for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", query):
         lowered = token.lower()
         if lowered in NON_MODULE_ASCII_TOKENS:
@@ -213,64 +296,49 @@ def looks_like_reference_followup(
     if not normalized:
         return False
     normalized_compact = re.sub(r"\s+", "", normalized)
-    if DEICTIC_REFERENCE_FOLLOWUP_PATTERN.fullmatch(normalized_compact):
-        return False
     if is_capability_question(query):
         return False
-    if normalize_reference_followup_fragment(query) != query.strip():
+    if DEICTIC_REFERENCE_FOLLOWUP_PATTERN.fullmatch(normalized_compact):
+        return False
+    if any(pattern.search(normalized_compact) for pattern, _replacement in REFERENCE_FOLLOWUP_CANONICAL_RULES):
         return True
-    if "--" in normalized:
+    if any(normalized_compact.endswith(cue) for cue in TERSE_REFERENCE_FOLLOWUP_CUES):
         return True
-    if any(
-        cue in normalized
-        for cue in (
-            "wgs",
-            "wes",
-            "whole exome",
-            "exome",
-            "全基因组",
-            "全外显子",
-            "panel",
-            "rna",
-            "rnaseq",
-            "rna-seq",
-            "fastq",
-            "ubam",
-            "ucram",
-            "bam",
-            "cram",
-            "胚系",
-            "体细胞",
-            "肿瘤",
-            "tumor",
-            "tumor-only",
-            "tumor only",
-            "tumor-normal",
-            "tumor normal",
-            "normal",
-            "短读长",
-            "short-read",
-            "short read",
-            "长读长",
-            "long-read",
-            "long read",
-            "hifi",
-            "ont",
-            "pacbio",
-            "nanopore",
-            "hybrid",
-            "diploid",
-            "二倍体",
-            "pangenome",
-            "graph",
-            "泛基因组",
-        )
+    if "--" in normalized and not any(cue in normalized for cue in STANDALONE_REQUEST_CUES):
+        return True
+    if (
+        len(normalized_compact) <= 20
+        and any(token in normalized for token in WORKFLOW_FACT_FRAGMENT_TOKENS)
+        and not any(cue in normalized for cue in STANDALONE_REQUEST_CUES)
     ):
         return True
-    if any(cue in normalized for cue in ("参数", "脚本", "示例", "命令", "workflow", "pipeline", "输入", "输出", "区别", "对比")):
+    return False
+
+
+def looks_like_clarification_answer_fragment(query: str) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return False
+    normalized_compact = re.sub(r"\s+", "", normalized)
+    if any(cue in normalized for cue in STANDALONE_REQUEST_CUES):
+        return False
+    if len(normalized_compact) <= 20 and any(token in normalized for token in WORKFLOW_FACT_FRAGMENT_TOKENS):
         return True
-    parsed_intent = parse_reference_intent_fn(query, model_generate=model_generate)
-    return parsed_intent.intent in {"parameter_lookup", "script_example", "workflow_guidance"}
+    return False
+
+
+def looks_like_module_disambiguation_fragment(query: str) -> bool:
+    stripped = query.strip()
+    normalized = stripped.lower()
+    if not stripped:
+        return False
+    if any(separator in stripped for separator in ("、", ",", "，", "/")):
+        return False
+    if any(cue in normalized for cue in STANDALONE_REQUEST_CUES):
+        return False
+    if extract_explicit_module_candidate(stripped):
+        return True
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9 _+.-]{1,40}", stripped))
 
 
 def response_requires_followup(response: str) -> bool:
@@ -294,6 +362,7 @@ def select_support_route(
     info = extract_info_fn(query)
     issue_type = classify_query_fn(query)
     explicit_module = extract_explicit_module_candidate(query)
+    parsed_intent = parse_reference_intent_fn(query, model_generate=model_generate)
     if is_capability_question(query):
         return SupportRouteDecision(
             task="capability_explanation",
@@ -303,27 +372,19 @@ def select_support_route(
             reason="capability_question",
             explicit=True,
         )
-    if looks_like_reference_boundary_query(query):
-        return SupportRouteDecision(
-            task="reference_lookup",
-            issue_type=issue_type,
-            parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.52),
-            info=info,
-            reason="boundary_reference_query",
-            explicit=True,
-        )
-    if issue_type in {"license", "install"} and _looks_like_operational_reference_query(query) and not _looks_like_error_report(
-        query
+    if issue_type in {"license", "install"} and (
+        parsed_intent.is_reference or (_looks_like_operational_reference_query(query) and not _looks_like_error_report(query))
     ):
-        parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.41)
         if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES):
-            parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=0.44)
+            parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=max(parsed_intent.confidence, 0.44))
+        elif not parsed_intent.is_reference:
+            parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.41)
         return SupportRouteDecision(
             task="reference_lookup",
             issue_type=issue_type,
             parsed_intent=parsed_intent,
             info=info,
-            reason=f"{issue_type}_reference_lookup",
+            reason=parsed_intent.intent or f"{issue_type}_reference_lookup",
             explicit=True,
         )
     if issue_type != "other":
@@ -336,11 +397,22 @@ def select_support_route(
             explicit=True,
         )
     if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES) and not is_external_reference_query(query):
+        if parsed_intent.intent == "reference_other":
+            return SupportRouteDecision(
+                task="reference_lookup",
+                issue_type=issue_type,
+                parsed_intent=parsed_intent,
+                info=info,
+                reason=parsed_intent.intent,
+                explicit=True,
+            )
         explicit_intent = "module_intro"
         if re.search(r"(?<!\w)-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*", query) or any(
             cue in query.lower() for cue in ("参数", "选项", "flag", "option")
         ):
             explicit_intent = "parameter_lookup"
+        elif any(cue in query.lower() for cue in ("脚本", "示例", "命令", "workflow", "pipeline")):
+            explicit_intent = "script_example"
         return SupportRouteDecision(
             task="reference_lookup",
             issue_type=issue_type,
@@ -349,8 +421,6 @@ def select_support_route(
             reason="explicit_module_intro",
             explicit=True,
         )
-
-    parsed_intent = parse_reference_intent_fn(query, model_generate=model_generate)
     if is_external_error_query_fn(query, info):
         if not parsed_intent.is_reference:
             parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.5)
@@ -415,14 +485,19 @@ def plan_support_turn(
         return PlannedSupportTurn(raw_query=raw_query, effective_query=raw_query, route=route)
 
     if state.active_task in {"reference_lookup", "onboarding_guidance"}:
-        if route.task != "troubleshooting" and (
-            looks_like_reference_followup(
-                raw_query,
-                model_generate=model_generate,
-                parse_reference_intent_fn=parse_reference_intent_fn,
-            )
-            or bool(state.open_clarification_slots)
+        should_reuse_reference_anchor = False
+        if looks_like_reference_followup(
+            raw_query,
+            model_generate=model_generate,
+            parse_reference_intent_fn=parse_reference_intent_fn,
         ):
+            should_reuse_reference_anchor = True
+        elif state.open_clarification_slots:
+            if "module" in state.open_clarification_slots and looks_like_module_disambiguation_fragment(raw_query):
+                should_reuse_reference_anchor = True
+            elif looks_like_clarification_answer_fragment(raw_query):
+                should_reuse_reference_anchor = True
+        if route.task != "troubleshooting" and should_reuse_reference_anchor:
             effective_query = f"{state.anchor_query} {normalize_reference_followup_fragment(raw_query)}".strip()
             followup_route = select_support_route(
                 effective_query,
@@ -533,6 +608,7 @@ def _extract_guidance_facts(query: str) -> dict[str, str]:
         (("germline", "胚系"), "germline"),
         (("somatic", "体细胞"), "somatic"),
         (("diploid", "二倍体"), "diploid"),
+        (("polyploid", "non-diploid", "非二倍体", "多倍体", "多倍"), "non-diploid"),
         (("fastq",), "fastq"),
         (("ubam", "ucram"), "ubam-ucram"),
         (("bam", "cram"), "bam-cram"),

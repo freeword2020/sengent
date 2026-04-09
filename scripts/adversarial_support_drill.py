@@ -69,14 +69,16 @@ LEGACY_CASES = (
 )
 
 
-def load_notebooklm_cases(repo_root: Path) -> tuple[DrillCase, ...]:
-    payload = json.loads((repo_root / "tests" / "data" / "notebooklm_adversarial_cases.json").read_text())
+def _load_json_cases(path: Path, *, prefix: str) -> tuple[DrillCase, ...]:
+    payload = json.loads(path.read_text())
     cases: list[DrillCase] = []
     for item in payload:
         case_id = int(item["id"])
         expected_mode = str(item.get("expected_mode", "")).strip()
         if expected_mode == "boundary":
             expected = ("【资料边界】",)
+        elif expected_mode == "doc":
+            expected = tuple(item.get("expected", [])) or ("【资料说明】", "【使用边界】")
         elif expected_mode == "clarify":
             expected = ("【需要确认的信息】",)
         else:
@@ -84,13 +86,21 @@ def load_notebooklm_cases(repo_root: Path) -> tuple[DrillCase, ...]:
         forbidden = ("当前 MVP 仅支持 license 和 install 问题",)
         cases.append(
             DrillCase(
-                name=f"notebooklm-{case_id:02d}",
+                name=f"{prefix}-{case_id:02d}",
                 prompt=str(item["prompt"]),
                 expected=expected,
                 forbidden=forbidden,
             )
         )
     return tuple(cases)
+
+
+def load_notebooklm_cases(repo_root: Path) -> tuple[DrillCase, ...]:
+    return _load_json_cases(repo_root / "tests" / "data" / "notebooklm_adversarial_cases.json", prefix="notebooklm")
+
+
+def load_novice_cases(repo_root: Path) -> tuple[DrillCase, ...]:
+    return _load_json_cases(repo_root / "tests" / "data" / "novice_adversarial_cases.json", prefix="novice")
 
 
 def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
@@ -124,7 +134,7 @@ def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
-    cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root))
+    cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root), *load_novice_cases(repo_root))
     failures = 0
     print(f"Running adversarial support drill from {repo_root}")
     for case in cases:

@@ -5,39 +5,12 @@ import re
 from typing import Any
 
 from sentieon_assist.config import AppConfig, load_config
-from sentieon_assist.external_guides import (
-    format_external_error_association,
-    format_external_guide_answer,
-    match_external_error_association,
-    match_external_guide_entry,
-)
 from sentieon_assist.llm_backends import build_backend_router
-from sentieon_assist.module_index import (
-    build_module_evidence,
-    find_related_module_mentions,
-    format_missing_module_reference_answer,
-    format_module_overview_answer,
-    format_module_reference_answer,
-    format_parameter_followup_answer,
-    format_parameter_disambiguation,
-    format_parameter_reference_answer,
-    format_script_reference_answer,
-    format_unavailable_parameter_reference_answer,
-    format_unavailable_script_reference_answer,
-    match_module_entries,
-    match_module_parameter,
-    match_parameter_entries,
-)
 from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
-from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
 from sentieon_assist.rules import match_rule
+from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
-from sentieon_assist.workflow_index import (
-    format_workflow_guidance_answer,
-    format_workflow_uncovered_answer,
-    match_workflow_entry,
-)
 
 
 REQUIRED_FIELDS = {
@@ -116,27 +89,6 @@ def format_capability_explanation_answer() -> str:
         "- 资料/脚本查询：帮你查模块介绍、参数含义、输入输出和参考命令骨架。\n\n"
         "【建议下一步】\n"
         "- 直接告诉我你的目标或问题，例如：我要做 WES 分析该怎么选；license 报错原文是什么；DNAscope 是什么。"
-    )
-
-
-def format_reference_boundary_answer(query: str, tags: list[str]) -> str:
-    reasons: list[str] = []
-    if "benchmark" in tags:
-        reasons.append("benchmark / 精确数值")
-    if "comparison" in tags:
-        reasons.append("竞品或方案比较")
-    if "roadmap" in tags:
-        reasons.append("roadmap / 未来规划")
-    if "deep_mechanism" in tags:
-        reasons.append("深度机制拆解")
-    reason_text = "、".join(reasons) or "当前结构化支持边界之外的资料型问题"
-    return (
-        "【资料边界】\n"
-        f"- 这个问题属于 {reason_text}；当前本地支持资料没有足够的结构化证据，不能直接给出确定性结论。\n"
-        "- 现阶段系统稳定支持的是：模块定位、参数语义、输入输出、流程导航和常见排障。\n\n"
-        "【建议下一步】\n"
-        "- 如果你要继续推进，建议把问题收窄到模块是什么、参数怎么用、输入输出是什么、该走哪条流程。\n"
-        "- 如果你需要精确 benchmark、竞品比较、路线图或论文级机制说明，请补充对应 app note、release note、benchmark 文档或官方链接。"
     )
 
 
@@ -263,29 +215,6 @@ def _normalize_bioinformatics_terminology(text: str) -> str:
     )
     normalized = re.sub(r"((?:[A-Za-z0-9 .+\-/]+)）)\s+(?=[\u4e00-\u9fff])", r"\1", normalized)
     return normalized
-
-
-TERSE_SCRIPT_FOLLOWUP_CUES = (
-    "我就要个示例",
-    "我只要个示例",
-    "给个示例",
-    "来个示例",
-    "示例也行",
-    "示例就行",
-    "来个脚本",
-    "脚本也行",
-    "就要脚本",
-    "给我个脚本",
-)
-
-
-def _is_terse_script_followup(query: str) -> bool:
-    normalized = re.sub(r"\s+", "", query.strip().lower())
-    return any(normalized.endswith(cue) for cue in TERSE_SCRIPT_FOLLOWUP_CUES)
-
-
-def _workflow_script_module(entry: dict[str, Any]) -> str:
-    return str(entry.get("script_module", "")).strip()
 
 
 def normalize_model_answer(
@@ -482,247 +411,15 @@ def answer_reference_query(
     resolved_intent = parsed_intent or ReferenceIntent()
     if resolved_intent.intent == "not_reference":
         resolved_intent = parse_reference_intent(query, config=app_config)
-    boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
-    if boundary_tags:
-        return format_reference_display(
-            normalize_model_answer(
-                format_reference_boundary_answer(query, boundary_tags),
-                source_context=source_context,
-            )
-        )
-    if resolved_intent.intent == "workflow_guidance":
-        workflow_entry = match_workflow_entry(query, effective_source_directory)
-        if workflow_entry is None:
-            return format_reference_display(
-                normalize_model_answer(
-                    format_workflow_uncovered_answer(),
-                    source_context=source_context,
-                    sources=["workflow-guides.json"],
-                )
-            )
-        if _is_terse_script_followup(query):
-            script_entry = workflow_entry
-            script_module = _workflow_script_module(script_entry)
-            if not script_module:
-                script_entry = match_workflow_entry(
-                    query,
-                    effective_source_directory,
-                    require_script_module=True,
-                )
-                script_module = _workflow_script_module(script_entry or {})
-            if script_module:
-                module_matches = match_module_entries(script_module, effective_source_directory, max_matches=1)
-                if module_matches:
-                    module_entry = module_matches[0]
-                    direct_answer = format_script_reference_answer(module_entry) or format_unavailable_script_reference_answer(
-                        module_entry
-                    )
-                    if direct_answer:
-                        script_source_names = [
-                            "sentieon-modules.json",
-                            *[str(item) for item in module_entry.get("sources", [])],
-                        ]
-                        return format_reference_display(
-                            normalize_model_answer(
-                                direct_answer,
-                                source_context=source_context,
-                                sources=script_source_names,
-                            )
-                        )
-        source_names = ["workflow-guides.json", *[str(item) for item in workflow_entry.get("sources", [])]]
-        return format_reference_display(
-            normalize_model_answer(
-                format_workflow_guidance_answer(workflow_entry),
-                source_context=source_context,
-                sources=source_names,
-            )
-        )
-    external_entry = None
-    external_error_association = None
-    if resolved_intent.intent == "reference_other":
-        external_error_association = match_external_error_association(query, effective_source_directory)
-        external_entry = match_external_guide_entry(query, effective_source_directory)
-    if external_error_association is not None:
-        source_names = [
-            str(external_error_association.get("source_file", "")).strip(),
-            *[str(item) for item in external_error_association.get("source_notes", [])],
-        ]
-        source_names = [name for name in source_names if name]
-        return format_reference_display(
-            normalize_model_answer(
-                format_external_error_association(external_error_association),
-                source_context=source_context,
-                sources=source_names,
-            )
-        )
-    module_matches = match_module_entries(query, effective_source_directory, max_matches=1)
-    module_candidate = str(resolved_intent.module or "").strip()
-    if not module_matches and module_candidate and resolved_intent.intent in {"module_intro", "parameter_lookup", "script_example"}:
-        related_mentions = find_related_module_mentions(module_candidate, effective_source_directory)
-        if not related_mentions:
-            return format_reference_display(
-                normalize_model_answer(
-                    format_reference_boundary_answer(query, ["deep_mechanism"]),
-                    source_context=source_context,
-                    sources=["sentieon-modules.json"],
-                )
-            )
-        return format_reference_display(
-            normalize_model_answer(
-                format_missing_module_reference_answer(module_candidate, related_mentions),
-                source_context=source_context,
-                sources=["sentieon-modules.json"],
-            )
-        )
-    matched_module = ""
-    explicit_module_focus = False
-    if module_matches:
-        matched_module = str(module_matches[0].get("matched_alias", "")).strip()
-        normalized_query = query.lower()
-        normalized_module = matched_module.lower()
-        if normalized_module:
-            explicit_module_focus = (
-                normalized_query.startswith(normalized_module)
-                or f"{normalized_module} 的" in normalized_query
-                or f"{normalized_module}的" in normalized_query
-            )
-    if external_entry is not None:
-        matched_external = str(external_entry.get("matched_alias", "")).strip()
-        if not explicit_module_focus and (not matched_module or len(matched_external) >= len(matched_module) + 2):
-            source_names = [
-                str(external_entry.get("source_file", "")).strip(),
-                *[str(item) for item in external_entry.get("source_notes", [])],
-            ]
-            source_names = [name for name in source_names if name]
-            return format_reference_display(
-                normalize_model_answer(
-                    format_external_guide_answer(external_entry),
-                    source_context=source_context,
-                    sources=source_names,
-                )
-            )
-    module_evidence: list[dict[str, str]] = []
-    if module_matches:
-        module_entry = module_matches[0]
-        module_summary = str(module_entry.get("summary", "")).strip()
-        if "待核验占位" in module_summary:
-            direct_answer = format_module_reference_answer(module_entry, query)
-            module_evidence.append(build_module_evidence(module_entry))
-            if direct_answer:
-                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return format_reference_display(
-                    normalize_model_answer(
-                        direct_answer,
-                        source_context=source_context,
-                        sources=source_names,
-                    )
-                )
-        if resolved_intent.intent == "script_example":
-            direct_answer = format_script_reference_answer(module_entry) or format_unavailable_script_reference_answer(
-                module_entry
-            )
-            if direct_answer:
-                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return format_reference_display(
-                    normalize_model_answer(
-                        direct_answer,
-                        source_context=source_context,
-                        sources=source_names,
-                    )
-                )
-        module_parameter = match_module_parameter(module_entry, query)
-        if module_parameter is not None:
-            direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
-            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return format_reference_display(
-                normalize_model_answer(
-                    direct_answer,
-                    source_context=source_context,
-                    sources=source_names,
-                )
-            )
-        if resolved_intent.intent == "parameter_lookup":
-            direct_answer = format_unavailable_parameter_reference_answer(module_entry)
-            if direct_answer:
-                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return format_reference_display(
-                    normalize_model_answer(
-                        direct_answer,
-                        source_context=source_context,
-                        sources=source_names,
-                    )
-                )
-            direct_answer = format_parameter_followup_answer(module_entry)
-            if direct_answer:
-                source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return format_reference_display(
-                    normalize_model_answer(
-                        direct_answer,
-                        source_context=source_context,
-                        sources=source_names,
-                    )
-                )
-        direct_answer = format_module_reference_answer(module_entry, query)
-        module_evidence.append(build_module_evidence(module_entry))
-        if direct_answer:
-            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return format_reference_display(
-                normalize_model_answer(
-                    direct_answer,
-                    source_context=source_context,
-                    sources=source_names,
-                )
-            )
-    global_parameter_matches = match_parameter_entries(query, effective_source_directory, max_matches=1)
-    all_parameter_matches = match_parameter_entries(query, effective_source_directory)
-    if len(all_parameter_matches) > 1:
-        return format_parameter_disambiguation(all_parameter_matches)
-    if global_parameter_matches:
-        module_entry = global_parameter_matches[0]
-        module_parameter = module_entry.get("matched_parameter")
-        if isinstance(module_parameter, dict):
-            direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
-            source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return format_reference_display(
-                normalize_model_answer(
-                    direct_answer,
-                    source_context=source_context,
-                    sources=source_names,
-                )
-            )
-    if resolved_intent.intent == "module_overview":
-        direct_answer = format_module_overview_answer(effective_source_directory)
-        if direct_answer:
-            source_names = ["sentieon-modules.json", "sentieon-module-index.md"]
-            return format_reference_display(
-                normalize_model_answer(
-                    direct_answer,
-                    source_context=source_context,
-                    sources=source_names,
-                )
-            )
-    evidence = collect_source_evidence(
-        effective_source_directory,
-        issue_type="reference",
-        query=query,
-        info={
-            "version": "",
-            "input_type": "",
-            "error": "",
-            "error_keywords": "",
-            "step": "",
-            "data_type": "",
-        },
+    resolved = resolve_reference_answer(
+        query,
+        source_directory=effective_source_directory,
+        resolved_intent=resolved_intent,
     )
-    if module_evidence:
-        evidence = [
-            *module_evidence,
-            *[item for item in evidence if item.get("name") != "sentieon-modules.json"],
-        ]
     return format_reference_display(
         normalize_model_answer(
-            format_reference_boundary_answer(query, ["deep_mechanism"]),
+            resolved.text,
             source_context=source_context,
-            sources=[item["name"] for item in evidence],
+            sources=resolved.sources,
         )
     )

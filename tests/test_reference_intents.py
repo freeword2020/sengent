@@ -155,6 +155,17 @@ def test_parse_reference_intent_short_circuits_explicit_module_script_request():
     assert result.confidence > 0.0
 
 
+def test_parse_reference_intent_recognizes_joint_call_script_request_with_repeated_spaces():
+    result = parse_reference_intent(
+        "能提供个 joint  call 参考脚本吗",
+        model_generate=lambda prompt: (_ for _ in ()).throw(AssertionError("should not call model")),
+    )
+
+    assert result.intent == "script_example"
+    assert result.module == "Joint Call"
+    assert result.confidence > 0.0
+
+
 def test_parse_reference_intent_prefers_workflow_guidance_for_hybrid_followup_under_wgs_context():
     result = parse_reference_intent(
         "我要做wgs分析，能给个示例脚本吗 那 hybrid 呢",
@@ -216,4 +227,45 @@ def test_parse_reference_intent_prefers_gene_edit_script_heuristic_over_model_in
 
     assert result.intent == "script_example"
     assert result.module == "GeneEditEvaluator"
+    assert result.confidence > 0.0
+
+
+def test_parse_reference_intent_marks_cpu_thread_usage_prompt_as_reference_other():
+    result = parse_reference_intent(
+        "为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？",
+        model_generate=lambda prompt: '{"intent":"not_reference","confidence":0.08}',
+    )
+
+    assert result.intent == "reference_other"
+    assert result.confidence > 0.0
+
+
+def test_parse_reference_intent_marks_license_tool_selection_prompt_as_reference_other():
+    result = parse_reference_intent(
+        "当我配置好本地 License 服务器后，如果分析任务报错提示 License 获取失败，我该使用哪个官方二进制工具如 LICCLNT 来测试服务器连通性并检查可用授权数？",
+        model_generate=lambda prompt: '{"intent":"not_reference","confidence":0.08}',
+    )
+
+    assert result.intent == "reference_other"
+    assert result.confidence > 0.0
+
+
+def test_parse_reference_intent_prefers_reference_other_over_parameter_lookup_for_bwa_turbo_boundary_prompt():
+    result = parse_reference_intent(
+        "听说 Sentieon BWA-turbo 能把比对速度再提升 4 倍。这是需要额外下载一个软件，还是只需要在现有的 BWA 命令中通过 -x 参数挂载特定的 .model 文件即可启用？",
+        model_generate=lambda prompt: '{"intent":"parameter_lookup","confidence":0.88}',
+    )
+
+    assert result.intent == "reference_other"
+    assert result.confidence > 0.0
+
+
+def test_parse_reference_intent_prefers_parameter_lookup_over_boundary_for_dnascope_pcr_free_prompt():
+    result = parse_reference_intent(
+        "客户明确说明样本使用的是 PCR-free 无扩增建库方案。在运行 DNAscope 流程时，我需要修改哪个特定参数例如 --pcr_indel_model none 或 --pcr-free 来防止软件对 Indel 进行不必要的 PCR 伪影过滤？",
+        model_generate=lambda prompt: '{"intent":"not_reference","confidence":0.05}',
+    )
+
+    assert result.intent == "parameter_lookup"
+    assert result.module == "DNAscope"
     assert result.confidence > 0.0

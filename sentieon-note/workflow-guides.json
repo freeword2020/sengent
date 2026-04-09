@@ -49,6 +49,8 @@
         "你的数据是 WGS、WES 还是 panel？",
         "你现在要的是流程分流，还是下一步要 TNscope 的参考命令骨架？"
       ],
+      "script_module": "TNscope",
+      "direct_script_handoff": true,
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -102,6 +104,8 @@
         "你现在要的是 TNscope 的流程分流，还是后续的参考命令骨架？",
         "除了 SNV/Indel，你是否还需要 SV 结果？"
       ],
+      "script_module": "TNscope",
+      "direct_script_handoff": true,
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -158,6 +162,112 @@
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
     },
     {
+      "id": "short-read-diploid-wes",
+      "name": "Short-read diploid WES",
+      "priority": 62,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"],
+        ["diploid", "二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow"],
+      "summary": "这是短读长二倍体 WES 的参考命令入口。",
+      "guidance": [
+        "如果样本来自二倍体生物（diploid organism），短读长 WES 主线可直接落到 DNAscope skeleton。",
+        "如果样本并非二倍体生物（diploid organism），则不应继续套用这个 DNAscope 骨架，而应改看 DNAseq。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及 model bundle。",
+        "WES 场景通常还需要结合 target intervals / assay 配置。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "diploid-wes",
+      "name": "Diploid WES",
+      "priority": 61,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["diploid", "二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow"],
+      "summary": "这是二倍体 WES 的参考命令入口。",
+      "guidance": [
+        "如果样本来自二倍体生物（diploid organism），WES 主线可直接落到 DNAscope skeleton。",
+        "如果样本并非二倍体生物（diploid organism），则不应继续套用这个 DNAscope 骨架，而应改看 DNAseq。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及 model bundle。",
+        "WES 场景通常还需要结合 target intervals / assay 配置。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "short-read-polyploid-wes",
+      "name": "Short-read polyploid WES",
+      "priority": 63,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"],
+        ["polyploid", "多倍体", "多倍", "多 倍体", "多 倍", "non-diploid", "非二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow", "dnaseq"],
+      "summary": "这是短读长多倍体 / 非二倍体 WES 的参考命令入口。",
+      "guidance": [
+        "如果样本不属于 DNAscope 推荐的二倍体生物（diploid organism）边界，例如多倍体 / 非二倍体场景，短读长 WES 应改看 DNAseq skeleton。",
+        "这类场景不应继续套用 DNAscope 的二倍体主线。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及已知位点 VCF（视流程而定）。",
+        "WES 场景通常还需要结合 target intervals / assay 配置。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAseq",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "polyploid-wes",
+      "name": "Polyploid WES",
+      "priority": 62,
+      "require_any_groups": [
+        ["wes", "whole exome", "全外显子", "exome"],
+        ["polyploid", "多倍体", "多倍", "non-diploid", "非二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow", "dnaseq"],
+      "summary": "这是多倍体 / 非二倍体 WES 的参考命令入口。",
+      "guidance": [
+        "如果样本属于多倍体 / 非二倍体场景，WES 不应继续套用 DNAscope 的二倍体主线，应改看 DNAseq skeleton。",
+        "如果你手头其实是肿瘤 WES，而不是胚系多倍体场景，应改看 TNseq / TNscope。"
+      ],
+      "prerequisites": [
+        "需要 DNA 输入、参考基因组以及已知位点 VCF（视流程而定）。",
+        "WES 场景通常还需要结合 target intervals / assay 配置。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAseq",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
       "id": "short-read-germline-analysis",
       "name": "Short-read germline analysis",
       "priority": 53,
@@ -207,6 +317,54 @@
         "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
       ],
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "ont-analysis",
+      "name": "ONT analysis",
+      "priority": 61,
+      "require_any_groups": [
+        ["ont", "nanopore"]
+      ],
+      "exclude_any": ["wgs", "whole genome", "全基因组", "参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "ont"],
+      "summary": "这是 ONT 长读长分析的入口。",
+      "guidance": [
+        "如果你明确是 ONT 数据，主线看 DNAscope LongRead。",
+        "如果你其实是 short-read + long-read 联合分析，而不是纯 ONT 主线，应改看 DNAscope Hybrid。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope LongRead",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "hifi-analysis",
+      "name": "HiFi analysis",
+      "priority": 61,
+      "require_any_groups": [
+        ["hifi", "pacbio"]
+      ],
+      "exclude_any": ["wgs", "whole genome", "全基因组", "参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "hifi"],
+      "summary": "这是 PacBio HiFi 长读长分析的入口。",
+      "guidance": [
+        "如果你明确是 PacBio HiFi 数据，主线看 DNAscope LongRead。",
+        "如果你其实是 short-read + long-read 联合分析，而不是纯 HiFi 主线，应改看 DNAscope Hybrid。"
+      ],
+      "prerequisites": [
+        "DNAscope LongRead 需要 Python >= 3.8，以及 bcftools、bedtools、samtools、mosdepth、hificnv。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope LongRead",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
     },
     {
       "id": "hybrid-analysis",
@@ -595,6 +753,8 @@
         "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？",
         "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
       ],
+      "script_module": "DNAscope LongRead",
+      "direct_script_handoff": true,
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -621,6 +781,8 @@
         "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？",
         "这是纯 long-read 主线，还是 short-read + long-read 的 hybrid 分析？"
       ],
+      "script_module": "DNAscope LongRead",
+      "direct_script_handoff": true,
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -777,6 +939,8 @@
         "你现在要的是 TNscope 的流程分流，还是后续的参考命令骨架？",
         "除了 SNV/Indel，你是否还需要 SV 结果？"
       ],
+      "script_module": "TNscope",
+      "direct_script_handoff": true,
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
     },
     {
@@ -834,6 +998,60 @@
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
     },
     {
+      "id": "short-read-diploid-wgs",
+      "name": "Short-read diploid WGS",
+      "priority": 63,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"],
+        ["diploid", "二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "cnv", "copy number", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow"],
+      "summary": "这是短读长二倍体 WGS 的参考命令入口。",
+      "guidance": [
+        "如果样本来自二倍体生物（diploid organism），短读长 WGS 主线可直接落到 DNAscope skeleton。",
+        "如果样本并非二倍体生物（diploid organism），则不应继续套用这个 DNAscope 骨架，而应改看 DNAseq。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及 model bundle。",
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAscope",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
+      "id": "short-read-polyploid-wgs",
+      "name": "Short-read polyploid WGS",
+      "priority": 64,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["short-read", "short read", "短读长", "illumina", "element", "ultima"],
+        ["polyploid", "多倍体", "多倍", "多 倍体", "多 倍", "non-diploid", "非二倍体"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "cnv", "copy number", "参数", "--"],
+      "prefer_any": ["脚本", "示例", "命令", "reference", "workflow", "dnaseq"],
+      "summary": "这是短读长多倍体 / 非二倍体 WGS 的参考命令入口。",
+      "guidance": [
+        "如果样本不属于 DNAscope 推荐的二倍体生物（diploid organism）边界，例如多倍体 / 非二倍体场景，短读长 WGS 应改看 DNAseq skeleton。",
+        "这类场景不应继续套用 DNAscope 的二倍体主线。"
+      ],
+      "prerequisites": [
+        "需要 short-read DNA 输入、参考基因组以及已知位点 VCF（视流程而定）。",
+        "Quick Start: Linux 环境；WGS 建议 64 GB 内存，并建议使用高速 SSD。"
+      ],
+      "follow_up": [
+        "输入是 FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM？"
+      ],
+      "script_module": "DNAseq",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
+    },
+    {
       "id": "short-read-germline-wgs",
       "name": "Short-read germline WGS",
       "priority": 50,
@@ -860,6 +1078,31 @@
       ],
       "script_module": "DNAscope",
       "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md"]
+    },
+    {
+      "id": "wgs-cnv",
+      "name": "WGS CNV",
+      "priority": 58,
+      "require_any_groups": [
+        ["wgs", "whole genome", "全基因组"],
+        ["cnv", "copy number", "拷贝数"]
+      ],
+      "exclude_any": ["tumor", "肿瘤", "somatic", "体细胞", "参数", "--"],
+      "prefer_any": ["流程", "指导", "分析", "脚本", "示例", "cnvscope"],
+      "summary": "这是 WGS germline CNV 的流程入口。",
+      "guidance": [
+        "当前本地官方资料里，WGS germline CNV 主线对应 CNVscope + CNVModelApply。",
+        "该骨架要求输入 BAM 已完成 alignment 和 deduplication。"
+      ],
+      "prerequisites": [
+        "需要 deduped BAM、参考基因组以及 CNVscope / CNVModelApply 共用的 machine learning model。"
+      ],
+      "follow_up": [
+        "你的输入是否已经完成去重（deduped BAM）？"
+      ],
+      "script_module": "CNVscope",
+      "direct_script_handoff": true,
+      "sources": ["Sentieon202503.03.pdf", "sentieon-doc-map.md", "sentieon-modules.json"]
     },
     {
       "id": "pangenome-wgs",
