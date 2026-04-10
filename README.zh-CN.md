@@ -54,11 +54,37 @@ Sengent 按下面 5 条规则设计：
 - Linux: 支持
 - Windows: 不是本交付的主要目标
 
+## 先把安装包拿到本地
+
+优先推荐：
+
+1. 打开 [GitHub Releases](https://github.com/freeword2020/sengent/releases)
+2. 下载 `sengent-<version>.tar.gz` 或 `sengent-<version>.zip`
+3. 解压
+4. 进入解压后的 `sengent-<version>/` 目录
+
+如果暂时还没有 release 包，也可以：
+
+1. 打开仓库主页
+2. 点击绿色 `Code`
+3. 选择 `Download ZIP`
+4. 解压并进入解压后的目录
+
+如果你是维护者，需要从当前 checkout 生成 GitHub Release 压缩包：
+
+```bash
+bash scripts/package_release.sh --output-dir dist
+```
+
+这会同时生成 `dist/sengent-<version>.tar.gz` 和 `dist/sengent-<version>.zip`，可直接上传到 GitHub Releases。
+
 ## 普通用户快速开始
 
 如果你希望这台机器装完就能聊天和问答，建议这样装：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -68,6 +94,8 @@ sengent chat
 如果这台机器只做知识 build / review：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
@@ -109,6 +137,8 @@ sengent --help
 ### 运行时主机安装
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -120,6 +150,8 @@ sengent chat
 ### 只做 build 的主机安装
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
@@ -130,7 +162,9 @@ sengent doctor --skip-ollama
 ### 维护者安装
 
 ```bash
-bash scripts/install_sengent.sh --with-maintainer-tools
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
@@ -143,7 +177,7 @@ sengent doctor --skip-ollama
 - 从当前 checkout 以非 editable 的方式安装 Sengent
 - 把 managed JSON packs 复制到 active source pack 目录
 - 运行已安装的 `sengent doctor`
-- 如果系统里有 `ollama` CLI，就顺手拉取配置好的模型
+- 只有显式传入 `--ensure-ollama-model` 时，才会尝试执行 `ollama pull <model>`
 
 常用参数：
 

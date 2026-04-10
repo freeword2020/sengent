@@ -6,7 +6,7 @@
 
 默认前提：
 
-- 你已经从仓库执行过安装脚本
+- 你已经从 GitHub Releases、`Download ZIP` 或仓库 checkout 拿到了安装目录
 - 你会优先使用安装后的 `sengent` 命令
 - 你不需要直接修改知识库文件
 
@@ -47,11 +47,24 @@ Sengent 主要做四类事：
 
 ## 安装步骤
 
+### 第 0 步: 先拿到安装目录
+
+优先推荐：
+
+1. 打开 [GitHub Releases](https://github.com/freeword2020/sengent/releases)
+2. 下载 `sengent-<version>.tar.gz` 或 `.zip`
+3. 解压
+4. 进入解压后的目录
+
+如果当前还没有 release 包，也可以在仓库主页点击 `Code` -> `Download ZIP`。
+
 ### 第 1 步: 先安装
 
 如果这台机器要实际聊天和回答问题，建议这样装：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -60,6 +73,8 @@ sengent doctor
 如果这台机器只是先做 build / review，不负责聊天：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama

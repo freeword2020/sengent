@@ -18,3 +18,13 @@ def test_english_readme_links_to_chinese_readme():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "README.zh-CN.md" in text
+
+
+def test_readmes_explain_how_to_get_the_package_before_install():
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (REPO_ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+
+    assert "GitHub Releases" in english
+    assert "Download ZIP" in english
+    assert "GitHub Releases" in chinese
+    assert "Download ZIP" in chinese

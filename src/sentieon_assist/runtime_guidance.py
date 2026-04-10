@@ -6,18 +6,33 @@ def format_ollama_runtime_error(
     error_text: str,
     base_url: str,
     model: str,
+    issue_kind: str = "connectivity",
 ) -> str:
+    if issue_kind == "model_missing":
+        headline = f"- 当前可以访问本地 Ollama HTTP API：{base_url}"
+        detail = f"- 但本地还没有目标模型：{model}"
+    else:
+        headline = f"- 当前无法访问本地 Ollama HTTP API：{base_url}"
+        detail = f"- 当前目标模型：{model}"
     return "\n".join(
         [
             "【运行时模型不可用】",
-            f"- 当前无法访问本地 Ollama HTTP API：{base_url}",
-            f"- 当前目标模型：{model}",
+            headline,
+            detail,
             "",
             "【建议下一步】",
             "- 先执行 `sengent doctor`，确认当前机器是不是运行时主机。",
             "- 如果这台机器只做 build / review / activate，请执行 `sengent doctor --skip-ollama`。",
-            "- 如果这台机器要聊天或单轮问答，请先安装并启动 Ollama。",
-            f"- 如果 Ollama 已启动但模型还没准备，执行：`ollama pull {model}`。",
+            (
+                f"- 如果这台机器要聊天或单轮问答，请执行：`ollama pull {model}`。"
+                if issue_kind == "model_missing"
+                else "- 如果这台机器要聊天或单轮问答，请先安装并启动 Ollama。"
+            ),
+            (
+                "- 拉取完成后，再重新执行 `sengent doctor`。"
+                if issue_kind == "model_missing"
+                else f"- 如果 Ollama 已启动但模型还没准备，执行：`ollama pull {model}`。"
+            ),
             "",
             "【原始错误】",
             f"- {error_text}",

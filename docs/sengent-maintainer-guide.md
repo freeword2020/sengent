@@ -25,6 +25,8 @@
 它通常不需要立刻连 Ollama。安装和 `doctor` 都可以先跳过 Ollama 检查：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
@@ -41,6 +43,8 @@ sengent doctor --skip-ollama
 建议安装时顺手准备模型，并做完整检查：
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --with-maintainer-tools --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -57,10 +61,16 @@ sengent doctor
 
 ## 安装说明
 
+先从 [GitHub Releases](https://github.com/freeword2020/sengent/releases) 下载 `sengent-<version>.tar.gz` 或 `.zip`，解压后进入目录。
+
+如果暂时没有 release 包，也可以从仓库主页使用 `Download ZIP`。
+
 推荐安装方式：
 
 ```bash
-bash scripts/install_sengent.sh --with-maintainer-tools
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 ```
 
@@ -75,6 +85,21 @@ export PIP_INDEX_URL=https://your-internal-pypi/simple
 - Sengent CLI
 - `pytest`
 - `docling`
+
+## Release 压缩包怎么生成
+
+如果你要给普通用户准备下载包，先在仓库根目录执行：
+
+```bash
+bash scripts/package_release.sh --output-dir dist
+```
+
+默认会生成：
+
+- `dist/sengent-<version>.tar.gz`
+- `dist/sengent-<version>.zip`
+
+推荐把这两个文件上传到 GitHub Releases。对 `macOS/Linux` 用户，优先引导下载 `tar.gz`；`zip` 作为通用兜底。
 
 ## 默认路径
 

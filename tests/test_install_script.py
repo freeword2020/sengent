@@ -44,6 +44,7 @@ def test_install_script_dry_run_prints_core_bootstrap_steps(tmp_path: Path):
     assert "pip install -e ." not in result.stdout
     assert "sengent doctor --skip-ollama" in result.stdout
     assert "Seed active source packs" in result.stdout
+    assert f"source {tmp_path / '.venv' / 'bin' / 'activate'}" in result.stdout
 
 
 def test_install_script_dry_run_with_pdf_build_prints_optional_extra(tmp_path: Path):
@@ -93,3 +94,18 @@ def test_install_script_dry_run_warns_when_ollama_cli_missing(tmp_path: Path):
 
     assert result.returncode == 0
     assert "ollama CLI not found" in result.stdout
+
+
+def test_install_script_dry_run_runtime_path_mentions_activation_and_installed_command(tmp_path: Path):
+    result = _run_install_script(
+        "--dry-run",
+        "--ensure-ollama-model",
+        "--python",
+        sys.executable,
+        "--venv-dir",
+        str(tmp_path / ".venv"),
+    )
+
+    assert result.returncode == 0
+    assert f"source {tmp_path / '.venv' / 'bin' / 'activate'}" in result.stdout
+    assert str(tmp_path / ".venv" / "bin" / "sengent") in result.stdout

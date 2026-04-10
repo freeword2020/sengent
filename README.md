@@ -54,11 +54,37 @@ There are two major paths:
 - Linux: supported
 - Windows: not a primary target in this delivery
 
+## Get The Package First
+
+Preferred download path:
+
+1. Open [GitHub Releases](https://github.com/freeword2020/sengent/releases)
+2. Download `sengent-<version>.tar.gz` or `sengent-<version>.zip`
+3. Extract it
+4. `cd` into the extracted `sengent-<version>/` directory
+
+Fallback if you do not have a release bundle yet:
+
+1. Open the repo page
+2. Click the green `Code` button
+3. Choose `Download ZIP`
+4. Extract it and enter the extracted repo directory
+
+For maintainers preparing a GitHub release bundle from a checkout:
+
+```bash
+bash scripts/package_release.sh --output-dir dist
+```
+
+This creates both `dist/sengent-<version>.tar.gz` and `dist/sengent-<version>.zip` for upload to GitHub Releases.
+
 ## Quick Start For Ordinary Users
 
 If you want a runtime host that can answer questions right away:
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -68,6 +94,8 @@ sengent chat
 If this machine is only for knowledge build / review work:
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
@@ -109,6 +137,8 @@ The installer can provision the right dependency set for normal users or maintai
 ### Runtime host install
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
 sengent doctor
@@ -120,6 +150,8 @@ Use this on hosts that should answer questions.
 ### Build-only host install
 
 ```bash
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
 bash scripts/install_sengent.sh --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
@@ -130,7 +162,9 @@ Use this on hosts that only handle build / review / gate / activate.
 ### Maintainer install
 
 ```bash
-bash scripts/install_sengent.sh --with-maintainer-tools
+tar -xzf sengent-0.1.0.tar.gz
+cd sengent-0.1.0
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
@@ -143,7 +177,7 @@ sengent doctor --skip-ollama
 - installs Sengent **non-editably** from the current checkout
 - seeds the active source pack directory from the repo’s managed JSON packs
 - runs the installed `sengent doctor`
-- optionally pulls the configured Ollama model when the `ollama` CLI is available
+- optionally runs `ollama pull <model>` when you explicitly pass `--ensure-ollama-model`
 
 Useful flags:
 

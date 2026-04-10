@@ -113,6 +113,37 @@ def test_cli_chat_runtime_error_is_reported_with_user_guidance(monkeypatch):
     assert "ollama pull" in joined
 
 
+def test_cli_chat_runtime_error_is_not_double_wrapped(monkeypatch):
+    def fail_chat_loop(**kwargs):
+        raise RuntimeError(
+            "【运行时模型不可用】\n"
+            "- 当前目标模型：gemma4:e4b\n\n"
+            "【建议下一步】\n"
+            "- 先执行 `sengent doctor`。"
+        )
+
+    monkeypatch.setattr("sentieon_assist.cli.chat_loop", fail_chat_loop)
+    outputs: list[str] = []
+
+    code = main(["chat"], output_fn=outputs.append)
+
+    assert code == 2
+    joined = "\n".join(outputs)
+    assert joined.count("【运行时模型不可用】") == 1
+    assert "【原始错误】" not in joined
+
+
+def test_cli_explains_global_options_must_precede_command(monkeypatch):
+    outputs: list[str] = []
+
+    code = main(["doctor", "--source-dir", "/tmp/sources"], output_fn=outputs.append)
+
+    assert code == 2
+    joined = "\n".join(outputs)
+    assert "must appear before the command" in joined
+    assert "sengent --source-dir /tmp/sources doctor" in joined
+
+
 def test_cli_prints_answer_for_query(capsys):
     code = main(["Sentieon", "202503", "license", "报错"])
     out = capsys.readouterr().out

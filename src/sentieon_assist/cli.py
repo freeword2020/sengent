@@ -112,6 +112,7 @@ REFERENCE_FOLLOWUP_CANONICAL_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
 )
 HELP_FLAGS = {"--help", "-h", "help"}
+GLOBAL_OPTION_NAMES = {"--knowledge-dir", "--source-dir", "--feedback-path"}
 
 
 def format_cli_help() -> str:
@@ -133,7 +134,7 @@ def format_cli_help() -> str:
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
             "  sengent knowledge rollback --backup-id <id> [--build-root <dir>]",
             "",
-            "Global options:",
+            "Global options (must appear before the command):",
             "  --source-dir <dir>",
             "  --knowledge-dir <dir>",
             "  --feedback-path <path>",
@@ -326,6 +327,7 @@ def require_chat_model(
                 error_text=str(result.get("error", "ollama probe failed")).strip(),
                 base_url=config.ollama_base_url,
                 model=config.ollama_model,
+                issue_kind="connectivity",
             )
         )
     if not result.get("model_available"):
@@ -334,6 +336,7 @@ def require_chat_model(
                 error_text=f"target model is not available: {config.ollama_model}",
                 base_url=config.ollama_base_url,
                 model=config.ollama_model,
+                issue_kind="model_missing",
             )
         )
 
@@ -679,6 +682,8 @@ def _parse_doctor_options(args: list[str]) -> bool:
 
 def _format_cli_runtime_error(error: RuntimeError) -> str:
     message = str(error).strip()
+    if message.startswith("【运行时模型不可用】"):
+        return message
     if "ollama" not in message.lower():
         return message
     config = load_config()
@@ -686,6 +691,14 @@ def _format_cli_runtime_error(error: RuntimeError) -> str:
         error_text=message,
         base_url=config.ollama_base_url,
         model=config.ollama_model,
+        issue_kind="model_missing" if "target model is not available" in message else "connectivity",
+    )
+
+
+def _format_misplaced_global_option(option: str, command: str, value: str = "<value>") -> str:
+    return (
+        f"global option {option} must appear before the command, "
+        f"for example: sengent {option} {value} {command}"
     )
 
 
@@ -1081,6 +1094,12 @@ def main(
     effective_knowledge_directory = knowledge_directory or cli_knowledge_directory or (config.knowledge_dir or None)
     effective_source_directory = source_directory or cli_source_directory or config.source_dir
     effective_feedback_path = cli_feedback_path
+    if args and args[0] in {"chat", "sources", "doctor", "knowledge", "search"}:
+        for index, option in enumerate(args[1:], start=1):
+            if option in GLOBAL_OPTION_NAMES:
+                value = args[index + 1] if index + 1 < len(args) else "<value>"
+                output_fn(_format_misplaced_global_option(option, args[0], value))
+                return 2
     if args and args[0] == "chat":
         if len(args) >= 2 and args[1] in HELP_FLAGS:
             output_fn(format_chat_command_help())

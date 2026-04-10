@@ -112,6 +112,7 @@ fi
 
 VENV_PYTHON="${VENV_DIR}/bin/python"
 VENV_SENGENT="${VENV_DIR}/bin/sengent"
+VENV_ACTIVATE="${VENV_DIR}/bin/activate"
 INSTALL_TARGET="."
 if [[ "${WITH_MAINTAINER_TOOLS}" -eq 1 ]]; then
   INSTALL_TARGET=".[maintainer]"
@@ -211,8 +212,10 @@ run_repo_doctor
 
 if [[ "${SKIP_OLLAMA}" -eq 1 ]]; then
   echo "This host is set up as a build-only / review host."
-  echo "Use 'sengent doctor --skip-ollama' to confirm build-time readiness."
-  echo "If you later want chat/runtime on this machine, install/start Ollama, pull ${OLLAMA_MODEL}, then run 'sengent doctor'."
+  echo "Activate the virtualenv first: source ${VENV_ACTIVATE}"
+  echo "Then use the installed command: ${VENV_SENGENT} doctor --skip-ollama"
+  echo "If you prefer the shell alias after activation, run: sengent doctor --skip-ollama"
+  echo "If you later want chat/runtime on this machine, install/start Ollama, pull ${OLLAMA_MODEL}, then run '${VENV_SENGENT} doctor'."
   echo "Skipping Ollama handling as requested."
   exit 0
 fi
@@ -230,6 +233,8 @@ if [[ "${ENSURE_OLLAMA_MODEL}" -eq 1 ]]; then
 fi
 
 echo "Next step for a runtime host:"
-echo "  1. Run: sengent doctor"
-echo "  2. If doctor says the model is missing, run: ollama pull ${OLLAMA_MODEL}"
-echo "  3. Start using: sengent chat"
+echo "  1. Activate: source ${VENV_ACTIVATE}"
+echo "  2. Confirm runtime readiness: ${VENV_SENGENT} doctor"
+echo "  3. If doctor says the model is missing, run: ollama pull ${OLLAMA_MODEL}"
+echo "  4. Start using: ${VENV_SENGENT} chat"
+echo "  5. After activation, you can also use the short command: sengent"
