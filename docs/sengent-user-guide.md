@@ -1,108 +1,107 @@
 # Sengent User Guide
 
-## Who This Guide Is For
+## 这份指南给谁看
 
-这份指南给日常使用 Sengent 提问、排障、查模块/参数/脚本的同事。
+给日常使用 Sengent 提问、排障、查模块 / 参数 / 脚本的同事看。
 
 默认前提：
 
 - 你已经从仓库执行过安装脚本
 - 你会优先使用安装后的 `sengent` 命令
-- 你不需要直接改知识库文件
+- 你不需要直接修改知识库文件
 
-## What Sengent Does
+## Sengent 能做什么
 
 Sengent 主要做四类事：
 
-1. 入门导航
-2. 排障
-3. 模块 / 参数 / 脚本查询
-4. 基于本地资料的支持回答
+1. 帮你入门和找流程
+2. 帮你排障
+3. 帮你查模块 / 参数 / 脚本
+4. 基于本地资料给出支持回答
 
-它不是把文档直接丢给模型自由发挥。
-它的基本原则是：
+它不是把文档直接丢给模型自由发挥。它的基本原则是：
 
-- rule-first
-- structured packs first
-- eval-gated activation
-- rollback protected
+- 先按规则路由
+- 运行时优先使用结构化 pack
+- 知识上线前要过评估门禁
+- 出问题时优先回退
 
-## Supported Environment
+## 先决条件
 
-### Operating systems
+### 支持的系统
 
 - macOS
 - Linux
 
-### Runtime requirements
+### 运行时需要
 
 - Python `3.11+`
 - 本地 Ollama HTTP API
 - 一个可用模型，例如 `gemma4:e4b`
 
-### Optional capability
+### 可选能力
 
 - `docling`
   - 只在 PDF-backed knowledge build 时需要
   - 不影响普通 query / chat
 
-## Install
+## 安装步骤
 
-### Standard install
+### 第 1 步: 先安装
 
-```bash
-bash scripts/install_sengent.sh --skip-ollama
-source .venv/bin/activate
-```
-
-如果机器已经准备好 Ollama，也可以直接：
+如果这台机器要实际聊天和回答问题，建议这样装：
 
 ```bash
 bash scripts/install_sengent.sh --ensure-ollama-model
 source .venv/bin/activate
+sengent doctor
 ```
 
-### After install
-
-安装后默认使用：
+如果这台机器只是先做 build / review，不负责聊天：
 
 ```bash
-sengent
+bash scripts/install_sengent.sh --skip-ollama
+source .venv/bin/activate
+sengent doctor --skip-ollama
 ```
 
-先确认环境：
+### 第 2 步: 确认命令可用
+
+如果你不知道下一步该输入什么命令，先看：
+
+```bash
+sengent --help
+```
+
+安装后普通用户最常用的检查是：
 
 ```bash
 sengent doctor
 ```
 
-如果当前机器只是先做安装，不想探测 Ollama：
+### 第 3 步: 如果网络走内网镜像
 
-```bash
-sengent doctor --skip-ollama
-```
-
-如果当前网络只能访问内网源，先配置 pip mirror：
+先配 pip mirror，再安装：
 
 ```bash
 export PIP_INDEX_URL=https://your-internal-pypi/simple
 bash scripts/install_sengent.sh --skip-ollama
 ```
 
-## First-Time Check
+## 第一次使用前要看什么
 
-建议先看四件事：
+第一次跑 `sengent doctor` 时，建议先确认这 4 件事：
 
-- Ollama 是否可达
+- Ollama 是否能连上
 - 模型是否可用
 - `docling_available`
 - `managed_pack_complete`
 
-如果 `managed_pack_complete: no`，说明当前 active source packs 不完整，需要让维护者修复安装或 source dir。
+如果 `managed_pack_complete: no`，说明当前 active source packs 不完整。这通常不是你提问方式的问题，需要维护者修复安装或 source dir。
 
-## Basic Usage
+## 怎么使用
 
-### Interactive chat
+### 1. 打开对话
 
 ```bash
 sengent chat
@@ -115,7 +114,7 @@ sengent chat
 - `/reset`
 - `/feedback`
 
-### Single query
+### 2. 直接提一个问题
 
 ```bash
 sengent "DNAscope 是做什么的"
@@ -123,71 +122,73 @@ sengent "sentieon-cli dnascope 的 --pcr_free 是什么"
 sengent "能给个 rnaseq 的参考脚本吗"
 ```
 
-### Source inspection
+### 3. 看当前资料来源
 
 ```bash
 sengent sources
 sengent search SENTIEON_LICENSE
 ```
 
-### Customer-site override
+### 4. 临时切到另一套客户资料
 
-如果你要临时切到另一套客户资料源：
+如果你需要临时看别的客户现场资料源：
 
 ```bash
 sengent --source-dir /path/to/customer-sources doctor --skip-ollama
 sengent --source-dir /path/to/customer-sources "DNAscope 是做什么的"
 ```
 
-## Feedback
+## 如果回答不理想
 
-如果你在 `chat` 过程中发现回答不理想：
+你可以直接用 `/feedback`。提交前尽量保留这三样：
 
-1. 保留原问题
-2. 尽量保留回答原文
-3. 直接用 `/feedback`
+1. 原问题
+2. 原回答
+3. 你希望它怎么改
 
-建议补充的信息：
+如果方便，再补一句它到底是：
 
-- 这是知识缺失、知识过期，还是回答表达问题
-- 你期望它怎么答
-- 如果能判断，补一个期望 mode / task
+- 知识缺失
+- 知识过期
+- 表达不清楚
 
-## Runtime Notes
+## 常见问题排查
+
+### 先记住这几条
 
 - 运行时主知识源是 structured packs，不是原始 PDF
 - 没装 `docling` 不影响普通使用，但会影响 PDF build
-- Ollama CLI 不是运行时硬依赖；运行时依赖的是本地 HTTP API
-- 如果你只是普通使用者，不需要自己操作 build / activate / rollback
+- Ollama CLI 不是运行时硬依赖，真正依赖的是本地 HTTP API
+- 普通使用者一般不需要自己操作 build / activate / rollback
 
-## Where Files Live By Default
+### 机器上文件放哪
 
-### macOS
+macOS：
 
 - `~/Library/Application Support/Sengent`
 
-### Linux
+Linux：
 
 - `$XDG_DATA_HOME/sengent`
 - 或 `~/.local/share/sengent`
 
-### Common locations
+常见目录：
 
 - active source packs: `<app-home>/sources/active`
 - runtime logs: `<app-home>/runtime`
 - knowledge builds: `<app-home>/runtime/knowledge-build`
 
-如需统一覆盖：
+如果要统一改位置：
 
 ```bash
 export SENGENT_HOME=/path/to/sengent-home
 ```
 
-## When To Ask A Maintainer
+### 什么时候找维护者
 
-这些情况建议直接找维护者：
+这些情况直接找维护者比较快：
 
 - `managed_pack_complete: no`
 - 需要新增 / 更新 / 删除知识
 - 需要回退到旧版本知识库
-- 需要 PDF build 能力但当前 `docling_available: no`
+- 需要 PDF build 能力，但当前 `docling_available: no`

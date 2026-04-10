@@ -162,3 +162,95 @@ def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
     assert "docling_available: no" in text
     assert "managed_pack_complete: no" in text
     assert "external-tool-guides.json" in text
+
+
+def test_format_doctor_report_includes_actionable_ollama_guidance_for_error_state():
+    text = format_doctor_report(
+        {
+            "ollama": {
+                "base_url": "http://127.0.0.1:11434",
+                "model": "gemma4:e4b",
+                "ok": False,
+                "error": "connection refused",
+            },
+            "build_runtime": {
+                "pyyaml_available": True,
+                "pyyaml_mode": "mandatory-installed",
+                "docling_available": False,
+                "docling_mode": "optional-pdf-parser-missing",
+            },
+            "knowledge": {
+                "directory": "/tmp/knowledge",
+                "exists": True,
+                "file_count": 2,
+                "files": ["install.json", "license.json"],
+            },
+            "sources": {
+                "directory": "/tmp/sources",
+                "exists": True,
+                "file_count": 5,
+                "files": [
+                    "sentieon-modules.json",
+                    "workflow-guides.json",
+                    "external-format-guides.json",
+                    "external-tool-guides.json",
+                    "external-error-associations.json",
+                ],
+                "primary_release": "202503.03",
+                "primary_date": "Mar 30, 2026",
+                "primary_reference": "workflow-guides.json",
+                "managed_pack_complete": True,
+                "missing_managed_pack_files": [],
+            },
+        }
+    )
+
+    assert "【建议下一步】" in text
+    assert "sengent doctor --skip-ollama" in text
+    assert "ollama pull gemma4:e4b" in text
+
+
+def test_format_doctor_report_includes_actionable_ollama_guidance_for_missing_model():
+    text = format_doctor_report(
+        {
+            "ollama": {
+                "base_url": "http://127.0.0.1:11434",
+                "model": "gemma4:e4b",
+                "ok": True,
+                "version": "0.20.0",
+                "model_available": False,
+            },
+            "build_runtime": {
+                "pyyaml_available": True,
+                "pyyaml_mode": "mandatory-installed",
+                "docling_available": False,
+                "docling_mode": "optional-pdf-parser-missing",
+            },
+            "knowledge": {
+                "directory": "/tmp/knowledge",
+                "exists": True,
+                "file_count": 2,
+                "files": ["install.json", "license.json"],
+            },
+            "sources": {
+                "directory": "/tmp/sources",
+                "exists": True,
+                "file_count": 5,
+                "files": [
+                    "sentieon-modules.json",
+                    "workflow-guides.json",
+                    "external-format-guides.json",
+                    "external-tool-guides.json",
+                    "external-error-associations.json",
+                ],
+                "primary_release": "202503.03",
+                "primary_date": "Mar 30, 2026",
+                "primary_reference": "workflow-guides.json",
+                "managed_pack_complete": True,
+                "missing_managed_pack_files": [],
+            },
+        }
+    )
+
+    assert "model_available: no" in text
+    assert "ollama pull gemma4:e4b" in text

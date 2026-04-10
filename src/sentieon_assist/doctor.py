@@ -7,6 +7,7 @@ from typing import Any, Callable
 from sentieon_assist.config import load_config
 from sentieon_assist.knowledge_build import missing_managed_pack_files
 from sentieon_assist.ollama_client import probe_ollama
+from sentieon_assist.runtime_guidance import doctor_guidance_lines
 from sentieon_assist.rules import knowledge_dir as default_knowledge_dir
 from sentieon_assist.sources import collect_source_bundle_metadata, list_sources
 
@@ -105,6 +106,7 @@ def format_doctor_report(report: dict[str, Any]) -> str:
         f"docling_available: {'yes' if build_runtime.get('docling_available') else 'no'}",
         f"docling_mode: {build_runtime.get('docling_mode') or '-'}",
     ]
+    guidance_lines = doctor_guidance_lines(ollama=ollama)
 
     return "\n".join(
         ollama_lines
@@ -131,4 +133,10 @@ def format_doctor_report(report: dict[str, Any]) -> str:
             f"managed_pack_complete: {'yes' if sources.get('managed_pack_complete') else 'no'}",
             f"missing_managed_pack_files: {_format_file_list(sources.get('missing_managed_pack_files') or [])}",
         ]
+        + (
+            ["", "【建议下一步】"]
+            + [f"- {line}" for line in guidance_lines]
+            if guidance_lines
+            else []
+        )
     )

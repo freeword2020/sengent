@@ -43,6 +43,7 @@ from sentieon_assist.knowledge_build import (
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
+from sentieon_assist.runtime_guidance import format_ollama_runtime_error
 from sentieon_assist.session_events import (
     SupportSessionRecord,
     SupportTurnView,
@@ -110,6 +111,145 @@ REFERENCE_FOLLOWUP_CANONICAL_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "那 hybrid 呢",
     ),
 )
+HELP_FLAGS = {"--help", "-h", "help"}
+
+
+def format_cli_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent <command> [options]",
+            "",
+            "Common commands:",
+            "  sengent chat",
+            "  sengent doctor [--skip-ollama]",
+            "  sengent sources",
+            "  sengent search <keyword>",
+            '  sengent "<your question>"',
+            "",
+            "Knowledge maintenance:",
+            "  sengent knowledge scaffold --kind <kind> --id <id> [--name <name>]",
+            "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
+            "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
+            "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
+            "  sengent knowledge rollback --backup-id <id> [--build-root <dir>]",
+            "",
+            "Global options:",
+            "  --source-dir <dir>",
+            "  --knowledge-dir <dir>",
+            "  --feedback-path <path>",
+            "",
+            "Help:",
+            "  sengent --help",
+            "  sengent chat --help",
+            "  sengent doctor --help",
+            "  sengent knowledge --help",
+        ]
+    )
+
+
+def format_chat_command_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent chat",
+            "",
+            "Start the interactive Sengent support shell.",
+            "",
+            "In-chat commands:",
+            format_chat_help().rstrip(),
+        ]
+    )
+
+
+def format_doctor_command_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent doctor [--skip-ollama]",
+            "",
+            "Check runtime prerequisites, source packs, and build-time extras.",
+            "",
+            "Options:",
+            "  --skip-ollama    Skip Ollama probing on build-only hosts",
+        ]
+    )
+
+
+def format_sources_command_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent sources",
+            "",
+            "List the currently visible structured source packs.",
+        ]
+    )
+
+
+def format_search_command_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent search <keyword>",
+            "",
+            "Search structured source packs for a keyword.",
+        ]
+    )
+
+
+def format_knowledge_help() -> str:
+    return "\n".join(
+        [
+            "Usage: sengent knowledge <subcommand> [options]",
+            "",
+            "Subcommands:",
+            "  scaffold    Create an inbox template for add/update/delete",
+            "  build       Compile inbox content into candidate packs",
+            "  review      Show the latest or selected build report",
+            "  activate    Promote a gated build into active packs",
+            "  rollback    Restore active packs from a backup",
+        ]
+    )
+
+
+def format_knowledge_subcommand_help(subcommand: str) -> str:
+    if subcommand == "build":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
+                "",
+                "Compile inbox documents and metadata into candidate packs.",
+            ]
+        )
+    if subcommand == "scaffold":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge scaffold --kind <kind> --id <id> [--name <name>] [--action <upsert|delete>] [--inbox-dir <dir>] [--file-stem <stem>]",
+                "",
+                "Create or update an inbox markdown + metadata template.",
+            ]
+        )
+    if subcommand == "activate":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge activate --build-id <id> [--build-root <dir>]",
+                "",
+                "Activate a gated knowledge build and back up the previous active packs first.",
+            ]
+        )
+    if subcommand == "rollback":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge rollback --backup-id <id> [--build-root <dir>]",
+                "",
+                "Restore active packs from a recorded activation backup.",
+            ]
+        )
+    if subcommand == "review":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge review [--build-id <id>] [--build-root <dir>]",
+                "",
+                "Show the latest or selected build report.",
+            ]
+        )
+    return format_knowledge_help()
 
 
 def _default_status_writer(text: str, *, clear: bool = False) -> None:
@@ -180,8 +320,22 @@ def require_chat_model(
     config = load_config()
     probe = api_probe or (lambda base_url: build_backend_router(config).probe_primary())
     result = probe(config.ollama_base_url)
-    if not result.get("ok") or not result.get("model_available"):
-        raise RuntimeError(f"本地 Ollama 模型不可用：{config.ollama_model}")
+    if not result.get("ok"):
+        raise RuntimeError(
+            format_ollama_runtime_error(
+                error_text=str(result.get("error", "ollama probe failed")).strip(),
+                base_url=config.ollama_base_url,
+                model=config.ollama_model,
+            )
+        )
+    if not result.get("model_available"):
+        raise RuntimeError(
+            format_ollama_runtime_error(
+                error_text=f"target model is not available: {config.ollama_model}",
+                base_url=config.ollama_base_url,
+                model=config.ollama_model,
+            )
+        )
 
 
 def _chat_model_generate(
@@ -521,6 +675,18 @@ def _parse_doctor_options(args: list[str]) -> bool:
         skip_ollama = True
         index += 1
     return skip_ollama
+
+
+def _format_cli_runtime_error(error: RuntimeError) -> str:
+    message = str(error).strip()
+    if "ollama" not in message.lower():
+        return message
+    config = load_config()
+    return format_ollama_runtime_error(
+        error_text=message,
+        base_url=config.ollama_base_url,
+        model=config.ollama_model,
+    )
 
 
 def _parse_feedback_command(query: str) -> str | None:
@@ -908,11 +1074,17 @@ def main(
     except ValueError as error:
         output_fn(str(error))
         return 2
+    if not args or args[0] in HELP_FLAGS:
+        output_fn(format_cli_help())
+        return 0
     config = load_config()
     effective_knowledge_directory = knowledge_directory or cli_knowledge_directory or (config.knowledge_dir or None)
     effective_source_directory = source_directory or cli_source_directory or config.source_dir
     effective_feedback_path = cli_feedback_path
     if args and args[0] == "chat":
+        if len(args) >= 2 and args[1] in HELP_FLAGS:
+            output_fn(format_chat_command_help())
+            return 0
         try:
             return chat_loop(
                 input_fn=input_fn,
@@ -929,11 +1101,17 @@ def main(
                 runtime_directory=runtime_directory,
             )
         except RuntimeError as error:
-            output_fn(str(error))
+            output_fn(_format_cli_runtime_error(error))
             return 2
     if args and args[0] == "sources":
+        if len(args) >= 2 and args[1] in HELP_FLAGS:
+            output_fn(format_sources_command_help())
+            return 0
         return print_sources(output_fn=output_fn, source_directory=effective_source_directory)
     if args and args[0] == "doctor":
+        if len(args) >= 2 and args[1] in HELP_FLAGS:
+            output_fn(format_doctor_command_help())
+            return 0
         try:
             skip_ollama = _parse_doctor_options(args[1:])
         except ValueError as error:
@@ -946,6 +1124,13 @@ def main(
         )
         output_fn(format_doctor_report(report))
         return 0
+    if args and args[0] == "knowledge":
+        if len(args) == 1 or args[1] in HELP_FLAGS:
+            output_fn(format_knowledge_help())
+            return 0
+        if len(args) >= 3 and args[2] in HELP_FLAGS:
+            output_fn(format_knowledge_subcommand_help(args[1]))
+            return 0
     if len(args) >= 2 and args[0] == "knowledge" and args[1] == "build":
         try:
             inbox_directory, build_root = _parse_knowledge_build_options(args[2:])
@@ -1066,22 +1251,26 @@ def main(
         output_fn(result.report_text.rstrip())
         return 0
     if args and args[0] == "search":
+        if len(args) >= 2 and args[1] in HELP_FLAGS:
+            output_fn(format_search_command_help())
+            return 0
         keyword = " ".join(args[1:]).strip()
         if not keyword:
             output_fn("search keyword is required")
             return 2
         return print_search_results(keyword, output_fn=output_fn, source_directory=effective_source_directory)
     query = " ".join(args).strip()
-    if not query:
-        output_fn("query is required")
-        return 2
-    output_fn(
-        run_query(
-            query,
-            knowledge_directory=effective_knowledge_directory,
-            source_directory=effective_source_directory,
+    try:
+        output_fn(
+            run_query(
+                query,
+                knowledge_directory=effective_knowledge_directory,
+                source_directory=effective_source_directory,
+            )
         )
-    )
+    except RuntimeError as error:
+        output_fn(_format_cli_runtime_error(error))
+        return 2
     return 0
 
 

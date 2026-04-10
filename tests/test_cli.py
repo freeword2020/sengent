@@ -53,8 +53,64 @@ def _write_activation_candidate_build(build_root: Path, build_id: str, *, module
 def test_cli_requires_query(capsys):
     code = main([])
     out = capsys.readouterr().out
+    assert code == 0
+    assert "Usage: sengent" in out
+    assert "sengent chat" in out
+
+
+def test_cli_help_flag_prints_usage(capsys):
+    code = main(["--help"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Usage: sengent" in out
+    assert "sengent knowledge build" in out
+
+
+def test_cli_chat_help_prints_usage_without_entering_runtime(monkeypatch):
+    def fail_chat_loop(**kwargs):
+        raise AssertionError("chat_loop should not run for chat --help")
+
+    monkeypatch.setattr("sentieon_assist.cli.chat_loop", fail_chat_loop)
+    outputs: list[str] = []
+
+    code = main(["chat", "--help"], output_fn=outputs.append)
+
+    assert code == 0
+    joined = "\n".join(outputs)
+    assert "Usage: sengent chat" in joined
+    assert "/feedback" in joined
+
+
+def test_cli_query_runtime_error_is_reported_with_user_guidance(monkeypatch):
+    def fail_run_query(*args, **kwargs):
+        raise RuntimeError("local ollama request failed: <urlopen error [Errno 61] Connection refused>")
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fail_run_query)
+    outputs: list[str] = []
+
+    code = main(["DNAscope", "是做什么的"], output_fn=outputs.append)
+
     assert code == 2
-    assert "query is required" in out
+    joined = "\n".join(outputs)
+    assert "Ollama" in joined
+    assert "sengent doctor" in joined
+    assert "ollama pull" in joined
+
+
+def test_cli_chat_runtime_error_is_reported_with_user_guidance(monkeypatch):
+    def fail_chat_loop(**kwargs):
+        raise RuntimeError("local ollama request failed: <urlopen error [Errno 61] Connection refused>")
+
+    monkeypatch.setattr("sentieon_assist.cli.chat_loop", fail_chat_loop)
+    outputs: list[str] = []
+
+    code = main(["chat"], output_fn=outputs.append)
+
+    assert code == 2
+    joined = "\n".join(outputs)
+    assert "Ollama" in joined
+    assert "sengent doctor" in joined
+    assert "ollama pull" in joined
 
 
 def test_cli_prints_answer_for_query(capsys):

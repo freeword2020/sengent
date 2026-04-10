@@ -25,6 +25,11 @@ Usage: scripts/install_sengent.sh [options]
 
 Install Sengent from the current git checkout into a local virtualenv.
 
+Typical modes:
+  Runtime host:    scripts/install_sengent.sh --ensure-ollama-model
+  Build-only host: scripts/install_sengent.sh --skip-ollama
+  Maintainer host: scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
+
 Options:
   --python <path>            Python interpreter to use (default: python3.11, then python3)
   --venv-dir <path>          Virtualenv directory (default: .venv under repo root)
@@ -205,6 +210,9 @@ seed_active_source_packs
 run_repo_doctor
 
 if [[ "${SKIP_OLLAMA}" -eq 1 ]]; then
+  echo "This host is set up as a build-only / review host."
+  echo "Use 'sengent doctor --skip-ollama' to confirm build-time readiness."
+  echo "If you later want chat/runtime on this machine, install/start Ollama, pull ${OLLAMA_MODEL}, then run 'sengent doctor'."
   echo "Skipping Ollama handling as requested."
   exit 0
 fi
@@ -215,7 +223,13 @@ echo "Make sure model ${OLLAMA_MODEL} is available before chat/runtime validatio
 if [[ "${ENSURE_OLLAMA_MODEL}" -eq 1 ]]; then
   if command -v ollama >/dev/null 2>&1; then
     run_cmd ollama pull "${OLLAMA_MODEL}"
+    run_repo_doctor
   else
     echo "ollama CLI not found; skipping model pull. Install/start Ollama and pull ${OLLAMA_MODEL} manually if needed."
   fi
 fi
+
+echo "Next step for a runtime host:"
+echo "  1. Run: sengent doctor"
+echo "  2. If doctor says the model is missing, run: ollama pull ${OLLAMA_MODEL}"
+echo "  3. Start using: sengent chat"

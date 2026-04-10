@@ -1,26 +1,61 @@
 # Sengent Maintainer Guide
 
-## Who This Guide Is For
+## 这份指南给谁看
 
-这份指南给维护知识库、做版本更新、跑 gate、处理反馈闭环的同事。
+给维护知识库、做版本更新、跑 gate、处理反馈闭环的同事看。
 
-你的职责有四类：
+你的职责主要有四类：
 
 1. 新增 / 更新 / 删除资料
 2. 运行 build / review / gate / activate / rollback
 3. 管理 customer-site source dir
 4. 把真实坏例子喂回系统
 
-## Hard Architecture Rules
+## 先分清两种主机
+
+### 1. 只做 build 的主机
+
+这种主机只负责：
+
+- knowledge build
+- review
+- gate
+- activate / rollback
+
+它通常不需要立刻连 Ollama。安装和 `doctor` 都可以先跳过 Ollama 检查：
+
+```bash
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
+source .venv/bin/activate
+sengent doctor --skip-ollama
+```
+
+### 2. 既做运行时又做维护的主机
+
+这种主机除了维护，还要跑：
+
+- `sengent chat`
+- 单轮 query
+- 本地支持回答
+
+建议安装时顺手准备模型，并做完整检查：
+
+```bash
+bash scripts/install_sengent.sh --with-maintainer-tools --ensure-ollama-model
+source .venv/bin/activate
+sengent doctor
+```
+
+## 架构底线
 
 - 不要把系统改成 RAG-first
-- 不要让模型主路由
+- 不要让模型负责主路由
 - 运行时主知识源始终是 structured packs
 - 原始资料只用于 build、审计和追溯
 - 任何知识更新都必须先过 gate 再 activate
 - 出问题优先 rollback，不要继续叠加覆盖
 
-## Install For Maintainers
+## 安装说明
 
 推荐安装方式：
 
@@ -41,19 +76,7 @@ export PIP_INDEX_URL=https://your-internal-pypi/simple
 - `pytest`
 - `docling`
 
-如果当前主机只是 build / gate 主机，不想探测 Ollama：
-
-```bash
-sengent doctor --skip-ollama
-```
-
-如果当前主机既要做运行时验证，也要做维护：
-
-```bash
-sengent doctor
-```
-
-## Default Paths
+## 默认路径
 
 ### macOS
 
@@ -64,7 +87,7 @@ sengent doctor
 - app home: `$XDG_DATA_HOME/sengent`
 - fallback: `~/.local/share/sengent`
 
-### Maintainer-relevant directories
+### 维护者关心的目录
 
 - active source packs: `<app-home>/sources/active`
 - knowledge inbox: `<app-home>/knowledge-inbox/sentieon`
@@ -80,7 +103,7 @@ sengent --source-dir /srv/sengent/customer-a/sources knowledge build
 
 不要混用默认 source dir 和客户专用 source dir。
 
-## Maintainer Workflow
+## 维护流程
 
 ### 1. Scaffold
 
@@ -191,7 +214,7 @@ sengent knowledge rollback --backup-id <backup_id>
 
 不要在不知道当前回退目标的情况下继续覆盖 activation。
 
-## Verification Levels
+## 验证级别
 
 ### A. Packaging / installer / doctor
 
@@ -218,7 +241,7 @@ python scripts/pilot_readiness_eval.py
 python scripts/pilot_closed_loop.py
 ```
 
-## Feedback And Closed Loop
+## 反馈和闭环
 
 维护原则：
 
@@ -234,7 +257,7 @@ python scripts/pilot_closed_loop.py \
   --runtime-root /path/to/runtime
 ```
 
-## Hard Rules
+## 硬规则
 
 - 不要手改 `sentieon-note/*.json`
 - 不要跳过 gate 直接 activate
@@ -242,7 +265,7 @@ python scripts/pilot_closed_loop.py \
 - 不要把 `runtime/` 提交到 git
 - 不要把 PDF parser 缺失误判成普通 runtime 故障
 
-## Related Docs
+## 相关文档
 
 - [README.md](../README.md)
 - [docs/sengent-user-guide.md](./sengent-user-guide.md)

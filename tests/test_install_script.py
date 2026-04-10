@@ -18,6 +18,8 @@ def test_install_script_help_lists_key_flags():
     result = _run_install_script("--help")
 
     assert result.returncode == 0
+    assert "runtime host" in result.stdout.lower()
+    assert "build-only host" in result.stdout.lower()
     assert "--venv-dir" in result.stdout
     assert "--with-pdf-build" in result.stdout
     assert "--with-maintainer-tools" in result.stdout

@@ -2,6 +2,8 @@
 
 Offline CLI harness for a local Sentieon technical-support assistant.
 
+Chinese README: [README.zh-CN.md](README.zh-CN.md)
+
 ![Sengent Home](docs/assets/sengent-home.svg)
 
 ## What Sengent Is
@@ -52,6 +54,31 @@ There are two major paths:
 - Linux: supported
 - Windows: not a primary target in this delivery
 
+## Quick Start For Ordinary Users
+
+If you want a runtime host that can answer questions right away:
+
+```bash
+bash scripts/install_sengent.sh --ensure-ollama-model
+source .venv/bin/activate
+sengent doctor
+sengent chat
+```
+
+If this machine is only for knowledge build / review work:
+
+```bash
+bash scripts/install_sengent.sh --skip-ollama
+source .venv/bin/activate
+sengent doctor --skip-ollama
+```
+
+If you do not know which command to run next, start with:
+
+```bash
+sengent --help
+```
+
 ## Requirements
 
 ### Runtime
@@ -79,7 +106,18 @@ The installer can provision the right dependency set for normal users or maintai
 
 ## Install
 
-### Standard user install
+### Runtime host install
+
+```bash
+bash scripts/install_sengent.sh --ensure-ollama-model
+source .venv/bin/activate
+sengent doctor
+sengent chat
+```
+
+Use this on hosts that should answer questions.
+
+### Build-only host install
 
 ```bash
 bash scripts/install_sengent.sh --skip-ollama
@@ -87,15 +125,7 @@ source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
 
-Use `--skip-ollama` on hosts where you only want to prepare the package and source packs first.
-
-### Runtime host with Ollama
-
-```bash
-bash scripts/install_sengent.sh --ensure-ollama-model
-source .venv/bin/activate
-sengent doctor
-```
+Use this on hosts that only handle build / review / gate / activate.
 
 ### Maintainer install
 
@@ -146,11 +176,31 @@ sengent
 Typical usage:
 
 ```bash
+sengent --help
 sengent doctor
 sengent chat
 sengent "DNAscope 是做什么的"
 sengent sources
 sengent search SENTIEON_LICENSE
+```
+
+## If Runtime Chat Is Not Ready Yet
+
+If Sengent says the model or local runtime is unavailable:
+
+1. Run `sengent doctor`
+2. Confirm whether this host is a runtime host or only a build-only host
+3. If it is a runtime host, make sure the Ollama HTTP API is reachable
+4. If the service is up but the model is missing, run:
+
+```bash
+ollama pull gemma4:e4b
+```
+
+If this host is only for build / review work, use:
+
+```bash
+sengent doctor --skip-ollama
 ```
 
 ## Default Paths
@@ -192,6 +242,7 @@ Optional fallback backend settings:
 ## Common User Commands
 
 ```bash
+sengent --help
 sengent doctor
 sengent chat
 sengent "sentieon-cli dnascope 的 --pcr_free 是什么"
@@ -232,6 +283,7 @@ See the maintainer guide for the exact gate commands and required `--json-out` a
 
 ## Documentation
 
+- Chinese README: [README.zh-CN.md](README.zh-CN.md)
 - User guide: [docs/sengent-user-guide.md](docs/sengent-user-guide.md)
 - Maintainer guide: [docs/sengent-maintainer-guide.md](docs/sengent-maintainer-guide.md)
 - Ollama runtime guide: [docs/local-ollama-environment.md](docs/local-ollama-environment.md)
