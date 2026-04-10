@@ -189,8 +189,8 @@ def test_knowledge_build_keeps_active_packs_unchanged_and_reports_gate_commands(
     assert (source_dir / "sentieon-modules.json").read_text(encoding="utf-8") == original_modules
     build_dir = _latest_build_dir(build_root)
     report = (build_dir / "report.md").read_text(encoding="utf-8")
-    assert "python3.11 scripts/pilot_readiness_eval.py --source-dir" in report
-    assert "python3.11 scripts/pilot_closed_loop.py --source-dir" in report
+    assert "python scripts/pilot_readiness_eval.py --source-dir" in report
+    assert "python scripts/pilot_closed_loop.py --source-dir" in report
     assert "candidate-packs" in report
     assert "candidate packs are not active runtime packs yet" in report
 
@@ -1474,7 +1474,7 @@ def test_knowledge_activate_keeps_only_latest_three_backups(tmp_path: Path):
 
 def test_knowledge_rollback_exactly_restores_managed_pack_set(tmp_path: Path):
     source_dir = tmp_path / "sentieon-note"
-    source_dir.mkdir(parents=True, exist_ok=True)
+    _write_source_packs(source_dir)
     (source_dir / "sentieon-modules.json").write_text(
         json.dumps({"version": "", "entries": [{"id": "baseline", "name": "Baseline"}]}, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -1523,7 +1523,15 @@ def test_knowledge_rollback_exactly_restores_managed_pack_set(tmp_path: Path):
     )
 
     managed_files = sorted(path.name for path in source_dir.glob("*.json"))
-    assert managed_files == ["sentieon-modules.json"]
+    assert managed_files == [
+        "external-error-associations.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "sentieon-modules.json",
+        "workflow-guides.json",
+    ]
+    restored_modules = json.loads((source_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
+    assert restored_modules["entries"][0]["id"] == "baseline"
 
 
 def test_knowledge_build_queues_malformed_front_matter_instead_of_crashing(tmp_path: Path):
@@ -1628,3 +1636,33 @@ def test_knowledge_rollback_rejects_unknown_backup_id_without_changing_active_pa
     assert code == 2
     assert (source_dir / "sentieon-modules.json").read_text(encoding="utf-8") == original_modules
     assert any("backup" in item.lower() for item in outputs)
+
+
+def test_knowledge_build_rejects_incomplete_active_source_pack_set(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "release-note.md").write_text("# Release\n\nTNscope update\n", encoding="utf-8")
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    (source_dir / "external-tool-guides.json").unlink()
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert not build_root.exists()
+    assert any("external-tool-guides.json" in item for item in outputs)

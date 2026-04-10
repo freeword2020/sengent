@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from sentieon_assist.app_paths import default_source_dir
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -27,8 +29,5 @@ def load_config() -> AppConfig:
         llm_fallback_model=os.getenv("SENGENT_LLM_FALLBACK_MODEL", "").strip(),
         llm_fallback_api_key=os.getenv("SENGENT_LLM_FALLBACK_API_KEY", "").strip(),
         knowledge_dir=os.getenv("SENTIEON_ASSIST_KNOWLEDGE_DIR", ""),
-        source_dir=os.getenv(
-            "SENTIEON_ASSIST_SOURCE_DIR",
-            str((__import__("pathlib").Path(__file__).resolve().parents[2] / "sentieon-note")),
-        ),
+        source_dir=os.getenv("SENTIEON_ASSIST_SOURCE_DIR", str(default_source_dir())),
     )

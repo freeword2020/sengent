@@ -139,6 +139,23 @@ raw docs 不直接进入主运行时路由。
 - 通用部分：ingest / parse / compile runtime / review report / eval gate
 - 产品特定部分：schema mapping、pack compiler 规则、eval corpus
 
+同时，交付默认应以**安装后的 `sengent` 命令**为操作入口，而不是开发态 `PYTHONPATH=src` 命令。
+
+P1 收紧后的默认路径策略：
+
+- app home:
+  - macOS: `~/Library/Application Support/Sengent`
+  - Linux: `$XDG_DATA_HOME/sengent` 或 `~/.local/share/sengent`
+- active source packs: `<app-home>/sources/active`
+- knowledge inbox: `<app-home>/knowledge-inbox/sentieon`
+- build root: `<app-home>/runtime/knowledge-build`
+
+这样做的原因是：
+
+- 安装后的运行时不再依赖 repo checkout 的目录结构
+- build / activate / rollback 可以在用户自有目录中独立运行
+- 未来复制到其他产品时，目录契约更稳定
+
 ## Recommended Direction
 
 推荐采用：
@@ -223,6 +240,18 @@ P1 可加入 `Crawl4AI` 做 docs site snapshot：
 
 P2 再预留云端采集 API。
 
+### Packaging Contract
+
+P1 交付要求里，build runtime 的依赖契约必须显式化：
+
+- `PyYAML` 为 mandatory dependency
+- `docling` 为 optional PDF build dependency
+
+也就是说：
+
+- 没有 `PyYAML`，当前 CLI/knowledge build 不应被视为可安装成功
+- 没有 `docling`，系统仍可运行，但 PDF 资料会进入异常队列，而不是静默参与编译
+
 ### 3. Canonical Parse Layer
 
 P0 推荐：
@@ -254,6 +283,22 @@ P0 推荐：
 - `runtime/knowledge-build/<build_id>/exceptions.jsonl`
 
 这些目录保持本地运行时属性，不提交 git。
+
+### Managed Pack Completeness Guard
+
+P1 还需要把 managed pack 完整性变成显式护栏。
+
+在以下阶段，系统都必须拒绝不完整的 managed pack 集合：
+
+- `knowledge build` 读取 active source dir 时
+- `knowledge activate` 读取 candidate packs 时
+- `knowledge rollback` 读取 backup 时
+
+理由很直接：
+
+- 不完整的 source pack 集会污染 diff 和 backup 语义
+- 不完整的 candidate pack 集会把“缺文件”误解释成“应该删除”
+- 不完整的 backup 不能被当成可恢复版本
 
 ### 5. Pack Compiler Layer
 

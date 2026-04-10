@@ -73,6 +73,39 @@ def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
     assert out == f"{run_query('Sentieon 202503 license 报错')}\n"
 
 
+def test_cli_doctor_forwards_skip_ollama(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_gather_doctor_report(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ollama": {"base_url": "http://127.0.0.1:11434", "model": "gemma4:e4b", "ok": False, "skipped": True},
+            "build_runtime": {},
+            "knowledge": {"directory": "/tmp/knowledge", "exists": True, "file_count": 0, "files": []},
+            "sources": {
+                "directory": "/tmp/sources",
+                "exists": True,
+                "file_count": 0,
+                "files": [],
+                "primary_release": "",
+                "primary_date": "",
+                "primary_reference": "",
+                "managed_pack_complete": True,
+                "missing_managed_pack_files": [],
+            },
+        }
+
+    monkeypatch.setattr("sentieon_assist.cli.gather_doctor_report", fake_gather_doctor_report)
+    monkeypatch.setattr("sentieon_assist.cli.format_doctor_report", lambda report: "doctor-ok")
+    outputs: list[str] = []
+
+    code = main(["doctor", "--skip-ollama"], output_fn=outputs.append)
+
+    assert code == 0
+    assert captured["skip_ollama_probe"] is True
+    assert outputs == ["doctor-ok"]
+
+
 def test_cli_knowledge_activate_promotes_candidate_packs_when_gate_reports_pass(tmp_path: Path):
     source_dir = tmp_path / "sentieon-note"
     _write_activation_source_packs(source_dir)
@@ -122,6 +155,13 @@ def test_cli_knowledge_activate_refuses_when_gate_reports_fail(tmp_path: Path):
         json.dumps({"version": "", "entries": [{"id": "fastdedup", "name": "FastDedup"}]}, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    for name in (
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+    ):
+        (candidate_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
     (build_dir / "pilot-readiness-report.json").write_text('{"ok": false}\n', encoding="utf-8")
     outputs: list[str] = []
@@ -2894,6 +2934,94 @@ def test_main_prints_doctor_report(monkeypatch):
 
     assert code == 0
     assert outputs == ["DOCTOR_OK"]
+
+
+def test_cli_knowledge_activate_rejects_incomplete_candidate_pack_set(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "build-missing-pack"
+    build_dir = build_root / build_id
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "fastdedup", "name": "FastDedup"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (candidate_dir / "workflow-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "external-format-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "external-error-associations.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
+    (build_dir / "pilot-readiness-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (build_dir / "pilot-closed-loop-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("external-tool-guides.json" in item for item in outputs)
+
+
+def test_cli_knowledge_rollback_rejects_incomplete_backup_pack_set(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    backup_dir = build_root / "activation-backups" / "broken-backup"
+    backup_dir.mkdir(parents=True)
+    (backup_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "backup_id": "broken-backup",
+                "source_directory": str(source_dir),
+                "source_files": [
+                    "sentieon-modules.json",
+                    "workflow-guides.json",
+                    "external-format-guides.json",
+                    "external-tool-guides.json",
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for name in (
+        "sentieon-modules.json",
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+    ):
+        (backup_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "rollback",
+            "--build-root",
+            str(build_root),
+            "--backup-id",
+            "broken-backup",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("external-error-associations.json" in item for item in outputs)
 
 
 def test_sources_command_prints_source_names(tmp_path):

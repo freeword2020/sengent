@@ -49,6 +49,19 @@ def test_gather_doctor_report_handles_ollama_probe_failure(tmp_path):
     assert report["sources"]["exists"] is False
 
 
+def test_gather_doctor_report_can_skip_ollama_probe(tmp_path):
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "missing-knowledge"),
+        source_directory=str(tmp_path / "missing-sources"),
+        skip_ollama_probe=True,
+        api_probe=lambda base_url: {"ok": True},
+    )
+
+    assert report["ollama"]["ok"] is False
+    assert report["ollama"]["skipped"] is True
+    assert report["ollama"]["error"] == "ollama probe skipped"
+
+
 def test_format_doctor_report_includes_key_summary_fields():
     text = format_doctor_report(
         {
@@ -90,3 +103,62 @@ def test_format_doctor_report_includes_key_summary_fields():
     assert "guide.md" in text
     assert "primary_release: 202503.03" in text
     assert "primary_date: Mar 30, 2026" in text
+
+
+def test_gather_doctor_report_includes_build_runtime_and_source_pack_health(tmp_path):
+    source_dir = tmp_path / "sources"
+    source_dir.mkdir()
+    (source_dir / "sentieon-modules.json").write_text('{"version":"","entries":[]}\n')
+    (source_dir / "workflow-guides.json").write_text('{"version":"","entries":[]}\n')
+    (source_dir / "external-format-guides.json").write_text('{"version":"","entries":[]}\n')
+
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "knowledge"),
+        source_directory=str(source_dir),
+        api_probe=lambda base_url: {"ok": False, "error": "connection refused"},
+    )
+
+    assert "build_runtime" in report
+    assert isinstance(report["build_runtime"]["docling_available"], bool)
+    assert report["sources"]["managed_pack_complete"] is False
+    assert "external-tool-guides.json" in report["sources"]["missing_managed_pack_files"]
+    assert "external-error-associations.json" in report["sources"]["missing_managed_pack_files"]
+
+
+def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
+    text = format_doctor_report(
+        {
+            "ollama": {
+                "base_url": "http://127.0.0.1:11434",
+                "model": "gemma4:e4b",
+                "ok": False,
+                "error": "connection refused",
+            },
+            "build_runtime": {
+                "docling_available": False,
+                "docling_mode": "optional-pdf-parser-missing",
+            },
+            "knowledge": {
+                "directory": "/tmp/knowledge",
+                "exists": True,
+                "file_count": 2,
+                "files": ["install.json", "license.json"],
+            },
+            "sources": {
+                "directory": "/tmp/sources",
+                "exists": True,
+                "file_count": 1,
+                "files": ["guide.md"],
+                "primary_release": "202503.03",
+                "primary_date": "Mar 30, 2026",
+                "primary_reference": "Sentieon202503.03.pdf",
+                "managed_pack_complete": False,
+                "missing_managed_pack_files": ["external-tool-guides.json"],
+            },
+        }
+    )
+
+    assert "【Build Runtime】" in text
+    assert "docling_available: no" in text
+    assert "managed_pack_complete: no" in text
+    assert "external-tool-guides.json" in text

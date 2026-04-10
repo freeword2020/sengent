@@ -1,28 +1,50 @@
 # Knowledge Packs
 
-This directory stores external knowledge files for the Sentieon support harness.
+This directory contains bundled base rule packs that ship with Sengent.
 
-## Layout
+## What Lives Here
 
 - `base/`
-  - bundled starter knowledge packs
-- future customer-site overrides may live beside or above this directory
+  - bundled starter rule packs used by the runtime knowledge layer
 
-## Update model without code changes
+These files are part of the packaged application surface, not the normal maintainer renew workflow.
+
+## Important Boundary
+
+Normal maintainers should **not** treat this directory as the primary place to edit Sentieon knowledge.
+
+For routine knowledge updates, use:
+
+1. `sengent knowledge scaffold`
+2. `sengent knowledge build`
+3. `sengent knowledge review`
+4. gate
+5. `sengent knowledge activate`
+6. `sengent knowledge rollback` if needed
+
+## What This Directory Is For
+
+Use `knowledge/base/` for:
+
+- bundled starter rules
+- packaged defaults
+- code-shipped knowledge behavior that must exist even without customer-specific source bundles
+
+## What This Directory Is Not For
+
+Do not use `knowledge/base/` as a shortcut for:
+
+- hand-editing active source packs
+- bypassing scaffold/build/review/gate/activate
+- customer-site one-off content drops
+
+## Model Configuration Boundary
+
+Model changes are configuration, not knowledge-pack edits.
 
 Change:
 
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
 
-The application must not require code edits for a model swap.
-
-## Add a new Sentieon version-specific pack
-
-Create a new JSON rule file with version-aware guidance and load it through the
-knowledge layer instead of hardcoding the content in Python modules.
-
-## Customer-site overrides
-
-Customer deployments should be able to replace or extend the bundled base
-knowledge files with site-specific rule packs, SOPs, and version notes.
+Do not require Python code edits or direct JSON pack edits just to swap a model.

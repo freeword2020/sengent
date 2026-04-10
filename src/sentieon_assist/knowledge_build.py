@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import yaml
 
+from sentieon_assist.app_paths import default_knowledge_build_root, default_knowledge_inbox_dir, default_runtime_root
+
 
 TEXT_FILE_TYPES = {
     ".md": "markdown",
@@ -26,8 +28,8 @@ TEXT_FILE_TYPES = {
 }
 PDF_FILE_TYPE = "pdf"
 GATE_COMMANDS: tuple[str, ...] = (
-    "python3.11 scripts/pilot_readiness_eval.py",
-    "python3.11 scripts/pilot_closed_loop.py",
+    "python scripts/pilot_readiness_eval.py",
+    "python scripts/pilot_closed_loop.py",
 )
 PACK_ENTRY_TYPES: dict[str, str] = {
     "sentieon-modules.json": "module",
@@ -215,13 +217,15 @@ class KnowledgeReviewResult:
 
 
 def default_inbox_dir(*, repo_root: str | Path | None = None, product: str = "sentieon") -> Path:
-    root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[2]
-    return root / "knowledge-inbox" / product
+    if repo_root is not None:
+        return Path(repo_root) / "knowledge-inbox" / product
+    return default_knowledge_inbox_dir(product=product)
 
 
 def default_build_root(*, runtime_root: str | Path | None = None) -> Path:
-    root = Path(runtime_root) if runtime_root is not None else Path(__file__).resolve().parents[2] / "runtime"
-    return root / "knowledge-build"
+    if runtime_root is not None:
+        return Path(runtime_root) / "knowledge-build"
+    return default_knowledge_build_root()
 
 
 def docling_available() -> bool:
@@ -237,6 +241,7 @@ def run_knowledge_build(
     resolved_source_directory = Path(source_directory)
     resolved_inbox_directory = Path(inbox_directory)
     resolved_build_root = Path(build_root) if build_root is not None else default_build_root()
+    require_complete_managed_pack_set(resolved_source_directory, label="active source directory")
 
     build_id = _build_id()
     build_dir = resolved_build_root / build_id
@@ -458,6 +463,8 @@ def activate_knowledge_build(
         raise ValueError(f"knowledge build not found: {build_dir}")
     if not candidate_directory.exists() or not manifest_path.exists():
         raise ValueError(f"candidate packs are incomplete for build {build_id}")
+    require_complete_managed_pack_set(resolved_source_directory, label="active source directory")
+    require_complete_managed_pack_set(candidate_directory, label=f"candidate packs for build {build_id}")
     readiness_report = _load_required_gate_report(build_dir / PILOT_READINESS_REPORT_NAME, label="pilot readiness")
     closed_loop_report = _load_required_gate_report(build_dir / PILOT_CLOSED_LOOP_REPORT_NAME, label="pilot closed loop")
     if not readiness_report.get("ok"):
@@ -522,6 +529,8 @@ def rollback_knowledge_backup(
     source_files = manifest.get("source_files")
     if not isinstance(source_files, list) or not all(isinstance(item, str) for item in source_files):
         raise ValueError(f"knowledge backup is invalid: {backup_dir}")
+    require_complete_managed_pack_list(source_files, label=f"knowledge backup manifest {backup_id}")
+    require_complete_managed_pack_set(backup_dir, label=f"knowledge backup {backup_id}")
 
     rollback_guard = _snapshot_runtime_state(
         source_directory=resolved_source_directory,
@@ -740,6 +749,29 @@ def _managed_pack_files_from_directory(directory: Path) -> list[str]:
         for file_name in MANAGED_PACK_FILES
         if (directory / file_name).exists()
     ]
+
+
+def missing_managed_pack_files(directory: Path) -> list[str]:
+    return [
+        file_name
+        for file_name in MANAGED_PACK_FILES
+        if not (directory / file_name).exists()
+    ]
+
+
+def require_complete_managed_pack_set(directory: Path, *, label: str) -> None:
+    missing_files = missing_managed_pack_files(directory)
+    if missing_files:
+        missing_text = ", ".join(missing_files)
+        raise ValueError(f"{label} managed packs are incomplete: missing {missing_text}")
+
+
+def require_complete_managed_pack_list(file_names: list[str] | tuple[str, ...], *, label: str) -> None:
+    normalized = {str(item).strip() for item in file_names if str(item).strip()}
+    missing_files = [file_name for file_name in MANAGED_PACK_FILES if file_name not in normalized]
+    if missing_files:
+        missing_text = ", ".join(missing_files)
+        raise ValueError(f"{label} is incomplete: missing {missing_text}")
 
 
 def _create_activation_backup(

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from sentieon_assist.app_paths import default_runtime_root as default_runtime_root_path
 from sentieon_assist.trace_vocab import ResponseMode, normalize_resolver_path, normalize_response_mode
 
 
@@ -48,7 +49,7 @@ def classify_response_mode(response: str, *, task: str = "reference_lookup") -> 
 
 
 def default_runtime_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "runtime"
+    return default_runtime_root_path()
 
 
 def session_index_path(*, runtime_root: str | Path | None = None) -> Path:

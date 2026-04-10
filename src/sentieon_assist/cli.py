@@ -511,6 +511,18 @@ def _parse_knowledge_scaffold_options(
     return inbox_directory, kind, entry_id, name, action, file_stem
 
 
+def _parse_doctor_options(args: list[str]) -> bool:
+    skip_ollama = False
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option != "--skip-ollama":
+            raise ValueError(f"unknown doctor option: {option}")
+        skip_ollama = True
+        index += 1
+    return skip_ollama
+
+
 def _parse_feedback_command(query: str) -> str | None:
     stripped = query.strip()
     if not stripped.startswith("/feedback"):
@@ -922,9 +934,15 @@ def main(
     if args and args[0] == "sources":
         return print_sources(output_fn=output_fn, source_directory=effective_source_directory)
     if args and args[0] == "doctor":
+        try:
+            skip_ollama = _parse_doctor_options(args[1:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
         report = gather_doctor_report(
             knowledge_directory=effective_knowledge_directory,
             source_directory=effective_source_directory,
+            skip_ollama_probe=skip_ollama,
         )
         output_fn(format_doctor_report(report))
         return 0
@@ -934,14 +952,17 @@ def main(
         except ValueError as error:
             output_fn(str(error))
             return 2
-        repo_root = Path(__file__).resolve().parents[2]
-        resolved_inbox_directory = inbox_directory or str(default_inbox_dir(repo_root=repo_root))
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir())
         resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
-        result = run_knowledge_build(
-            source_directory=effective_source_directory,
-            inbox_directory=resolved_inbox_directory,
-            build_root=resolved_build_root,
-        )
+        try:
+            result = run_knowledge_build(
+                source_directory=effective_source_directory,
+                inbox_directory=resolved_inbox_directory,
+                build_root=resolved_build_root,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
         output_fn(
             "Knowledge build completed: "
             f"{result.build_dir} "
@@ -960,8 +981,7 @@ def main(
         if not entry_id:
             output_fn("knowledge scaffold requires --id")
             return 2
-        repo_root = Path(__file__).resolve().parents[2]
-        resolved_inbox_directory = inbox_directory or str(default_inbox_dir(repo_root=repo_root))
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir())
         try:
             result = scaffold_knowledge_source(
                 inbox_directory=resolved_inbox_directory,

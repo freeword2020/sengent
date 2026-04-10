@@ -2,21 +2,63 @@
 
 ## Audience
 
-这份手册给日常维护资料的同事用。默认假设你不需要改 Python 代码，也不需要手改 `sentieon-note/*.json`。
+这份手册给日常维护资料的同事用。默认假设你不改 Python 代码，也不手改 `sentieon-note/*.json`。
 
 你的日常目标只有两件事：
 
 1. 把资料放对地方
-2. 按流程 build / review / activate / rollback
+2. 按流程 build / review / gate / activate / rollback
 
-## Daily Workflow
+## Preflight
 
-### Add Or Update Knowledge
-
-如果你要新增或更新一份资料，先生成模板：
+第一次安装、换机器、迁移环境、或开始一轮 renew 前，先跑：
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge scaffold --kind module --id fastdedup --name FastDedup
+sengent doctor --skip-ollama
+```
+
+如果当前主机也承担运行时验证，再跑：
+
+```bash
+sengent doctor
+```
+
+重点看：
+
+1. `docling_available`
+2. `managed_pack_complete`
+3. `missing_managed_pack_files`
+
+说明：
+
+- `PyYAML` 是 build runtime 的必需依赖
+- `docling` 是 PDF 资料解析的可选能力
+- 如果 `managed_pack_complete: no`，先补齐 active source dir 的正式 pack 文件，再做 build / activate / rollback
+
+## Default Directories
+
+### macOS
+
+- app home: `~/Library/Application Support/Sengent`
+
+### Linux
+
+- app home: `$XDG_DATA_HOME/sengent`
+- fallback: `~/.local/share/sengent`
+
+### Operator paths
+
+- inbox: `<app-home>/knowledge-inbox/sentieon`
+- active packs: `<app-home>/sources/active`
+- build root: `<app-home>/runtime/knowledge-build`
+- activation backups: `<app-home>/runtime/knowledge-build/activation-backups`
+
+## Add Or Update Knowledge
+
+先生成模板：
+
+```bash
+sengent knowledge scaffold --kind module --id fastdedup --name FastDedup
 ```
 
 常见 `--kind`：
@@ -32,40 +74,37 @@ PYTHONPATH=src python3.11 -m sentieon_assist knowledge scaffold --kind module --
 - markdown 原文模板
 - `*.meta.yaml` sidecar metadata
 
-然后你只需要：
+然后你只做两件事：
 
 1. 把资料正文贴进 markdown
 2. 在 sidecar 里补最少的结构化字段
 
-### Delete Knowledge
+## Delete Knowledge
 
 不要直接删 active pack 条目。
 
 删除要走 retirement stub：
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge scaffold --kind module --id fastdedup --action delete
+sengent knowledge scaffold --kind module --id fastdedup --action delete
 ```
-
-这会生成：
-
-- `retire-fastdedup.md`
-- `retire-fastdedup.meta.yaml`
-
-然后再走 build 流程。
 
 ## Build
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge build --inbox-dir knowledge-inbox/sentieon
+sengent knowledge build
 ```
 
-如果不传 `--source-dir`，系统会默认使用当前配置里的 active source dir。
+如果要明确指定 inbox：
 
-build 完成后，产物会写到：
+```bash
+sengent knowledge build --inbox-dir /path/to/inbox
+```
+
+build 完成后，产物默认写到：
 
 ```text
-runtime/knowledge-build/<build_id>/
+<app-home>/runtime/knowledge-build/<build_id>/
 ```
 
 关键文件：
@@ -78,42 +117,49 @@ runtime/knowledge-build/<build_id>/
 
 ## Review
 
-直接看最近一次 build：
+最近一次 build：
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge review
+sengent knowledge review
 ```
 
-或者指定某次 build：
+指定某次 build：
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge review --build-id <build_id>
+sengent knowledge review --build-id <build_id>
 ```
 
-你重点只看三类东西：
+重点只看三类东西：
 
 1. `exceptions`
-2. `changed candidate packs`
-3. `parameter review suggestions`
+2. changed candidate packs
+3. `parameter_review_suggestion.jsonl`
 
 ## Gate
 
-在 activation 之前，必须让 candidate packs 通过两条 gate：
-
-```bash
-python3.11 scripts/pilot_readiness_eval.py --source-dir runtime/knowledge-build/<build_id>/candidate-packs
-python3.11 scripts/pilot_closed_loop.py --source-dir runtime/knowledge-build/<build_id>/candidate-packs
-```
-
-通过后，build 目录里应该有：
+在 activation 之前，必须生成这两份 gate 报告：
 
 - `pilot-readiness-report.json`
 - `pilot-closed-loop-report.json`
 
+从 repo root 执行：
+
+```bash
+python scripts/pilot_readiness_eval.py \
+  --source-dir <build-root>/<build_id>/candidate-packs \
+  --json-out <build-root>/<build_id>/pilot-readiness-report.json
+
+python scripts/pilot_closed_loop.py \
+  --source-dir <build-root>/<build_id>/candidate-packs \
+  --json-out <build-root>/<build_id>/pilot-closed-loop-report.json
+```
+
+如果不写 `--json-out`，`knowledge activate` 会阻止执行。
+
 ## Activate
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge activate --build-id <build_id>
+sengent knowledge activate --build-id <build_id>
 ```
 
 activation 做的事：
@@ -121,41 +167,45 @@ activation 做的事：
 1. 先备份当前 active packs
 2. 再把 candidate packs 精确替换到 active source dir
 3. 输出一个 `backup_id`
+4. 在 build 目录写 `activation-manifest.json`
 
-你需要把这个 `backup_id` 记下来。
-
-activation 后会保留最近 3 个版本的 backup。
+当前系统默认只保留最近 3 个 activation backups。
 
 ## Rollback
 
-如果 activation 后发现问题，直接用刚才的 `backup_id`：
+如果 activation 后发现问题：
 
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge rollback --backup-id <backup_id>
+sengent knowledge rollback --backup-id <backup_id>
 ```
 
-rollback 会把那个版本的 active packs 精确恢复回来。
+如果忘了 `backup_id`：
+
+1. 看 `<build-root>/<build_id>/activation-manifest.json`
+2. 看 `<build-root>/activation-backups/`
+
+rollback 会把指定 backup 精确恢复回 active source packs。
 
 ## Runtime Feedback And Closed Loop
 
-runtime feedback 现在兼容两种记录：
+runtime feedback 当前兼容两种记录：
 
 - 新格式：`session_id + selected_turn_ids`
 - 旧格式：`captured_turns`
 
-如果 feedback JSONL 被单独导出到别的目录，但 session logs 还在原 runtime 下，closed-loop 需要显式给 `--runtime-root`：
+如果 feedback JSONL 被单独导出到别的目录，但 session logs 还在原 runtime 下：
 
 ```bash
-python3.11 scripts/pilot_closed_loop.py \
+python scripts/pilot_closed_loop.py \
   --feedback-path /path/to/runtime_feedback.jsonl \
   --runtime-root /path/to/runtime
 ```
 
-## What To Do When Build Fails
+## What To Do When Something Fails
 
-### Case 1: `report.md` 存在，`exceptions.jsonl` 非空
+### Case 1: `exceptions.jsonl` 非空
 
-这不是系统坏了，是资料里有异常。按 report 修：
+这通常是资料问题，不是系统整体坏了。优先修：
 
 - malformed front matter
 - malformed sidecar
@@ -167,18 +217,19 @@ python3.11 scripts/pilot_closed_loop.py \
 
 不要 activate。
 
-先：
+先看：
 
-1. 看 `pilot-readiness-report.json`
-2. 看 `pilot-closed-loop-report.json`
-3. 找到具体失败 bucket
-4. 修资料或 metadata 后重新 build
+1. `pilot-readiness-report.json`
+2. `pilot-closed-loop-report.json`
+3. 具体失败 bucket
+
+然后修资料或 metadata，再重新 build。
 
 ### Case 3: activation 后效果不对
 
 不要继续覆盖。
 
-直接 rollback 到刚才输出的 `backup_id`。
+直接 rollback 到刚才的 `backup_id`。
 
 ## Hard Rules
 
@@ -189,12 +240,10 @@ python3.11 scripts/pilot_closed_loop.py \
 
 ## Minimal Command Set
 
-日常只记住这 5 条就够了：
-
 ```bash
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge scaffold --kind module --id <id> --name <name>
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge build --inbox-dir knowledge-inbox/sentieon
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge review
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge activate --build-id <build_id>
-PYTHONPATH=src python3.11 -m sentieon_assist knowledge rollback --backup-id <backup_id>
+sengent knowledge scaffold --kind module --id <id> --name <name>
+sengent knowledge build
+sengent knowledge review
+sengent knowledge activate --build-id <build_id>
+sengent knowledge rollback --backup-id <backup_id>
 ```
