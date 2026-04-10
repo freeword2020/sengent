@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from sentieon_assist.config import AppConfig, load_config
@@ -11,6 +12,7 @@ from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_i
 from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
+from sentieon_assist.trace_vocab import ResolverPath
 
 
 REQUIRED_FIELDS = {
@@ -326,6 +328,14 @@ def generate_reference_fallback(
     )
 
 
+@dataclass(frozen=True)
+class SupportAnswerTrace:
+    text: str
+    sources: list[str]
+    boundary_tags: list[str]
+    resolver_path: list[str]
+
+
 def call_model_fallback(model_fallback, issue_type: str, query: str, info: dict[str, str], evidence: list[dict[str, str]]) -> str:
     parameters = inspect.signature(model_fallback).parameters.values()
     positional_params = [
@@ -347,10 +357,21 @@ def answer_query(
     model_fallback=None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
+    trace_collector=None,
 ) -> str:
     missing = missing_required_fields(issue_type, info)
     if missing:
-        return ask_for_missing(missing)
+        text = ask_for_missing(missing)
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=text,
+                    sources=[],
+                    boundary_tags=[],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_MISSING_INFO],
+                )
+            )
+        return text
 
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
@@ -362,14 +383,34 @@ def answer_query(
         rule = match_rule(query, knowledge_directory)
     if rule:
         filtered_rule = filter_known_requirements(rule, info)
-        return normalize_model_answer(
+        rendered = normalize_model_answer(
             format_rule_answer(filtered_rule),
             query_version=info.get("version", ""),
             source_context=source_context,
         )
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=rendered,
+                    sources=[],
+                    boundary_tags=[],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_RULE],
+                )
+            )
+        return rendered
 
     if issue_type == "other":
-        return "当前 MVP 仅支持 license 和 install 问题，请补充更明确的问题类型。"
+        text = "当前 MVP 仅支持 license 和 install 问题，请补充更明确的问题类型。"
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=text,
+                    sources=[],
+                    boundary_tags=[],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_OTHER_UNSUPPORTED],
+                )
+            )
+        return text
 
     evidence = collect_source_evidence(
         effective_source_directory,
@@ -381,14 +422,24 @@ def answer_query(
     if model_fallback is not None:
         text = call_model_fallback(model_fallback, issue_type, query, info, evidence)
         source_names = [item["name"] for item in evidence]
-        return normalize_model_answer(
+        rendered = normalize_model_answer(
             text,
             query_version=info.get("version", ""),
             source_context=source_context,
             sources=source_names,
         )
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=rendered,
+                    sources=source_names,
+                    boundary_tags=[],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_MODEL_FALLBACK],
+                )
+            )
+        return rendered
 
-    return generate_model_fallback(
+    rendered = generate_model_fallback(
         issue_type,
         query,
         info,
@@ -396,6 +447,16 @@ def answer_query(
         evidence=evidence,
         config=app_config,
     )
+    if trace_collector is not None:
+        trace_collector(
+            SupportAnswerTrace(
+                text=rendered,
+                sources=[item["name"] for item in evidence],
+                boundary_tags=[],
+                resolver_path=[ResolverPath.TROUBLESHOOTING_GENERATED_FALLBACK],
+            )
+        )
+    return rendered
 
 
 def answer_reference_query(
@@ -404,6 +465,7 @@ def answer_reference_query(
     model_fallback=None,
     source_directory: str | None = None,
     parsed_intent: ReferenceIntent | None = None,
+    trace_collector=None,
 ) -> str:
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
@@ -416,10 +478,20 @@ def answer_reference_query(
         source_directory=effective_source_directory,
         resolved_intent=resolved_intent,
     )
-    return format_reference_display(
+    rendered = format_reference_display(
         normalize_model_answer(
             resolved.text,
             source_context=source_context,
             sources=resolved.sources,
         )
     )
+    if trace_collector is not None:
+        trace_collector(
+            SupportAnswerTrace(
+                text=rendered,
+                sources=list(resolved.sources),
+                boundary_tags=list(resolved.boundary_tags),
+                resolver_path=list(resolved.resolver_path),
+            )
+        )
+    return rendered

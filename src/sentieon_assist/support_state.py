@@ -23,3 +23,12 @@ class SupportSessionState:
 
     def cleared(self) -> "SupportSessionState":
         return SupportSessionState()
+
+    def to_snapshot(self) -> dict[str, object]:
+        return {
+            "active_task": self.active_task,
+            "anchor_query": self.anchor_query,
+            "confirmed_facts": dict(self.confirmed_facts),
+            "open_clarification_slots": list(self.open_clarification_slots),
+            "last_route_reason": self.last_route_reason,
+        }

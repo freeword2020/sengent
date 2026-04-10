@@ -1,5 +1,7 @@
 import json
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 from sentieon_assist.cli import _build_input_prompt
 from sentieon_assist.cli import main
@@ -13,6 +15,39 @@ class FakeTTY:
 
     def isatty(self) -> bool:
         return self._is_tty
+
+
+def _write_activation_source_packs(source_dir: Path) -> None:
+    source_dir.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "sentieon-modules.json",
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+    ):
+        (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+
+
+def _write_activation_candidate_build(build_root: Path, build_id: str, *, module_id: str, module_name: str) -> Path:
+    build_dir = build_root / build_id
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": module_id, "name": module_name}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    for name in (
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+    ):
+        (candidate_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
+    (build_dir / "pilot-readiness-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (build_dir / "pilot-closed-loop-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+    return build_dir
 
 
 def test_cli_requires_query(capsys):
@@ -36,6 +71,446 @@ def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert out == f"{run_query('Sentieon 202503 license 报错')}\n"
+
+
+def test_cli_knowledge_activate_promotes_candidate_packs_when_gate_reports_pass(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "build-001"
+    build_dir = _write_activation_candidate_build(
+        build_root,
+        build_id,
+        module_id="fastdedup",
+        module_name="FastDedup",
+    )
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    activated_modules = json.loads((source_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
+    assert activated_modules["entries"][0]["id"] == "fastdedup"
+    activation_manifest = json.loads((build_dir / "activation-manifest.json").read_text(encoding="utf-8"))
+    assert activation_manifest["build_id"] == build_id
+    assert "sentieon-modules.json" in activation_manifest["activated_files"]
+    assert any("Knowledge activation completed" in item for item in outputs)
+
+
+def test_cli_knowledge_activate_refuses_when_gate_reports_fail(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    original_modules = (source_dir / "sentieon-modules.json").read_text(encoding="utf-8")
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "build-002"
+    build_dir = build_root / build_id
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "fastdedup", "name": "FastDedup"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
+    (build_dir / "pilot-readiness-report.json").write_text('{"ok": false}\n', encoding="utf-8")
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert (source_dir / "sentieon-modules.json").read_text(encoding="utf-8") == original_modules
+    assert any("gate" in item.lower() for item in outputs)
+
+
+def test_cli_knowledge_activate_records_backup_id_and_preserves_previous_modules_pack(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    (source_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "old-fastdedup", "name": "Old FastDedup"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "build-003"
+    build_dir = _write_activation_candidate_build(
+        build_root,
+        build_id,
+        module_id="fastdedup",
+        module_name="FastDedup",
+    )
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    activation_manifest = json.loads((build_dir / "activation-manifest.json").read_text(encoding="utf-8"))
+    backup_id = activation_manifest["backup_id"]
+    backup_dir = build_root / "activation-backups" / backup_id
+    backup_modules = json.loads((backup_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
+    assert backup_modules["entries"][0]["id"] == "old-fastdedup"
+    assert any(backup_id in item for item in outputs)
+
+
+def test_cli_knowledge_rollback_restores_backup_into_active_source_directory(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    (source_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "baseline", "name": "Baseline"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_a = _write_activation_candidate_build(build_root, "build-a", module_id="alpha", module_name="Alpha")
+    build_b = _write_activation_candidate_build(build_root, "build-b", module_id="beta", module_name="Beta")
+
+    assert (
+        main(
+            [
+                "--source-dir",
+                str(source_dir),
+                "knowledge",
+                "activate",
+                "--build-root",
+                str(build_root),
+                "--build-id",
+                "build-a",
+            ],
+            output_fn=lambda _message: None,
+        )
+        == 0
+    )
+    assert (
+        main(
+            [
+                "--source-dir",
+                str(source_dir),
+                "knowledge",
+                "activate",
+                "--build-root",
+                str(build_root),
+                "--build-id",
+                "build-b",
+            ],
+            output_fn=lambda _message: None,
+        )
+        == 0
+    )
+    backup_id = json.loads((build_b / "activation-manifest.json").read_text(encoding="utf-8"))["backup_id"]
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "rollback",
+            "--build-root",
+            str(build_root),
+            "--backup-id",
+            backup_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    restored_modules = json.loads((source_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
+    assert restored_modules["entries"][0]["id"] == "alpha"
+    assert any("Knowledge rollback completed" in item for item in outputs)
+    assert any(backup_id in item for item in outputs)
+
+
+def test_cli_knowledge_activate_restores_previous_state_when_apply_copy_fails(tmp_path: Path, monkeypatch):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    (source_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "baseline", "name": "Baseline"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    _write_activation_candidate_build(build_root, "build-copy-fail", module_id="fastdedup", module_name="FastDedup")
+
+    import sentieon_assist.knowledge_build as knowledge_build
+
+    real_copy2 = knowledge_build.shutil.copy2
+
+    def flaky_copy2(src, dst, *args, **kwargs):
+        src_path = Path(src)
+        dst_path = Path(dst)
+        if src_path.parent.name == "candidate-packs" and dst_path.parent == source_dir and src_path.name == "workflow-guides.json":
+            raise OSError("simulated copy failure")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(knowledge_build.shutil, "copy2", flaky_copy2)
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            "build-copy-fail",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    restored_modules = json.loads((source_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
+    assert restored_modules["entries"][0]["id"] == "baseline"
+    assert any("activation failed" in item.lower() for item in outputs)
+
+
+def test_cli_knowledge_scaffold_creates_module_source_templates(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "scaffold",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--kind",
+            "module",
+            "--id",
+            "fastdedup",
+            "--name",
+            "FastDedup",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    markdown_path = inbox_dir / "fastdedup.md"
+    metadata_path = inbox_dir / "fastdedup.meta.yaml"
+    assert markdown_path.exists()
+    assert metadata_path.exists()
+    assert "# FastDedup" in markdown_path.read_text(encoding="utf-8")
+    metadata = metadata_path.read_text(encoding="utf-8")
+    assert "pack_target: sentieon-modules.json" in metadata
+    assert "entry_type: module" in metadata
+    assert "id: fastdedup" in metadata
+    assert "name: FastDedup" in metadata
+    assert any("Knowledge scaffold completed" in item for item in outputs)
+
+
+def test_cli_knowledge_scaffold_preserves_existing_markdown_and_backfills_metadata(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    markdown_path = inbox_dir / "fastdedup.md"
+    metadata_path = inbox_dir / "fastdedup.meta.yaml"
+    markdown_path.write_text("# Existing FastDedup\n\nDo not overwrite.\n", encoding="utf-8")
+    metadata_path.write_text("summary: Existing summary.\n", encoding="utf-8")
+
+    code = main(
+        [
+            "knowledge",
+            "scaffold",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--kind",
+            "module",
+            "--id",
+            "fastdedup",
+            "--name",
+            "FastDedup",
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    assert markdown_path.read_text(encoding="utf-8") == "# Existing FastDedup\n\nDo not overwrite.\n"
+    metadata = metadata_path.read_text(encoding="utf-8")
+    assert "summary: Existing summary." in metadata
+    assert "pack_target: sentieon-modules.json" in metadata
+    assert "entry_type: module" in metadata
+    assert "id: fastdedup" in metadata
+
+
+def test_cli_knowledge_scaffold_creates_delete_retirement_stub(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+
+    code = main(
+        [
+            "knowledge",
+            "scaffold",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--kind",
+            "module",
+            "--id",
+            "fastdedup",
+            "--action",
+            "delete",
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    markdown_path = inbox_dir / "retire-fastdedup.md"
+    metadata_path = inbox_dir / "retire-fastdedup.meta.yaml"
+    assert markdown_path.exists()
+    assert metadata_path.exists()
+    metadata = metadata_path.read_text(encoding="utf-8")
+    assert "action: delete" in metadata
+    assert "pack_target: sentieon-modules.json" in metadata
+    assert "id: fastdedup" in metadata
+
+
+def test_cli_knowledge_review_prints_latest_build_report(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    older_dir = build_root / "20260410T000000Z-aaaa1111"
+    latest_dir = build_root / "20260410T000100Z-bbbb2222"
+    older_dir.mkdir(parents=True)
+    latest_dir.mkdir(parents=True)
+    (older_dir / "report.md").write_text("# Older Report\n", encoding="utf-8")
+    (latest_dir / "report.md").write_text("# Latest Report\n\nAll good.\n", encoding="utf-8")
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "review",
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    combined = "\n".join(outputs)
+    assert "Knowledge review" in combined
+    assert str(latest_dir) in combined
+    assert "# Latest Report" in combined
+
+
+def test_cli_knowledge_review_ignores_activation_backups_when_selecting_latest_build(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    latest_dir = build_root / "20260410T000100Z-bbbb2222"
+    backup_dir = build_root / "activation-backups" / "20260410T000200000000Z-cccc3333"
+    latest_dir.mkdir(parents=True)
+    backup_dir.mkdir(parents=True)
+    (latest_dir / "report.md").write_text("# Latest Report\n", encoding="utf-8")
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "review",
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    combined = "\n".join(outputs)
+    assert str(latest_dir) in combined
+    assert "Latest Report" in combined
+
+
+def test_cli_knowledge_commands_use_default_config_source_dir(tmp_path: Path, monkeypatch):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "fastdedup.md").write_text(
+        "---\n"
+        "pack_target: sentieon-modules.json\n"
+        "entry_type: module\n"
+        "id: fastdedup\n"
+        "name: FastDedup\n"
+        "---\n\n# FastDedup\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    monkeypatch.setattr(
+        "sentieon_assist.cli.load_config",
+        lambda: SimpleNamespace(knowledge_dir="", source_dir=str(source_dir)),
+    )
+
+    build_outputs: list[str] = []
+    build_code = main(
+        [
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=build_outputs.append,
+    )
+    assert build_code == 0
+
+    build_dir = next(path for path in build_root.iterdir() if path.is_dir() and path.name != "activation-backups")
+    (build_dir / "pilot-readiness-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (build_dir / "pilot-closed-loop-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+
+    activate_outputs: list[str] = []
+    activate_code = main(
+        [
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+        ],
+        output_fn=activate_outputs.append,
+    )
+    assert activate_code == 0
+    backup_id = json.loads((build_dir / "activation-manifest.json").read_text(encoding="utf-8"))["backup_id"]
+
+    rollback_outputs: list[str] = []
+    rollback_code = main(
+        [
+            "knowledge",
+            "rollback",
+            "--build-root",
+            str(build_root),
+            "--backup-id",
+            backup_id,
+        ],
+        output_fn=rollback_outputs.append,
+    )
+    assert rollback_code == 0
 
 
 def test_build_input_prompt_stays_plain_for_non_interactive_input():
@@ -156,6 +631,7 @@ def test_chat_loop_help_includes_feedback_entrypoint():
 
 def test_chat_loop_feedback_writes_last_turn_record(tmp_path, monkeypatch):
     feedback_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_directory = tmp_path / "runtime"
     prompts = iter(
         [
             "DNAscope 是做什么的",
@@ -178,6 +654,7 @@ def test_chat_loop_feedback_writes_last_turn_record(tmp_path, monkeypatch):
         ["--feedback-path", str(feedback_path), "chat"],
         input_fn=fake_input,
         output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
         api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
         model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
         stream_output_fn=outputs.append,
@@ -193,14 +670,16 @@ def test_chat_loop_feedback_writes_last_turn_record(tmp_path, monkeypatch):
     assert record["expected_answer"] == "希望它先说明适用场景"
     assert record["expected_mode"] == "module_intro"
     assert record["expected_task"] == "reference_lookup"
-    assert len(record["captured_turns"]) == 1
-    assert record["captured_turns"][0]["prompt"] == "DNAscope 是做什么的"
-    assert record["captured_turns"][0]["response"].startswith("【模块介绍】")
+    assert record["session_id"]
+    assert len(record["selected_turn_ids"]) == 1
+    assert "captured_turns" not in record
+    assert (runtime_directory / "sessions" / f"{record['session_id']}.jsonl").exists()
     assert any("已记录问题反馈" in item for item in outputs)
 
 
 def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
     feedback_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_directory = tmp_path / "runtime"
     prompts = iter(
         [
             "能提供个wes参考脚本吗",
@@ -233,6 +712,7 @@ def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
         ["--feedback-path", str(feedback_path), "chat"],
         input_fn=fake_input,
         output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
         api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
         model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
         stream_output_fn=outputs.append,
@@ -246,9 +726,82 @@ def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
     assert record["scope"] == "session"
     assert record["summary"] == "第二轮才给到脚本"
     assert record["expected_answer"] == "第一轮就该更明确说明下一步"
-    assert len(record["captured_turns"]) == 2
-    assert record["captured_turns"][0]["prompt"] == "能提供个wes参考脚本吗"
-    assert record["captured_turns"][1]["prompt"] == "短读长二倍体呢"
+    assert record["session_id"]
+    assert len(record["selected_turn_ids"]) == 2
+    assert "captured_turns" not in record
+    assert (runtime_directory / "sessions" / f"{record['session_id']}.jsonl").exists()
+
+
+def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path):
+    runtime_directory = tmp_path / "runtime"
+    prompts = iter(
+        [
+            "为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    session_logs = sorted((runtime_directory / "sessions").glob("*.jsonl"))
+    session_logs = [path for path in session_logs if path.name != "index.jsonl"]
+    assert len(session_logs) == 1
+    events = [json.loads(line) for line in session_logs[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+    turn_events = [event for event in events if event.get("event_type") == "turn_resolved"]
+    assert len(turn_events) == 1
+    answer = turn_events[0]["answer"]
+    assert answer["resolver_path"] == ["doc_reference"]
+    assert answer["boundary_tags"] == []
+    assert answer["sources"]
+
+
+def test_chat_loop_writes_troubleshooting_trace_metadata_into_session_log(tmp_path):
+    runtime_directory = tmp_path / "runtime"
+    prompts = iter(
+        [
+            "Sentieon 202503 license 报错，找不到 license 文件",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    session_logs = sorted((runtime_directory / "sessions").glob("*.jsonl"))
+    session_logs = [path for path in session_logs if path.name != "index.jsonl"]
+    assert len(session_logs) == 1
+    events = [json.loads(line) for line in session_logs[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+    turn_events = [event for event in events if event.get("event_type") == "turn_resolved"]
+    assert len(turn_events) == 1
+    answer = turn_events[0]["answer"]
+    assert answer["resolver_path"] == ["troubleshooting_rule"]
+    assert answer["boundary_tags"] == []
+    assert answer["sources"] == []
 
 
 def test_chat_loop_passes_terse_example_followup_with_workflow_context(monkeypatch):
@@ -2069,6 +2622,34 @@ def test_run_query_routes_semantic_reference_query_to_reference_answer(monkeypat
     assert text == "【模块介绍】\nSentieon 主要模块可以先按 6 组理解。"
     assert seen["query"] == "sentieon都有哪些模块"
     assert seen["source_directory"] == "/tmp/custom-sources"
+
+
+def test_run_query_trace_collector_receives_reference_resolver_metadata():
+    seen: dict[str, object] = {}
+
+    text = run_query(
+        "为什么我的服务器明明有 128 个核心，但 Sentieon 运行时似乎只占用了很少的 CPU 资源？",
+        trace_collector=lambda trace: seen.update(trace),
+    )
+
+    assert "【资料说明】" in text
+    assert seen["sources"]
+    assert seen["resolver_path"] == ["doc_reference"]
+    assert seen["boundary_tags"] == []
+
+
+def test_run_query_trace_collector_receives_troubleshooting_metadata():
+    seen: dict[str, object] = {}
+
+    text = run_query(
+        "Sentieon 202503 license 报错，找不到 license 文件",
+        trace_collector=lambda trace: seen.update(trace),
+    )
+
+    assert "【问题判断】" in text
+    assert seen["sources"] == []
+    assert seen["resolver_path"] == ["troubleshooting_rule"]
+    assert seen["boundary_tags"] == []
 
 
 def test_run_query_routes_semantic_script_query_to_reference_answer(monkeypatch):

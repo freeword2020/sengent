@@ -25,6 +25,7 @@ from sentieon_assist.module_index import (
 from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
 from sentieon_assist.reference_intents import ReferenceIntent
 from sentieon_assist.reference_retrieval import collect_reference_fallback_evidence, retrieve_reference_candidates
+from sentieon_assist.trace_vocab import ResolverPath
 from sentieon_assist.workflow_index import (
     format_workflow_guidance_answer,
     format_workflow_uncovered_answer,
@@ -37,6 +38,8 @@ from sentieon_assist.workflow_index import (
 class ResolvedReferenceAnswer:
     text: str
     sources: list[str]
+    boundary_tags: list[str]
+    resolver_path: list[str]
 
 
 TERSE_SCRIPT_FOLLOWUP_CUES = (
@@ -226,8 +229,19 @@ def format_doc_reference_answer(query: str) -> tuple[str, list[str]] | None:
     )
 
 
-def _resolved(text: str, sources: list[str]) -> ResolvedReferenceAnswer:
-    return ResolvedReferenceAnswer(text=text, sources=sources)
+def _resolved(
+    text: str,
+    sources: list[str],
+    *,
+    boundary_tags: list[str] | None = None,
+    resolver_path: list[str] | None = None,
+) -> ResolvedReferenceAnswer:
+    return ResolvedReferenceAnswer(
+        text=text,
+        sources=sources,
+        boundary_tags=list(boundary_tags or []),
+        resolver_path=list(resolver_path or []),
+    )
 
 
 def resolve_reference_answer(
@@ -239,11 +253,16 @@ def resolve_reference_answer(
     doc_answer = format_doc_reference_answer(query)
     if doc_answer is not None:
         doc_text, doc_sources = doc_answer
-        return _resolved(doc_text, doc_sources)
+        return _resolved(doc_text, doc_sources, resolver_path=[ResolverPath.DOC_REFERENCE])
 
     boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
     if boundary_tags:
-        return _resolved(format_reference_boundary_answer(query, boundary_tags), [])
+        return _resolved(
+            format_reference_boundary_answer(query, boundary_tags),
+            [],
+            boundary_tags=boundary_tags,
+            resolver_path=[ResolverPath.BOUNDARY_REFERENCE],
+        )
 
     retrieval = retrieve_reference_candidates(
         query,
@@ -254,7 +273,11 @@ def resolve_reference_answer(
     if resolved_intent.intent == "workflow_guidance":
         workflow_entry = retrieval.workflow_entry
         if workflow_entry is None:
-            return _resolved(format_workflow_uncovered_answer(), ["workflow-guides.json"])
+            return _resolved(
+                format_workflow_uncovered_answer(),
+                ["workflow-guides.json"],
+                resolver_path=[ResolverPath.WORKFLOW_UNCOVERED],
+            )
         if _is_terse_script_followup(query) or (
             _has_explicit_script_request(query) and workflow_allows_direct_script_handoff(workflow_entry)
         ):
@@ -269,9 +292,17 @@ def resolve_reference_answer(
                     )
                     if direct_answer:
                         script_source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                        return _resolved(direct_answer, script_source_names)
+                        return _resolved(
+                            direct_answer,
+                            script_source_names,
+                            resolver_path=[ResolverPath.WORKFLOW_DIRECT_SCRIPT],
+                        )
         source_names = ["workflow-guides.json", *[str(item) for item in workflow_entry.get("sources", [])]]
-        return _resolved(format_workflow_guidance_answer(workflow_entry), source_names)
+        return _resolved(
+            format_workflow_guidance_answer(workflow_entry),
+            source_names,
+            resolver_path=[ResolverPath.WORKFLOW_GUIDANCE],
+        )
 
     external_entry = retrieval.external_entry
     external_error_association = retrieval.external_error_association
@@ -280,15 +311,28 @@ def resolve_reference_answer(
             str(external_error_association.get("source_file", "")).strip(),
             *[str(item) for item in external_error_association.get("source_notes", [])],
         ]
-        return _resolved(format_external_error_association(external_error_association), [name for name in source_names if name])
+        return _resolved(
+            format_external_error_association(external_error_association),
+            [name for name in source_names if name],
+            resolver_path=[ResolverPath.EXTERNAL_ERROR_ASSOCIATION],
+        )
 
     module_matches = retrieval.module_matches
     module_candidate = str(resolved_intent.module or "").strip()
     if not module_matches and module_candidate and resolved_intent.intent in {"module_intro", "parameter_lookup", "script_example"}:
         related_mentions = find_related_module_mentions(module_candidate, source_directory)
         if not related_mentions:
-            return _resolved(format_reference_boundary_answer(query, ["deep_mechanism"]), ["sentieon-modules.json"])
-        return _resolved(format_missing_module_reference_answer(module_candidate, related_mentions), ["sentieon-modules.json"])
+            return _resolved(
+                format_reference_boundary_answer(query, ["deep_mechanism"]),
+                ["sentieon-modules.json"],
+                boundary_tags=["deep_mechanism"],
+                resolver_path=[ResolverPath.MISSING_MODULE_BOUNDARY],
+            )
+        return _resolved(
+            format_missing_module_reference_answer(module_candidate, related_mentions),
+            ["sentieon-modules.json"],
+            resolver_path=[ResolverPath.MISSING_MODULE_REFERENCE],
+        )
 
     matched_module = ""
     explicit_module_focus = False
@@ -309,7 +353,11 @@ def resolve_reference_answer(
                 str(external_entry.get("source_file", "")).strip(),
                 *[str(item) for item in external_entry.get("source_notes", [])],
             ]
-            return _resolved(format_external_guide_answer(external_entry), [name for name in source_names if name])
+            return _resolved(
+                format_external_guide_answer(external_entry),
+                [name for name in source_names if name],
+                resolver_path=[ResolverPath.EXTERNAL_GUIDE],
+            )
 
     module_evidence: list[dict[str, str]] = []
     if module_matches:
@@ -320,50 +368,58 @@ def resolve_reference_answer(
             module_evidence.append(build_module_evidence(module_entry))
             if direct_answer:
                 source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return _resolved(direct_answer, source_names)
+                return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_PLACEHOLDER_REFERENCE])
         module_parameter = match_module_parameter(module_entry, query)
         if module_parameter is not None:
             direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
             source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return _resolved(direct_answer, source_names)
+            return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_PARAMETER])
         if resolved_intent.intent == "script_example":
             direct_answer = format_script_reference_answer(module_entry, query=query) or format_unavailable_script_reference_answer(
                 module_entry
             )
             if direct_answer:
                 source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return _resolved(direct_answer, source_names)
+                return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_SCRIPT])
         if resolved_intent.intent == "parameter_lookup":
             direct_answer = format_unavailable_parameter_reference_answer(module_entry)
             if direct_answer:
                 source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return _resolved(direct_answer, source_names)
+                return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_PARAMETER_UNAVAILABLE])
             direct_answer = format_parameter_followup_answer(module_entry)
             if direct_answer:
                 source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-                return _resolved(direct_answer, source_names)
+                return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_PARAMETER_FOLLOWUP])
         direct_answer = format_module_reference_answer(module_entry, query)
         module_evidence.append(build_module_evidence(module_entry))
         if direct_answer:
             source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return _resolved(direct_answer, source_names)
+            return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.MODULE_REFERENCE])
 
     global_parameter_matches = retrieval.global_parameter_matches
     all_parameter_matches = retrieval.all_parameter_matches
     if len(all_parameter_matches) > 1:
-        return _resolved(format_parameter_disambiguation(all_parameter_matches), [])
+        return _resolved(
+            format_parameter_disambiguation(all_parameter_matches),
+            [],
+            resolver_path=[ResolverPath.GLOBAL_PARAMETER_DISAMBIGUATION],
+        )
     if global_parameter_matches:
         module_entry = global_parameter_matches[0]
         module_parameter = module_entry.get("matched_parameter")
         if isinstance(module_parameter, dict):
             direct_answer = format_parameter_reference_answer(module_entry, module_parameter)
             source_names = ["sentieon-modules.json", *[str(item) for item in module_entry.get("sources", [])]]
-            return _resolved(direct_answer, source_names)
+            return _resolved(direct_answer, source_names, resolver_path=[ResolverPath.GLOBAL_PARAMETER])
 
     if resolved_intent.intent == "module_overview":
         direct_answer = format_module_overview_answer(source_directory)
         if direct_answer:
-            return _resolved(direct_answer, ["sentieon-modules.json", "sentieon-module-index.md"])
+            return _resolved(
+                direct_answer,
+                ["sentieon-modules.json", "sentieon-module-index.md"],
+                resolver_path=[ResolverPath.MODULE_OVERVIEW],
+            )
 
     evidence = collect_reference_fallback_evidence(
         query,
@@ -373,4 +429,6 @@ def resolve_reference_answer(
     return _resolved(
         format_reference_boundary_answer(query, ["deep_mechanism"]),
         [item["name"] for item in evidence],
+        boundary_tags=["deep_mechanism"],
+        resolver_path=[ResolverPath.FALLBACK_BOUNDARY],
     )

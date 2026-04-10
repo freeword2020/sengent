@@ -16,6 +16,9 @@ def test_resolve_reference_answer_prioritizes_doc_style_answer_for_cpu_prompt():
     assert resolved is not None
     assert "【资料说明】" in resolved.text
     assert "【资料边界】" not in resolved.text
+    assert resolved.resolver_path == ["doc_reference"]
+    assert resolved.boundary_tags == []
+    assert "sentieon-modules.json" in resolved.sources or "Sentieon202503.03.pdf" in resolved.sources
 
 
 def test_resolve_reference_answer_prioritizes_parameter_answer_for_dnascope_pcr_free_prompt():
@@ -30,6 +33,9 @@ def test_resolve_reference_answer_prioritizes_parameter_answer_for_dnascope_pcr_
     assert resolved is not None
     assert "【常用参数】" in resolved.text
     assert "DNAscope 的 --pcr_free" in resolved.text or "--pcr_indel_model" in resolved.text
+    assert resolved.resolver_path == ["module_parameter"]
+    assert resolved.boundary_tags == []
+    assert "sentieon-modules.json" in resolved.sources
 
 
 def test_resolve_reference_answer_prioritizes_boundary_answer_for_svsolver_break_end_prompt():
@@ -44,3 +50,5 @@ def test_resolve_reference_answer_prioritizes_boundary_answer_for_svsolver_break
     assert resolved is not None
     assert "【资料边界】" in resolved.text
     assert "具体参数名" not in resolved.text
+    assert resolved.resolver_path == ["boundary_reference"]
+    assert "deep_mechanism" in resolved.boundary_tags

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
-from sentieon_assist.adversarial_sessions import SessionTurnResult
 from sentieon_assist.pilot_readiness import (
     GateResult,
     PilotEvalFailure,
@@ -14,6 +15,7 @@ from sentieon_assist.pilot_readiness import (
     load_pilot_single_turn_cases,
     run_pilot_readiness_evaluation,
 )
+from sentieon_assist.session_events import SupportTurnView
 
 
 def test_load_pilot_readiness_corpora():
@@ -37,7 +39,10 @@ def test_bucket_failure_uses_wrong_reset_for_reset_turns():
         expected_reused_anchor=False,
         reset_context=True,
     )
-    result = SessionTurnResult(
+    result = SupportTurnView(
+        session_id="sess-1",
+        turn_id="turn-1",
+        turn_index=1,
         prompt="LICSRVR、Poetry",
         effective_query="DNAscope 的 --pcr_free 是什么 LICSRVR、Poetry",
         reused_anchor=True,
@@ -64,7 +69,10 @@ def test_bucket_failure_uses_wrong_script_handoff_for_script_mode_mismatch():
         expected_task="reference_lookup",
         expected=("【参考命令】", "GVCFtyper"),
     )
-    result = SessionTurnResult(
+    result = SupportTurnView(
+        session_id="sess-1",
+        turn_id="turn-1",
+        turn_index=1,
         prompt=case.prompt,
         effective_query=case.prompt,
         reused_anchor=False,
@@ -106,6 +114,38 @@ def test_run_pilot_readiness_evaluation_writes_json_and_fails_on_gate_error(tmp_
     assert payload["gates"][0]["ok"] is False
     assert "pilot_single_turn" in payload
     assert "pilot_multi_turn" in payload
+
+
+def test_run_pilot_readiness_evaluation_accepts_explicit_source_directory(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parent.parent
+    json_out = tmp_path / "pilot-readiness.json"
+    source_directory = repo_root / "sentieon-note"
+
+    def fake_gate_runner(name: str, command: tuple[str, ...], root: Path) -> GateResult:
+        return GateResult(name=name, ok=True, summary="pass", details="pass")
+
+    report = run_pilot_readiness_evaluation(
+        repo_root,
+        source_directory=source_directory,
+        json_out=json_out,
+        command_gate_runner=fake_gate_runner,
+    )
+
+    assert report.source_directory == str(source_directory)
+    payload = json.loads(json_out.read_text())
+    assert payload["source_directory"] == str(source_directory)
+
+
+def test_pilot_readiness_script_help_lists_source_dir_flag():
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "pilot_readiness_eval.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "--source-dir" in result.stdout
 
 
 def test_pilot_eval_failure_serialization_is_machine_readable():

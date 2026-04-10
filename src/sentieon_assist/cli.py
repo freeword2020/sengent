@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -21,7 +22,6 @@ from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 from sentieon_assist.external_guides import is_external_error_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.feedback_runtime import (
-    FeedbackTurnSnapshot,
     append_feedback_record,
     build_feedback_record,
     default_feedback_path,
@@ -31,13 +31,35 @@ from sentieon_assist.feedback_runtime import (
     normalize_expected_task,
     normalize_feedback_scope,
 )
+from sentieon_assist.knowledge_build import (
+    activate_knowledge_build,
+    default_build_root,
+    default_inbox_dir,
+    rollback_knowledge_backup,
+    review_knowledge_build,
+    run_knowledge_build,
+    scaffold_knowledge_source,
+)
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
+from sentieon_assist.session_events import (
+    SupportSessionRecord,
+    SupportTurnView,
+    append_feedback_recorded_event,
+    append_session_record,
+    append_turn_event,
+    build_feedback_recorded_event,
+    build_turn_event,
+    classify_response_mode,
+    default_runtime_root,
+    turn_view_from_event,
+)
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
 from sentieon_assist.support_coordinator import plan_support_turn, select_support_route, update_support_state
 from sentieon_assist.support_state import SupportSessionState
+from sentieon_assist.trace_vocab import ResolverPath
 
 try:
     import readline  # noqa: F401
@@ -380,6 +402,115 @@ def parse_global_options(args: list[str]) -> tuple[str | None, str | None, str |
     return knowledge_directory, source_directory, feedback_path, args[index:]
 
 
+def _parse_knowledge_build_options(args: list[str]) -> tuple[str | None, str | None]:
+    inbox_directory: str | None = None
+    build_root: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--inbox-dir", "--build-root"}:
+            raise ValueError(f"unknown knowledge build option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--inbox-dir":
+            inbox_directory = args[index]
+        if option == "--build-root":
+            build_root = args[index]
+        index += 1
+    return inbox_directory, build_root
+
+
+def _parse_knowledge_activate_options(args: list[str]) -> tuple[str | None, str | None]:
+    build_root: str | None = None
+    build_id: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--build-root", "--build-id"}:
+            raise ValueError(f"unknown knowledge activate option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--build-root":
+            build_root = args[index]
+        elif option == "--build-id":
+            build_id = args[index]
+        index += 1
+    return build_root, build_id
+
+
+def _parse_knowledge_rollback_options(args: list[str]) -> tuple[str | None, str | None]:
+    build_root: str | None = None
+    backup_id: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--build-root", "--backup-id"}:
+            raise ValueError(f"unknown knowledge rollback option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--build-root":
+            build_root = args[index]
+        else:
+            backup_id = args[index]
+        index += 1
+    return build_root, backup_id
+
+
+def _parse_knowledge_review_options(args: list[str]) -> tuple[str | None, str | None]:
+    build_root: str | None = None
+    build_id: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--build-root", "--build-id"}:
+            raise ValueError(f"unknown knowledge review option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--build-root":
+            build_root = args[index]
+        else:
+            build_id = args[index]
+        index += 1
+    return build_root, build_id
+
+
+def _parse_knowledge_scaffold_options(
+    args: list[str],
+) -> tuple[str | None, str | None, str | None, str | None, str, str | None]:
+    inbox_directory: str | None = None
+    kind: str | None = None
+    entry_id: str | None = None
+    name: str | None = None
+    action = "upsert"
+    file_stem: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--inbox-dir", "--kind", "--id", "--name", "--action", "--file-stem"}:
+            raise ValueError(f"unknown knowledge scaffold option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--inbox-dir":
+            inbox_directory = args[index]
+        elif option == "--kind":
+            kind = args[index]
+        elif option == "--id":
+            entry_id = args[index]
+        elif option == "--name":
+            name = args[index]
+        elif option == "--action":
+            action = args[index]
+        else:
+            file_stem = args[index]
+        index += 1
+    return inbox_directory, kind, entry_id, name, action, file_stem
+
+
 def _parse_feedback_command(query: str) -> str | None:
     stripped = query.strip()
     if not stripped.startswith("/feedback"):
@@ -390,41 +521,20 @@ def _parse_feedback_command(query: str) -> str | None:
     return parts[1]
 
 
-def _record_feedback_turn(
-    *,
-    prompt: str,
-    planned_turn,
-    response: str,
-) -> FeedbackTurnSnapshot:
-    return FeedbackTurnSnapshot(
-        prompt=prompt,
-        effective_query=planned_turn.effective_query,
-        response=response,
-        task=planned_turn.route.task,
-        issue_type=planned_turn.route.issue_type,
-        route_reason=planned_turn.route.reason,
-        parsed_intent_intent=planned_turn.route.parsed_intent.intent,
-        parsed_intent_module=planned_turn.route.parsed_intent.module,
-        response_mode="capability" if planned_turn.route.task == "capability_explanation" and response.startswith("【能力说明】") else "",
-        reused_anchor=planned_turn.reused_anchor,
-    )
-
-
-def _finalize_feedback_turn(snapshot: FeedbackTurnSnapshot) -> FeedbackTurnSnapshot:
-    from sentieon_assist.adversarial_sessions import classify_response_mode
-
-    return FeedbackTurnSnapshot(
-        prompt=snapshot.prompt,
-        effective_query=snapshot.effective_query,
-        response=snapshot.response,
-        task=snapshot.task,
-        issue_type=snapshot.issue_type,
-        route_reason=snapshot.route_reason,
-        parsed_intent_intent=snapshot.parsed_intent_intent,
-        parsed_intent_module=snapshot.parsed_intent_module,
-        response_mode=classify_response_mode(snapshot.response, task=snapshot.task),
-        reused_anchor=snapshot.reused_anchor,
-    )
+def _runtime_git_sha(repo_root: Path) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ""
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
 
 
 def _handle_feedback_command(
@@ -433,7 +543,9 @@ def _handle_feedback_command(
     input_fn=input,
     output_fn=print,
     feedback_path: str | None,
-    turn_history: list[FeedbackTurnSnapshot],
+    runtime_root: Path,
+    session_record: SupportSessionRecord,
+    turn_history: list[SupportTurnView],
 ) -> None:
     if not turn_history:
         output_fn("当前还没有可反馈的回答。请先完成至少一轮对话。")
@@ -454,11 +566,12 @@ def _handle_feedback_command(
     expected_task = normalize_expected_task(
         input_fn("可选：期望任务 capability/reference/workflow/troubleshooting（回车跳过）: ").strip()
     )
-    captured_turns = turn_history if scope == "session" else [turn_history[-1]]
+    selected_turns = turn_history if scope == "session" else [turn_history[-1]]
     resolved_feedback_path = Path(feedback_path) if feedback_path else default_feedback_path()
     record = build_feedback_record(
         scope=scope,
-        captured_turns=captured_turns,
+        session_id=session_record.session_id,
+        selected_turn_ids=[turn.turn_id for turn in selected_turns],
         summary=summary,
         expected_answer=expected_answer,
         expected_mode=expected_mode,
@@ -466,6 +579,15 @@ def _handle_feedback_command(
         feedback_path=resolved_feedback_path,
     )
     append_feedback_record(resolved_feedback_path, record)
+    append_feedback_recorded_event(
+        build_feedback_recorded_event(
+            session_id=session_record.session_id,
+            feedback_record_id=str(record["record_id"]),
+            scope=scope,
+            selected_turn_ids=[turn.turn_id for turn in selected_turns],
+        ),
+        runtime_root=runtime_root,
+    )
     scope_label = "整段会话" if scope == "session" else "最近一轮"
     output_fn(f"已记录问题反馈：{scope_label}。路径：{resolved_feedback_path}")
     if expected_mode and expected_task:
@@ -481,6 +603,7 @@ def _run_troubleshooting_query(
     model_fallback=None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
+    trace_collector: Callable[[dict[str, object]], None] | None = None,
 ) -> str:
     current_state = "CLASSIFIED"
     current_state = next_state(current_state, has_missing_info=False)
@@ -496,6 +619,15 @@ def _run_troubleshooting_query(
             model_fallback=model_fallback,
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
+            trace_collector=lambda trace: trace_collector(
+                {
+                    "sources": list(trace.sources),
+                    "boundary_tags": list(trace.boundary_tags),
+                    "resolver_path": list(trace.resolver_path),
+                }
+            )
+            if trace_collector is not None
+            else None,
         )
 
     current_state = next_state("READY", has_missing_info=False)
@@ -508,6 +640,15 @@ def _run_troubleshooting_query(
         model_fallback=model_fallback,
         knowledge_directory=knowledge_directory,
         source_directory=source_directory,
+        trace_collector=lambda trace: trace_collector(
+            {
+                "sources": list(trace.sources),
+                "boundary_tags": list(trace.boundary_tags),
+                "resolver_path": list(trace.resolver_path),
+            }
+        )
+        if trace_collector is not None
+        else None,
     )
 
 
@@ -518,6 +659,7 @@ def run_query(
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
     route_decision=None,
+    trace_collector: Callable[[dict[str, object]], None] | None = None,
 ) -> str:
     decision = route_decision or select_support_route(
         query,
@@ -528,6 +670,8 @@ def run_query(
         is_external_error_query_fn=is_external_error_query,
     )
     if decision.task == "capability_explanation":
+        if trace_collector is not None:
+            trace_collector({"sources": [], "boundary_tags": [], "resolver_path": [ResolverPath.CAPABILITY_EXPLANATION]})
         return format_capability_explanation_answer()
     if decision.task in {"reference_lookup", "onboarding_guidance"} or decision.issue_type == "other":
         parsed_intent = decision.parsed_intent if decision.parsed_intent.is_reference else None
@@ -536,6 +680,15 @@ def run_query(
             model_fallback=model_fallback,
             source_directory=source_directory,
             parsed_intent=parsed_intent,
+            trace_collector=lambda trace: trace_collector(
+                {
+                    "sources": list(trace.sources),
+                    "boundary_tags": list(trace.boundary_tags),
+                    "resolver_path": list(trace.resolver_path),
+                }
+            )
+            if trace_collector is not None
+            else None,
         )
     return _run_troubleshooting_query(
         decision.issue_type,
@@ -543,6 +696,7 @@ def run_query(
         model_fallback=model_fallback,
         knowledge_directory=knowledge_directory,
         source_directory=source_directory,
+        trace_collector=trace_collector,
     )
 
 
@@ -560,6 +714,7 @@ def chat_loop(
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
     feedback_path: str | None = None,
+    runtime_directory: str | None = None,
 ) -> int:
     require_chat_model(api_probe=api_probe)
     config = load_config()
@@ -572,8 +727,18 @@ def chat_loop(
         warmup = lambda model, base_url: build_backend_router(config).warmup_primary()
     warmup(config.ollama_model, config.ollama_base_url)
     ui.render_welcome_panel()
+    repo_root = Path(__file__).resolve().parents[2]
+    runtime_root = Path(runtime_directory) if runtime_directory else default_runtime_root()
+    session_record = SupportSessionRecord.new(
+        repo_root=str(repo_root),
+        git_sha=_runtime_git_sha(repo_root),
+        source_directory=str(source_directory or ""),
+        knowledge_directory=str(knowledge_directory or ""),
+        mode="interactive",
+    )
+    append_session_record(session_record, runtime_root=runtime_root)
     support_state = SupportSessionState()
-    turn_history: list[FeedbackTurnSnapshot] = []
+    turn_history: list[SupportTurnView] = []
     while True:
         query = input_fn(_build_input_prompt(input_fn=input_fn)).strip()
         if not query:
@@ -595,6 +760,8 @@ def chat_loop(
                 input_fn=input_fn,
                 output_fn=output_fn,
                 feedback_path=feedback_path,
+                runtime_root=runtime_root,
+                session_record=session_record,
                 turn_history=turn_history,
             )
             continue
@@ -604,6 +771,7 @@ def chat_loop(
                 status_writer=status_writer,
                 label=_build_pre_answer_status(query),
             )
+            state_before = support_state.to_snapshot()
             planned_turn = plan_support_turn(
                 query,
                 support_state,
@@ -614,12 +782,14 @@ def chat_loop(
                 is_external_error_query_fn=is_external_error_query,
             )
             effective_query = planned_turn.effective_query
+            trace: dict[str, object] = {"sources": [], "boundary_tags": [], "resolver_path": []}
             response = run_query(
                 effective_query,
                 model_fallback=model_fallback,
                 knowledge_directory=knowledge_directory,
                 source_directory=source_directory,
                 route_decision=planned_turn.route,
+                trace_collector=lambda payload: trace.update(payload),
             )
         finally:
             if clear_status is not None:
@@ -629,15 +799,28 @@ def chat_loop(
             planned_turn=planned_turn,
             response=response,
         )
-        turn_history.append(
-            _finalize_feedback_turn(
-                _record_feedback_turn(
-                    prompt=query,
-                    planned_turn=planned_turn,
-                    response=response,
-                )
-            )
+        response_mode = classify_response_mode(response, task=planned_turn.route.task)
+        turn_event = build_turn_event(
+            session_id=session_record.session_id,
+            turn_index=len(turn_history) + 1,
+            raw_query=query,
+            effective_query=planned_turn.effective_query,
+            reused_anchor=planned_turn.reused_anchor,
+            task=planned_turn.route.task,
+            issue_type=planned_turn.route.issue_type,
+            route_reason=planned_turn.route.reason,
+            parsed_intent_intent=planned_turn.route.parsed_intent.intent,
+            parsed_intent_module=planned_turn.route.parsed_intent.module,
+            response_text=response,
+            response_mode=response_mode,
+            state_before=state_before,
+            state_after=support_state.to_snapshot(),
+            sources=[str(item) for item in trace.get("sources", [])],
+            boundary_tags=[str(item) for item in trace.get("boundary_tags", [])],
+            resolver_path=[str(item) for item in trace.get("resolver_path", [])],
         )
+        append_turn_event(turn_event, runtime_root=runtime_root)
+        turn_history.append(turn_view_from_event(turn_event))
         effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
         streamed_started = False
         clear_generation_status: Callable[[], None] | None = None
@@ -705,6 +888,7 @@ def main(
     stream_output_fn: Callable[[str], None] | None = None,
     source_directory: str | None = None,
     knowledge_directory: str | None = None,
+    runtime_directory: str | None = None,
 ) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     try:
@@ -712,8 +896,9 @@ def main(
     except ValueError as error:
         output_fn(str(error))
         return 2
-    effective_knowledge_directory = knowledge_directory or cli_knowledge_directory
-    effective_source_directory = source_directory or cli_source_directory
+    config = load_config()
+    effective_knowledge_directory = knowledge_directory or cli_knowledge_directory or (config.knowledge_dir or None)
+    effective_source_directory = source_directory or cli_source_directory or config.source_dir
     effective_feedback_path = cli_feedback_path
     if args and args[0] == "chat":
         try:
@@ -729,6 +914,7 @@ def main(
                 knowledge_directory=effective_knowledge_directory,
                 source_directory=effective_source_directory,
                 feedback_path=effective_feedback_path,
+                runtime_directory=runtime_directory,
             )
         except RuntimeError as error:
             output_fn(str(error))
@@ -741,6 +927,123 @@ def main(
             source_directory=effective_source_directory,
         )
         output_fn(format_doctor_report(report))
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "build":
+        try:
+            inbox_directory, build_root = _parse_knowledge_build_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        repo_root = Path(__file__).resolve().parents[2]
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir(repo_root=repo_root))
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        result = run_knowledge_build(
+            source_directory=effective_source_directory,
+            inbox_directory=resolved_inbox_directory,
+            build_root=resolved_build_root,
+        )
+        output_fn(
+            "Knowledge build completed: "
+            f"{result.build_dir} "
+            f"(inventory={result.inventory_count}, canonical_docs={result.canonical_document_count}, exceptions={result.exception_count})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "scaffold":
+        try:
+            inbox_directory, kind, entry_id, name, action, file_stem = _parse_knowledge_scaffold_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not kind:
+            output_fn("knowledge scaffold requires --kind")
+            return 2
+        if not entry_id:
+            output_fn("knowledge scaffold requires --id")
+            return 2
+        repo_root = Path(__file__).resolve().parents[2]
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir(repo_root=repo_root))
+        try:
+            result = scaffold_knowledge_source(
+                inbox_directory=resolved_inbox_directory,
+                kind=kind,
+                entry_id=entry_id,
+                name=name,
+                action=action,
+                file_stem=file_stem,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge scaffold completed: "
+            f"{result.markdown_path} "
+            f"(metadata={result.metadata_path}, action={result.action}, kind={result.kind})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "activate":
+        try:
+            build_root, build_id = _parse_knowledge_activate_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not build_id:
+            output_fn("knowledge activate requires --build-id")
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        try:
+            result = activate_knowledge_build(
+                source_directory=effective_source_directory,
+                build_root=resolved_build_root,
+                build_id=build_id,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge activation completed: "
+            f"{result.build_dir} "
+            f"(files={len(result.activated_files)}, backup_id={result.backup_id})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "rollback":
+        try:
+            build_root, backup_id = _parse_knowledge_rollback_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not backup_id:
+            output_fn("knowledge rollback requires --backup-id")
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        try:
+            result = rollback_knowledge_backup(
+                source_directory=effective_source_directory,
+                build_root=resolved_build_root,
+                backup_id=backup_id,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge rollback completed: "
+            f"{result.backup_dir} "
+            f"(files={len(result.restored_files)}, backup_id={result.backup_id})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "review":
+        try:
+            build_root, build_id = _parse_knowledge_review_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        try:
+            result = review_knowledge_build(build_root=resolved_build_root, build_id=build_id)
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(f"Knowledge review: {result.build_dir}")
+        output_fn(result.report_text.rstrip())
         return 0
     if args and args[0] == "search":
         keyword = " ".join(args[1:]).strip()

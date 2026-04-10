@@ -19,6 +19,8 @@ from sentieon_assist.pilot_readiness import (
     run_pilot_readiness_evaluation,
 )
 from sentieon_assist.adversarial_sessions import run_support_session
+from sentieon_assist.session_events import SupportTurnView, load_selected_turn_views
+from sentieon_assist.trace_vocab import ResponseMode
 
 FEEDBACK_SINGLE_TURN_FILE = Path("tests/data/pilot_feedback_cases.json")
 FEEDBACK_SESSION_FILE = Path("tests/data/pilot_feedback_sessions.json")
@@ -159,6 +161,7 @@ class OptimizationFocusItem:
 @dataclass(frozen=True)
 class PilotClosedLoopReport:
     repo_root: str
+    source_directory: str
     pilot_readiness: PilotReadinessReport
     feedback_single_turn: PilotSuiteResult
     feedback_multi_turn: PilotSuiteResult
@@ -186,6 +189,7 @@ class PilotClosedLoopReport:
     def to_dict(self) -> dict[str, object]:
         return {
             "repo_root": self.repo_root,
+            "source_directory": self.source_directory,
             "ok": self.ok,
             "pilot_readiness": self.pilot_readiness.to_dict(),
             "feedback_single_turn": self.feedback_single_turn.to_dict(),
@@ -251,36 +255,53 @@ def load_feedback_session_cases(repo_root: Path) -> tuple[FeedbackSessionCase, .
 
 def load_runtime_feedback_intake(
     path: Path,
+    *,
+    runtime_root: Path | None = None,
 ) -> tuple[tuple[FeedbackSingleTurnCase, ...], tuple[FeedbackSessionCase, ...], int]:
     records = load_feedback_records(path)
     single_turn_cases: list[FeedbackSingleTurnCase] = []
     session_cases: list[FeedbackSessionCase] = []
     pending_count = 0
+    resolved_runtime_root = runtime_root or path.parent
     for record in records:
-        captured_turns = record.get("captured_turns", [])
-        if not isinstance(captured_turns, list) or not captured_turns:
-            pending_count += 1
-            continue
         expected_mode = str(record.get("expected_mode", "")).strip()
         expected_task = str(record.get("expected_task", "")).strip()
         if not (expected_mode and expected_task):
             pending_count += 1
             continue
+        session_id = str(record.get("session_id", "")).strip()
+        selected_turn_ids = [
+            str(turn_id).strip()
+            for turn_id in record.get("selected_turn_ids", [])
+            if str(turn_id).strip()
+        ]
+        selected_turns = []
+        if session_id and selected_turn_ids:
+            selected_turns = load_selected_turn_views(
+                session_id,
+                selected_turn_ids,
+                runtime_root=resolved_runtime_root,
+            )
+        if not selected_turns:
+            selected_turns = _legacy_selected_turn_views(record)
+        if not selected_turns:
+            pending_count += 1
+            continue
         record_id = str(record.get("record_id", f"runtime-{len(single_turn_cases) + len(session_cases) + 1}"))
         source = str(record.get("source", "runtime-feedback"))
         scope = str(record.get("scope", "last")).strip() or "last"
-        if scope == "session" and len(captured_turns) > 1:
+        if scope == "session" and len(selected_turns) > 1:
             turns: list[PilotSessionTurnCase] = []
-            for index, turn in enumerate(captured_turns):
-                actual_mode = str(turn.get("response_mode", "")).strip() or "doc"
-                actual_task = str(turn.get("task", "")).strip() or "reference_lookup"
+            for index, turn in enumerate(selected_turns):
+                actual_mode = turn.response_mode or ResponseMode.DOC
+                actual_task = turn.task or "reference_lookup"
                 turns.append(
                     PilotSessionTurnCase(
-                        prompt=str(turn["prompt"]),
-                        expected_mode=expected_mode if index == len(captured_turns) - 1 else actual_mode,
-                        expected_task=expected_task if index == len(captured_turns) - 1 else actual_task,
+                        prompt=turn.prompt,
+                        expected_mode=expected_mode if index == len(selected_turns) - 1 else actual_mode,
+                        expected_task=expected_task if index == len(selected_turns) - 1 else actual_task,
                         expected=(),
-                        expected_reused_anchor=bool(turn.get("reused_anchor", False)),
+                        expected_reused_anchor=turn.reused_anchor,
                     )
                 )
             session_cases.append(
@@ -291,12 +312,12 @@ def load_runtime_feedback_intake(
                 )
             )
             continue
-        focus_turn = captured_turns[-1]
+        focus_turn = selected_turns[-1]
         single_turn_cases.append(
             FeedbackSingleTurnCase(
                 case_id=record_id,
                 source=source,
-                prompt=str(focus_turn["prompt"]),
+                prompt=focus_turn.prompt,
                 expected_mode=expected_mode,
                 expected_task=expected_task,
                 expected=(),
@@ -305,14 +326,52 @@ def load_runtime_feedback_intake(
     return tuple(single_turn_cases), tuple(session_cases), pending_count
 
 
+def _legacy_selected_turn_views(record: dict[str, object]) -> list[SupportTurnView]:
+    captured_turns = record.get("captured_turns", [])
+    if not isinstance(captured_turns, list):
+        return []
+    turns: list[SupportTurnView] = []
+    for index, item in enumerate(captured_turns, start=1):
+        if not isinstance(item, dict):
+            continue
+        prompt = str(item.get("prompt", "")).strip()
+        response = str(item.get("response", "")).strip()
+        if not prompt or not response:
+            continue
+        task = str(item.get("task", "")).strip() or "reference_lookup"
+        turns.append(
+            SupportTurnView(
+                session_id=str(record.get("session_id", "")),
+                turn_id=f"legacy-turn-{index}",
+                turn_index=index,
+                prompt=prompt,
+                effective_query=str(item.get("effective_query", prompt)).strip() or prompt,
+                reused_anchor=bool(item.get("reused_anchor", False)),
+                response=response,
+                task=task,
+                issue_type=str(item.get("issue_type", "")),
+                route_reason=str(item.get("route_reason", "")),
+                parsed_intent_intent=str(item.get("parsed_intent_intent", "")),
+                parsed_intent_module=str(item.get("parsed_intent_module", "")),
+                response_mode=str(item.get("response_mode", "")).strip() or ResponseMode.DOC,
+            )
+        )
+    return turns
+
+
+def _infer_runtime_root_from_feedback_path(path: Path) -> Path:
+    if path.parent.name == "feedback" and path.parent.parent.name == "runtime":
+        return path.parent.parent
+    return path.parent
+
+
 def _evaluate_feedback_single_turn(
-    repo_root: Path,
+    source_directory: Path,
     cases: tuple[FeedbackSingleTurnCase, ...],
     *,
     suite_name: str = "feedback-single-turn",
     suite_label: str = "feedback-single-turn",
 ) -> PilotSuiteResult:
-    source_directory = repo_root / "sentieon-note"
     failures: list[PilotEvalFailure] = []
     mvp_fallback_hits = 0
     for case in cases:
@@ -341,13 +400,12 @@ def _evaluate_feedback_single_turn(
 
 
 def _evaluate_feedback_sessions(
-    repo_root: Path,
+    source_directory: Path,
     cases: tuple[FeedbackSessionCase, ...],
     *,
     suite_name: str = "feedback-multi-turn",
     suite_label: str = "feedback-multi-turn",
 ) -> PilotSuiteResult:
-    source_directory = repo_root / "sentieon-note"
     failures: list[PilotEvalFailure] = []
     total_turns = 0
     mvp_fallback_hits = 0
@@ -552,25 +610,35 @@ def build_optimization_queue(
 def run_pilot_closed_loop(
     repo_root: Path,
     *,
+    source_directory: str | Path | None = None,
     baseline_path: Path | None = None,
     json_out: Path | None = None,
     runtime_feedback_path: Path | None = None,
+    runtime_root: Path | None = None,
     focus_limit: int = 3,
     command_gate_runner=run_command_gate,
 ) -> PilotClosedLoopReport:
-    pilot_report = run_pilot_readiness_evaluation(repo_root, command_gate_runner=command_gate_runner)
-    feedback_single_turn = _evaluate_feedback_single_turn(repo_root, load_feedback_single_turn_cases(repo_root))
-    feedback_multi_turn = _evaluate_feedback_sessions(repo_root, load_feedback_session_cases(repo_root))
-    runtime_path = runtime_feedback_path or default_feedback_path()
-    runtime_single_cases, runtime_session_cases, runtime_pending_count = load_runtime_feedback_intake(runtime_path)
-    runtime_feedback_single_turn = _evaluate_feedback_single_turn(
+    resolved_source_directory = Path(source_directory) if source_directory is not None else repo_root / "sentieon-note"
+    pilot_report = run_pilot_readiness_evaluation(
         repo_root,
+        source_directory=resolved_source_directory,
+        command_gate_runner=command_gate_runner,
+    )
+    feedback_single_turn = _evaluate_feedback_single_turn(resolved_source_directory, load_feedback_single_turn_cases(repo_root))
+    feedback_multi_turn = _evaluate_feedback_sessions(resolved_source_directory, load_feedback_session_cases(repo_root))
+    runtime_path = runtime_feedback_path or default_feedback_path()
+    runtime_single_cases, runtime_session_cases, runtime_pending_count = load_runtime_feedback_intake(
+        runtime_path,
+        runtime_root=runtime_root or _infer_runtime_root_from_feedback_path(runtime_path),
+    )
+    runtime_feedback_single_turn = _evaluate_feedback_single_turn(
+        resolved_source_directory,
         runtime_single_cases,
         suite_name="runtime-feedback-single-turn",
         suite_label="runtime-feedback-single-turn",
     )
     runtime_feedback_multi_turn = _evaluate_feedback_sessions(
-        repo_root,
+        resolved_source_directory,
         runtime_session_cases,
         suite_name="runtime-feedback-multi-turn",
         suite_label="runtime-feedback-multi-turn",
@@ -600,6 +668,7 @@ def run_pilot_closed_loop(
     )
     report = PilotClosedLoopReport(
         repo_root=str(repo_root),
+        source_directory=str(resolved_source_directory),
         pilot_readiness=pilot_report,
         feedback_single_turn=feedback_single_turn,
         feedback_multi_turn=feedback_multi_turn,

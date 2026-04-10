@@ -44,34 +44,6 @@ GENERAL_MODULE_QUERY_CUES = GENERIC_MODULE_INTRO_CUES + (
     "哪几类",
     "从哪里下载",
 )
-OPERATIONAL_REFERENCE_CUES = (
-    "licsrvr",
-    "licclnt",
-    "sdist",
-    "poetry",
-    "sentieon-cli",
-    "sentieon cli",
-    "sentieon driver",
-    "driver",
-    "graviton",
-    "arm",
-    "gpu",
-    "fpga",
-)
-ERROR_REPORT_CUES = (
-    "报错",
-    "错误",
-    "失败",
-    "异常",
-    "无法",
-    "不能",
-    "不行",
-    "killed",
-    "too many open files",
-    "permission denied",
-    "not found",
-    "找不到",
-)
 NON_MODULE_ASCII_TOKENS = {
     "agilent",
     "arm",
@@ -274,18 +246,6 @@ def normalize_reference_followup_fragment(query: str) -> str:
         if pattern.search(normalized_compact):
             return replacement
     return stripped
-
-
-def _looks_like_error_report(query: str) -> bool:
-    normalized = query.lower()
-    return any(cue in normalized for cue in ERROR_REPORT_CUES)
-
-
-def _looks_like_operational_reference_query(query: str) -> bool:
-    normalized = query.lower()
-    return any(cue in normalized for cue in OPERATIONAL_REFERENCE_CUES)
-
-
 def looks_like_reference_followup(
     query: str,
     *,
@@ -372,13 +332,9 @@ def select_support_route(
             reason="capability_question",
             explicit=True,
         )
-    if issue_type in {"license", "install"} and (
-        parsed_intent.is_reference or (_looks_like_operational_reference_query(query) and not _looks_like_error_report(query))
-    ):
+    if issue_type in {"license", "install"} and parsed_intent.is_reference:
         if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES):
             parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=max(parsed_intent.confidence, 0.44))
-        elif not parsed_intent.is_reference:
-            parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.41)
         return SupportRouteDecision(
             task="reference_lookup",
             issue_type=issue_type,

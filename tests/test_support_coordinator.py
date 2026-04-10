@@ -1,4 +1,4 @@
-from sentieon_assist.reference_intents import parse_reference_intent
+from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
 from sentieon_assist.support_coordinator import is_capability_question, select_support_route
 
 
@@ -46,3 +46,27 @@ def test_select_support_route_uses_reference_intent_for_bwa_turbo_boundary_promp
     assert route.task == "reference_lookup"
     assert route.reason == "reference_other"
     assert route.parsed_intent.intent == "reference_other"
+
+
+def test_select_support_route_does_not_upgrade_install_doc_prompt_without_reference_intent():
+    route = select_support_route(
+        "Poetry 是什么",
+        classify_query_fn=lambda query: "install",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(),
+    )
+
+    assert route.task == "troubleshooting"
+    assert route.reason == "issue_type:install"
+    assert route.parsed_intent.intent == "not_reference"
+
+
+def test_select_support_route_does_not_upgrade_license_doc_prompt_without_reference_intent():
+    route = select_support_route(
+        "LICCLNT 是什么",
+        classify_query_fn=lambda query: "license",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(),
+    )
+
+    assert route.task == "troubleshooting"
+    assert route.reason == "issue_type:license"
+    assert route.parsed_intent.intent == "not_reference"

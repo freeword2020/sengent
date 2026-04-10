@@ -224,6 +224,71 @@ def test_answer_query_does_not_call_model_when_rule_matches(monkeypatch):
     assert "202503.03" in text
 
 
+def test_answer_query_trace_collector_reports_rule_path(monkeypatch):
+    seen: dict[str, object] = {}
+
+    text = answer_query(
+        "license",
+        "Sentieon 202503 license 报错，找不到 license 文件",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "Sentieon 202503 license 报错，找不到 license 文件",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        trace_collector=lambda trace: seen.update(
+            {
+                "sources": list(trace.sources),
+                "boundary_tags": list(trace.boundary_tags),
+                "resolver_path": list(trace.resolver_path),
+            }
+        ),
+    )
+
+    assert "【问题判断】" in text
+    assert seen["sources"] == []
+    assert seen["boundary_tags"] == []
+    assert seen["resolver_path"] == ["troubleshooting_rule"]
+
+
+def test_answer_query_trace_collector_reports_model_fallback_sources(monkeypatch):
+    monkeypatch.setattr("sentieon_assist.answering.match_rule", lambda query: None)
+    monkeypatch.setattr(
+        "sentieon_assist.answering.collect_source_evidence",
+        lambda directory, issue_type, query, info: [{"name": "notes.md", "snippet": "install note"}],
+    )
+
+    seen: dict[str, object] = {}
+
+    text = answer_query(
+        "install",
+        "Sentieon 202503 install 失败",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "Sentieon 202503 install 失败",
+            "error_keywords": "",
+            "step": "install",
+            "data_type": "",
+        },
+        model_fallback=lambda issue_type, query, info, evidence: "MODEL_ANSWER",
+        trace_collector=lambda trace: seen.update(
+            {
+                "sources": list(trace.sources),
+                "boundary_tags": list(trace.boundary_tags),
+                "resolver_path": list(trace.resolver_path),
+            }
+        ),
+    )
+
+    assert text.endswith("notes.md")
+    assert seen["sources"] == ["notes.md"]
+    assert seen["boundary_tags"] == []
+    assert seen["resolver_path"] == ["troubleshooting_model_fallback"]
+
+
 def test_answer_query_adds_version_warning_when_release_family_differs(monkeypatch):
     monkeypatch.setattr(
         "sentieon_assist.answering.collect_source_bundle_metadata",

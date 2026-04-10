@@ -17,9 +17,10 @@ from sentieon_assist.pilot_readiness import format_pilot_readiness_summary, run_
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run pilot-readiness gates for Sengent support flows.")
     parser.add_argument("--json-out", type=Path, help="Optional path for machine-readable JSON output.")
+    parser.add_argument("--source-dir", type=Path, help="Optional source pack directory to evaluate instead of sentieon-note/.")
     args = parser.parse_args(argv)
 
-    report = run_pilot_readiness_evaluation(REPO_ROOT, json_out=args.json_out)
+    report = run_pilot_readiness_evaluation(REPO_ROOT, source_directory=args.source_dir, json_out=args.json_out)
     print(format_pilot_readiness_summary(report))
     return 0 if report.ok else 1
 

@@ -2,25 +2,26 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from sentieon_assist.trace_vocab import ResponseMode
+
 MODE_ALIASES = {
-    "capability": "capability",
-    "workflow": "workflow_guidance",
-    "workflow_guidance": "workflow_guidance",
-    "module": "module_intro",
-    "module_intro": "module_intro",
-    "parameter": "parameter",
-    "script": "script",
-    "doc": "doc",
-    "external": "external_error",
-    "external_error": "external_error",
-    "boundary": "boundary",
-    "clarify": "clarify",
+    "capability": ResponseMode.CAPABILITY,
+    "workflow": ResponseMode.WORKFLOW_GUIDANCE,
+    "workflow_guidance": ResponseMode.WORKFLOW_GUIDANCE,
+    "module": ResponseMode.MODULE_INTRO,
+    "module_intro": ResponseMode.MODULE_INTRO,
+    "parameter": ResponseMode.PARAMETER,
+    "script": ResponseMode.SCRIPT,
+    "doc": ResponseMode.DOC,
+    "external": ResponseMode.EXTERNAL_ERROR,
+    "external_error": ResponseMode.EXTERNAL_ERROR,
+    "boundary": ResponseMode.BOUNDARY,
+    "clarify": ResponseMode.CLARIFY,
 }
 TASK_ALIASES = {
     "capability": "capability_explanation",
@@ -40,24 +41,6 @@ SCOPE_ALIASES = {
     "整段会话": "session",
     "当前会话": "session",
 }
-
-
-@dataclass(frozen=True)
-class FeedbackTurnSnapshot:
-    prompt: str
-    effective_query: str
-    response: str
-    task: str
-    issue_type: str
-    route_reason: str
-    parsed_intent_intent: str
-    parsed_intent_module: str
-    response_mode: str
-    reused_anchor: bool
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 def default_feedback_path() -> Path:
     return Path(__file__).resolve().parents[2] / "runtime" / "feedback" / "runtime_feedback.jsonl"
@@ -100,7 +83,8 @@ def format_feedback_hint() -> str:
 def build_feedback_record(
     *,
     scope: str,
-    captured_turns: list[FeedbackTurnSnapshot],
+    session_id: str,
+    selected_turn_ids: list[str],
     summary: str,
     expected_answer: str,
     expected_mode: str,
@@ -118,7 +102,8 @@ def build_feedback_record(
         "expected_task": expected_task,
         "scorable": bool(expected_mode and expected_task),
         "git_sha": _git_sha(feedback_path.parent),
-        "captured_turns": [turn.to_dict() for turn in captured_turns],
+        "session_id": session_id,
+        "selected_turn_ids": list(selected_turn_ids),
     }
 
 

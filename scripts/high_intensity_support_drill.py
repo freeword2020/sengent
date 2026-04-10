@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from dataclasses import dataclass
@@ -47,10 +48,10 @@ def load_cases(repo_root: Path) -> tuple[SessionCase, ...]:
     return tuple(cases)
 
 
-def validate_session(repo_root: Path, case: SessionCase) -> tuple[bool, str]:
+def validate_session(repo_root: Path, case: SessionCase, *, source_directory: Path | None = None) -> tuple[bool, str]:
     results = run_support_session(
         [turn.prompt for turn in case.turns],
-        source_directory=str(repo_root / "sentieon-note"),
+        source_directory=str(source_directory or (repo_root / "sentieon-note")),
     )
     if len(results) != len(case.turns):
         return False, f"turn_count_mismatch expected={len(case.turns)} actual={len(results)}"
@@ -81,12 +82,15 @@ def validate_session(repo_root: Path, case: SessionCase) -> tuple[bool, str]:
     return True, ""
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run high-intensity multi-turn support drills for Sengent.")
+    parser.add_argument("--source-dir", type=Path, help="Optional source pack directory to evaluate instead of sentieon-note/.")
+    args = parser.parse_args(argv)
     cases = load_cases(REPO_ROOT)
     failures = 0
     print(f"Running high-intensity support drill from {REPO_ROOT}")
     for case in cases:
-        ok, details = validate_session(REPO_ROOT, case)
+        ok, details = validate_session(REPO_ROOT, case, source_directory=args.source_dir)
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {case.name}")
         if not ok:

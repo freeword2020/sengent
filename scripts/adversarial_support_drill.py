@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import argparse
 import json
 import subprocess
 import sys
@@ -103,10 +104,12 @@ def load_novice_cases(repo_root: Path) -> tuple[DrillCase, ...]:
     return _load_json_cases(repo_root / "tests" / "data" / "novice_adversarial_cases.json", prefix="novice")
 
 
-def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
+def run_case(repo_root: Path, case: DrillCase, *, source_directory: Path | None = None) -> tuple[bool, str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = "src"
     command = [sys.executable, "-m", "sentieon_assist.cli", case.prompt]
+    if source_directory is not None:
+        command = [sys.executable, "-m", "sentieon_assist.cli", "--source-dir", str(source_directory), case.prompt]
     completed = subprocess.run(
         command,
         cwd=repo_root,
@@ -132,13 +135,16 @@ def run_case(repo_root: Path, case: DrillCase) -> tuple[bool, str]:
     return False, "\n".join(details)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run adversarial single-turn support drills for Sengent.")
+    parser.add_argument("--source-dir", type=Path, help="Optional source pack directory to evaluate instead of sentieon-note/.")
+    args = parser.parse_args(argv)
     repo_root = Path(__file__).resolve().parents[1]
     cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root), *load_novice_cases(repo_root))
     failures = 0
     print(f"Running adversarial support drill from {repo_root}")
     for case in cases:
-        ok, details = run_case(repo_root, case)
+        ok, details = run_case(repo_root, case, source_directory=args.source_dir)
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {case.name}: {case.prompt}")
         if not ok:

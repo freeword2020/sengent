@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from sentieon_assist.pilot_readiness import (
@@ -25,6 +27,7 @@ from sentieon_assist.pilot_closed_loop import (
     run_pilot_closed_loop,
     score_closed_loop_report,
 )
+from sentieon_assist.session_events import SupportSessionRecord, append_session_record, append_turn_event, build_turn_event
 
 
 def _suite(name: str, failures: tuple[PilotEvalFailure, ...] = ()) -> PilotSuiteResult:
@@ -67,6 +70,7 @@ def _failure(bucket: str, *, suite: str = "pilot", case_id: str = "case-1") -> P
 def _pilot_report(*, gate_ok: bool = True, pilot_failures: tuple[PilotEvalFailure, ...] = ()) -> PilotReadinessReport:
     return PilotReadinessReport(
         repo_root="/tmp/repo",
+        source_directory="/tmp/repo/sentieon-note",
         gates=(GateResult(name="pytest", ok=gate_ok, summary="ok", details="ok", returncode=0 if gate_ok else 1),),
         pilot_single_turn=_suite("pilot-single-turn", pilot_failures),
         pilot_multi_turn=_suite("pilot-multi-turn"),
@@ -87,6 +91,32 @@ def test_load_feedback_corpora():
 
 def test_load_runtime_feedback_intake_splits_scorable_and_pending(tmp_path: Path):
     runtime_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_root = tmp_path
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+    first_turn = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="能提供个 joint call 参考脚本吗",
+        effective_query="能提供个 joint call 参考脚本吗",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="other",
+        route_reason="script_example",
+        parsed_intent_intent="script_example",
+        parsed_intent_module="Joint Call",
+        response_text="【参考命令】\n- sentieon driver --algo GVCFtyper ...",
+        response_mode="script",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "reference_lookup"},
+    )
+    append_turn_event(first_turn, runtime_root=runtime_root)
     runtime_path.write_text(
         "\n".join(
             [
@@ -95,17 +125,10 @@ def test_load_runtime_feedback_intake_splits_scorable_and_pending(tmp_path: Path
                         "record_id": "rt-1",
                         "source": "runtime-feedback",
                         "scope": "last",
+                        "session_id": session.session_id,
+                        "selected_turn_ids": [first_turn.turn_id],
                         "expected_mode": "script",
                         "expected_task": "reference_lookup",
-                        "captured_turns": [
-                            {
-                                "prompt": "能提供个 joint call 参考脚本吗",
-                                "response": "【参考命令】\n- sentieon driver --algo GVCFtyper ...",
-                                "task": "reference_lookup",
-                                "response_mode": "script",
-                                "reused_anchor": False,
-                            }
-                        ],
                     },
                     ensure_ascii=False,
                 ),
@@ -114,15 +137,8 @@ def test_load_runtime_feedback_intake_splits_scorable_and_pending(tmp_path: Path
                         "record_id": "rt-2",
                         "source": "runtime-feedback",
                         "scope": "session",
-                        "captured_turns": [
-                            {
-                                "prompt": "DNAscope 的 --pcr_free 是什么",
-                                "response": "【常用参数】\n- DNAscope 的 --pcr_free ...",
-                                "task": "reference_lookup",
-                                "response_mode": "parameter",
-                                "reused_anchor": False,
-                            }
-                        ],
+                        "session_id": session.session_id,
+                        "selected_turn_ids": [first_turn.turn_id],
                     },
                     ensure_ascii=False,
                 ),
@@ -132,12 +148,108 @@ def test_load_runtime_feedback_intake_splits_scorable_and_pending(tmp_path: Path
         encoding="utf-8",
     )
 
-    single_turn_cases, session_cases, pending_count = load_runtime_feedback_intake(runtime_path)
+    single_turn_cases, session_cases, pending_count = load_runtime_feedback_intake(runtime_path, runtime_root=runtime_root)
 
     assert len(single_turn_cases) == 1
     assert len(session_cases) == 0
     assert pending_count == 1
     assert single_turn_cases[0].case_id == "rt-1"
+
+
+def test_load_runtime_feedback_intake_accepts_legacy_captured_turns_records(tmp_path: Path):
+    runtime_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "record_id": "legacy-1",
+                "source": "runtime-feedback",
+                "scope": "last",
+                "expected_mode": "script",
+                "expected_task": "reference_lookup",
+                "captured_turns": [
+                    {
+                        "prompt": "能提供个 joint call 参考脚本吗",
+                        "response": "【参考命令】\n- sentieon driver --algo GVCFtyper ...",
+                        "task": "reference_lookup",
+                        "response_mode": "script",
+                        "reused_anchor": False,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    single_turn_cases, session_cases, pending_count = load_runtime_feedback_intake(runtime_path)
+
+    assert len(single_turn_cases) == 1
+    assert len(session_cases) == 0
+    assert pending_count == 0
+    assert single_turn_cases[0].case_id == "legacy-1"
+    assert single_turn_cases[0].prompt == "能提供个 joint call 参考脚本吗"
+
+
+def test_run_pilot_closed_loop_accepts_explicit_runtime_root_for_pointer_feedback(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parent.parent
+    runtime_root = tmp_path / "runtime"
+    feedback_path = tmp_path / "exports" / "runtime-feedback.jsonl"
+    feedback_path.parent.mkdir(parents=True)
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+    turn = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="能提供个 joint call 参考脚本吗",
+        effective_query="能提供个 joint call 参考脚本吗",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="other",
+        route_reason="script_example",
+        parsed_intent_intent="script_example",
+        parsed_intent_module="Joint Call",
+        response_text="【参考命令】\n- sentieon driver --algo GVCFtyper ...",
+        response_mode="script",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "reference_lookup"},
+    )
+    append_turn_event(turn, runtime_root=runtime_root)
+    feedback_path.write_text(
+        json.dumps(
+            {
+                "record_id": "rt-runtime-root",
+                "source": "runtime-feedback",
+                "scope": "last",
+                "session_id": session.session_id,
+                "selected_turn_ids": [turn.turn_id],
+                "expected_mode": "script",
+                "expected_task": "reference_lookup",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def fake_gate_runner(name: str, command: tuple[str, ...], root: Path) -> GateResult:
+        return GateResult(name=name, ok=True, summary="pass", details="pass", returncode=0)
+
+    report = run_pilot_closed_loop(
+        repo_root,
+        runtime_feedback_path=feedback_path,
+        runtime_root=runtime_root,
+        command_gate_runner=fake_gate_runner,
+    )
+
+    assert report.runtime_feedback_pending_count == 0
+    assert report.runtime_feedback_single_turn.total == 1
 
 
 def test_collect_bucket_counts_aggregates_all_suites():
@@ -302,3 +414,39 @@ def test_run_pilot_closed_loop_writes_json_and_summary(tmp_path: Path):
     assert "Risk level:" in summary
     assert "Runtime feedback pending triage:" in summary
     assert "Optimization queue:" in summary
+
+
+def test_run_pilot_closed_loop_accepts_explicit_source_directory(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parent.parent
+    json_out = tmp_path / "pilot-loop.json"
+    runtime_feedback_path = tmp_path / "runtime-feedback.jsonl"
+    runtime_feedback_path.write_text("", encoding="utf-8")
+    source_directory = repo_root / "sentieon-note"
+
+    def fake_gate_runner(name: str, command: tuple[str, ...], root: Path) -> GateResult:
+        return GateResult(name=name, ok=True, summary="pass", details="pass", returncode=0)
+
+    report = run_pilot_closed_loop(
+        repo_root,
+        source_directory=source_directory,
+        json_out=json_out,
+        runtime_feedback_path=runtime_feedback_path,
+        command_gate_runner=fake_gate_runner,
+    )
+
+    assert report.source_directory == str(source_directory)
+    payload = json.loads(json_out.read_text())
+    assert payload["source_directory"] == str(source_directory)
+
+
+def test_pilot_closed_loop_script_help_lists_source_dir_flag():
+    repo_root = Path(__file__).resolve().parent.parent
+    result = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "pilot_closed_loop.py"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "--source-dir" in result.stdout
+    assert "--runtime-root" in result.stdout

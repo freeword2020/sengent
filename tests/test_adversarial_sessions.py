@@ -92,6 +92,22 @@ def test_run_support_session_marks_workflow_clarification_as_clarify_mode():
     assert result.response_mode == "clarify"
 
 
+def test_run_support_session_returns_unified_turn_view_ids():
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+
+    results = run_support_session(
+        [
+            "DNAscope 的 --pcr_free 是什么",
+        ],
+        source_directory=str(source_directory),
+    )
+
+    assert len(results) == 1
+    assert results[0].session_id
+    assert results[0].turn_id
+    assert results[0].turn_index == 1
+
+
 def test_classify_response_mode_uses_fixed_modes():
     assert classify_response_mode("【能力说明】\n- A") == "capability"
     assert classify_response_mode("【参考命令】\n- B") == "script"

@@ -6,7 +6,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from sentieon_assist.adversarial_sessions import SessionTurnResult, run_support_session
+from sentieon_assist.adversarial_sessions import run_support_session
+from sentieon_assist.session_events import SupportTurnView
+from sentieon_assist.trace_vocab import ResponseMode
 
 LEGACY_MVP_FALLBACK = "当前 MVP 仅支持 license 和 install 问题"
 PILOT_SINGLE_TURN_FILE = Path("tests/data/pilot_readiness_cases.json")
@@ -143,6 +145,7 @@ class GateResult:
 @dataclass(frozen=True)
 class PilotReadinessReport:
     repo_root: str
+    source_directory: str
     gates: tuple[GateResult, ...]
     pilot_single_turn: PilotSuiteResult
     pilot_multi_turn: PilotSuiteResult
@@ -168,6 +171,7 @@ class PilotReadinessReport:
     def to_dict(self) -> dict[str, object]:
         return {
             "repo_root": self.repo_root,
+            "source_directory": self.source_directory,
             "ok": self.ok,
             "gates": [gate.to_dict() for gate in self.gates],
             "pilot_single_turn": self.pilot_single_turn.to_dict(),
@@ -243,7 +247,7 @@ def _build_failure(
     case_id: str,
     turn_index: int,
     case: PilotSingleTurnCase | PilotSessionTurnCase,
-    result: SessionTurnResult,
+    result: SupportTurnView,
     bucket: str,
     missing: list[str],
     forbidden: list[str],
@@ -275,7 +279,7 @@ def _build_failure(
 def bucket_failure(
     *,
     case: PilotSingleTurnCase | PilotSessionTurnCase,
-    result: SessionTurnResult,
+    result: SupportTurnView,
     suite: str = "pilot",
     case_id: str = "case",
     turn_index: int = 1,
@@ -288,22 +292,22 @@ def bucket_failure(
     bucket: str | None = None
     if expected_reused_anchor is not None and result.reused_anchor != expected_reused_anchor:
         bucket = "wrong_reset" if reset_context and result.reused_anchor else "wrong_anchor_reuse"
-    elif case.expected_mode == "clarify" and result.response_mode != "clarify":
+    elif case.expected_mode == ResponseMode.CLARIFY and result.response_mode != ResponseMode.CLARIFY:
         bucket = "under_clarify"
-    elif case.expected_mode == "boundary" and result.response_mode != "boundary":
+    elif case.expected_mode == ResponseMode.BOUNDARY and result.response_mode != ResponseMode.BOUNDARY:
         bucket = "wrong_boundary"
-    elif case.expected_mode == "script" and result.response_mode != "script":
+    elif case.expected_mode == ResponseMode.SCRIPT and result.response_mode != ResponseMode.SCRIPT:
         bucket = "wrong_script_handoff"
-    elif case.expected_mode != "clarify" and result.response_mode == "clarify":
+    elif case.expected_mode != ResponseMode.CLARIFY and result.response_mode == ResponseMode.CLARIFY:
         bucket = "over_clarify"
     elif result.task != case.expected_task:
         bucket = "misroute"
     elif missing or forbidden:
-        if case.expected_mode == "boundary":
+        if case.expected_mode == ResponseMode.BOUNDARY:
             bucket = "wrong_boundary"
-        elif case.expected_mode == "script":
+        elif case.expected_mode == ResponseMode.SCRIPT:
             bucket = "wrong_script_handoff"
-        elif case.expected_mode == "clarify" and result.response_mode != "clarify":
+        elif case.expected_mode == ResponseMode.CLARIFY and result.response_mode != ResponseMode.CLARIFY:
             bucket = "under_clarify"
         else:
             bucket = "misroute"
@@ -321,8 +325,7 @@ def bucket_failure(
     )
 
 
-def _evaluate_single_turn_cases(repo_root: Path, cases: tuple[PilotSingleTurnCase, ...]) -> PilotSuiteResult:
-    source_directory = repo_root / "sentieon-note"
+def _evaluate_single_turn_cases(source_directory: Path, cases: tuple[PilotSingleTurnCase, ...]) -> PilotSuiteResult:
     failures: list[PilotEvalFailure] = []
     mvp_fallback_hits = 0
     for case in cases:
@@ -345,8 +348,7 @@ def _evaluate_single_turn_cases(repo_root: Path, cases: tuple[PilotSingleTurnCas
     )
 
 
-def _evaluate_session_cases(repo_root: Path, cases: tuple[PilotSessionCase, ...]) -> PilotSuiteResult:
-    source_directory = repo_root / "sentieon-note"
+def _evaluate_session_cases(source_directory: Path, cases: tuple[PilotSessionCase, ...]) -> PilotSuiteResult:
     failures: list[PilotEvalFailure] = []
     total_turns = 0
     mvp_fallback_hits = 0
@@ -378,17 +380,41 @@ def _evaluate_session_cases(repo_root: Path, cases: tuple[PilotSessionCase, ...]
     )
 
 
+def _resolve_source_directory(repo_root: Path, source_directory: str | Path | None) -> Path:
+    if source_directory is None:
+        return repo_root / "sentieon-note"
+    return Path(source_directory)
+
+
+def _gate_commands_for_source(source_directory: Path, *, repo_root: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    default_source_directory = repo_root / "sentieon-note"
+    if source_directory == default_source_directory:
+        return GATE_COMMANDS
+    source_arg = ("--source-dir", str(source_directory))
+    return (
+        ("pytest", (sys.executable, "-m", "pytest", "-q")),
+        ("adversarial-single-turn", (sys.executable, "scripts/adversarial_support_drill.py", *source_arg)),
+        ("high-intensity-sessions", (sys.executable, "scripts/high_intensity_support_drill.py", *source_arg)),
+    )
+
+
 def run_pilot_readiness_evaluation(
     repo_root: Path,
     *,
+    source_directory: str | Path | None = None,
     json_out: Path | None = None,
     command_gate_runner=run_command_gate,
 ) -> PilotReadinessReport:
-    gates = tuple(command_gate_runner(name, command, repo_root) for name, command in GATE_COMMANDS)
-    pilot_single_turn = _evaluate_single_turn_cases(repo_root, load_pilot_single_turn_cases(repo_root))
-    pilot_multi_turn = _evaluate_session_cases(repo_root, load_pilot_session_cases(repo_root))
+    resolved_source_directory = _resolve_source_directory(repo_root, source_directory)
+    gates = tuple(
+        command_gate_runner(name, command, repo_root)
+        for name, command in _gate_commands_for_source(resolved_source_directory, repo_root=repo_root)
+    )
+    pilot_single_turn = _evaluate_single_turn_cases(resolved_source_directory, load_pilot_single_turn_cases(repo_root))
+    pilot_multi_turn = _evaluate_session_cases(resolved_source_directory, load_pilot_session_cases(repo_root))
     report = PilotReadinessReport(
         repo_root=str(repo_root),
+        source_directory=str(resolved_source_directory),
         gates=gates,
         pilot_single_turn=pilot_single_turn,
         pilot_multi_turn=pilot_multi_turn,
