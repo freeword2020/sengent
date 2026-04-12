@@ -19,6 +19,7 @@ class SupportSessionState:
     anchor_query: str = ""
     confirmed_facts: dict[str, str] = field(default_factory=dict)
     open_clarification_slots: tuple[str, ...] = ()
+    clarification_rounds: int = 0
     last_route_reason: str = ""
 
     def cleared(self) -> "SupportSessionState":
@@ -30,5 +31,6 @@ class SupportSessionState:
             "anchor_query": self.anchor_query,
             "confirmed_facts": dict(self.confirmed_facts),
             "open_clarification_slots": list(self.open_clarification_slots),
+            "clarification_rounds": self.clarification_rounds,
             "last_route_reason": self.last_route_reason,
         }

@@ -1,5 +1,11 @@
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
-from sentieon_assist.support_coordinator import is_capability_question, select_support_route
+from sentieon_assist.support_coordinator import (
+    is_capability_question,
+    plan_support_turn,
+    select_support_route,
+    update_support_state,
+)
+from sentieon_assist.support_state import SupportSessionState
 
 
 def test_is_capability_question_matches_generic_function_prompt():
@@ -18,6 +24,10 @@ def test_select_support_route_uses_reference_intent_for_cpu_thread_doc_prompt():
     assert route.task == "reference_lookup"
     assert route.reason == "reference_other"
     assert route.parsed_intent.intent == "reference_other"
+    assert route.support_intent == "concept_understanding"
+    assert route.fallback_mode == ""
+    assert route.vendor_id == "sentieon"
+    assert route.vendor_version == "202503.03"
 
 
 def test_select_support_route_uses_reference_intent_for_license_tool_selection_prompt():
@@ -32,6 +42,7 @@ def test_select_support_route_uses_reference_intent_for_license_tool_selection_p
     assert route.task == "reference_lookup"
     assert route.reason == "reference_other"
     assert route.parsed_intent.intent == "reference_other"
+    assert route.support_intent == "concept_understanding"
 
 
 def test_select_support_route_uses_reference_intent_for_bwa_turbo_boundary_prompt():
@@ -46,6 +57,7 @@ def test_select_support_route_uses_reference_intent_for_bwa_turbo_boundary_promp
     assert route.task == "reference_lookup"
     assert route.reason == "reference_other"
     assert route.parsed_intent.intent == "reference_other"
+    assert route.support_intent == "concept_understanding"
 
 
 def test_select_support_route_does_not_upgrade_install_doc_prompt_without_reference_intent():
@@ -58,6 +70,7 @@ def test_select_support_route_does_not_upgrade_install_doc_prompt_without_refere
     assert route.task == "troubleshooting"
     assert route.reason == "issue_type:install"
     assert route.parsed_intent.intent == "not_reference"
+    assert route.support_intent == "troubleshooting"
 
 
 def test_select_support_route_does_not_upgrade_license_doc_prompt_without_reference_intent():
@@ -70,3 +83,56 @@ def test_select_support_route_does_not_upgrade_license_doc_prompt_without_refere
     assert route.task == "troubleshooting"
     assert route.reason == "issue_type:license"
     assert route.parsed_intent.intent == "not_reference"
+    assert route.support_intent == "troubleshooting"
+
+
+def test_select_support_route_marks_unsupported_vendor_version():
+    route = select_support_route(
+        "Sentieon 202401.01 的 DNAscope 是什么",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(
+            intent="module_intro",
+            module="DNAscope",
+            confidence=0.92,
+        ),
+    )
+
+    assert route.task == "reference_lookup"
+    assert route.support_intent == "concept_understanding"
+    assert route.vendor_id == "sentieon"
+    assert route.vendor_version == "202401.01"
+    assert route.fallback_mode == "unsupported-version"
+
+
+def test_select_support_route_marks_workflow_guidance_as_task_guidance():
+    route = select_support_route(
+        "能提供个 wes 参考脚本吗",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(
+            intent="workflow_guidance",
+            confidence=0.88,
+        ),
+    )
+
+    assert route.task == "onboarding_guidance"
+    assert route.support_intent == "task_guidance"
+
+
+def test_update_support_state_tracks_clarification_rounds_and_caps_at_vendor_policy():
+    state = SupportSessionState()
+    planned_turn = plan_support_turn(
+        "能提供个 wes 参考脚本吗",
+        state,
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(
+            intent="workflow_guidance",
+            confidence=0.88,
+        ),
+    )
+    clarify_response = "【流程指导】\n- 先判断分析模式。\n\n【需要确认的信息】\n- FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM"
+
+    state = update_support_state(state, planned_turn=planned_turn, response=clarify_response)
+    assert state.clarification_rounds == 1
+
+    state = update_support_state(state, planned_turn=planned_turn, response=clarify_response)
+    assert state.clarification_rounds == 2
+
+    state = update_support_state(state, planned_turn=planned_turn, response=clarify_response)
+    assert state.clarification_rounds == 2

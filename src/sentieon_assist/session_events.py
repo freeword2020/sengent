@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from sentieon_assist.app_paths import default_runtime_root as default_runtime_root_path
+from sentieon_assist.support_contracts import normalize_fallback_mode, normalize_support_intent
 from sentieon_assist.trace_vocab import ResponseMode, normalize_resolver_path, normalize_response_mode
 
 
@@ -181,6 +182,10 @@ class SupportTurnView:
     task: str
     issue_type: str
     route_reason: str
+    support_intent: str
+    fallback_mode: str
+    vendor_id: str
+    vendor_version: str
     parsed_intent_intent: str
     parsed_intent_module: str
     response_mode: str
@@ -196,6 +201,10 @@ def build_turn_event(
     task: str,
     issue_type: str,
     route_reason: str,
+    support_intent: str,
+    fallback_mode: str,
+    vendor_id: str,
+    vendor_version: str,
     parsed_intent_intent: str,
     parsed_intent_module: str,
     response_text: str,
@@ -218,6 +227,10 @@ def build_turn_event(
             "task": task,
             "issue_type": issue_type,
             "route_reason": route_reason,
+            "support_intent": normalize_support_intent(support_intent),
+            "fallback_mode": normalize_fallback_mode(fallback_mode),
+            "vendor_id": vendor_id,
+            "vendor_version": vendor_version,
             "parsed_intent": {
                 "intent": parsed_intent_intent,
                 "module": parsed_intent_module,
@@ -294,6 +307,10 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
         task=str(planner.get("task", "")),
         issue_type=str(planner.get("issue_type", "")),
         route_reason=str(planner.get("route_reason", "")),
+        support_intent=normalize_support_intent(str(planner.get("support_intent", ""))),
+        fallback_mode=normalize_fallback_mode(str(planner.get("fallback_mode", ""))),
+        vendor_id=str(planner.get("vendor_id", "")),
+        vendor_version=str(planner.get("vendor_version", "")),
         parsed_intent_intent=str(parsed_intent.get("intent", "")),
         parsed_intent_module=str(parsed_intent.get("module", "")),
         response_mode=normalize_response_mode(str(answer.get("response_mode", ""))),

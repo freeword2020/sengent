@@ -8,7 +8,9 @@ from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.external_guides import is_external_error_query, is_external_reference_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.reference_intents import ReferenceIntent, detect_reference_module_hint, parse_reference_intent
+from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_state import SupportSessionState, SupportTask
+from sentieon_assist.vendors import get_vendor_profile
 
 FIELD_SLOT_LABELS = {
     "version": "Sentieon 版本",
@@ -195,6 +197,16 @@ WORKFLOW_SLOT_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("input_type", ("FASTQ、uBAM/uCRAM", "已对齐 BAM/CRAM", "FASTQ、uBAM/uCRAM，还是已对齐 BAM/CRAM")),
     ("request_kind", ("流程分流", "参考命令骨架")),
 )
+DECISION_SUPPORT_CUES = (
+    "怎么选",
+    "选哪个",
+    "哪个更",
+    "推荐",
+    "适合",
+    "该走哪条",
+    "该用哪个",
+)
+SENTIEON_VENDOR_ID = "sentieon"
 
 
 @dataclass(frozen=True)
@@ -204,6 +216,10 @@ class SupportRouteDecision:
     parsed_intent: ReferenceIntent
     info: dict[str, str]
     reason: str
+    support_intent: str = SupportIntent.CONCEPT_UNDERSTANDING
+    fallback_mode: str = FallbackMode.NONE
+    vendor_id: str = SENTIEON_VENDOR_ID
+    vendor_version: str = ""
     explicit: bool = False
 
 
@@ -213,6 +229,69 @@ class PlannedSupportTurn:
     effective_query: str
     route: SupportRouteDecision
     reused_anchor: bool = False
+
+
+def _resolved_vendor_version(vendor_id: str, info: dict[str, str]) -> str:
+    profile = get_vendor_profile(vendor_id)
+    requested_version = str(info.get("version", "")).strip()
+    return requested_version or profile.default_version
+
+
+def _fallback_mode_for_version(vendor_id: str, vendor_version: str) -> str:
+    profile = get_vendor_profile(vendor_id)
+    if vendor_version and vendor_version not in profile.supported_versions:
+        return FallbackMode.UNSUPPORTED_VERSION
+    return FallbackMode.NONE
+
+
+def _support_intent_for_route(task: SupportTask, parsed_intent: ReferenceIntent, query: str) -> str:
+    normalized = query.lower()
+    if task == "capability_explanation":
+        return SupportIntent.CAPABILITY_EXPLANATION
+    if task == "troubleshooting":
+        return SupportIntent.TROUBLESHOOTING
+    if task == "onboarding_guidance":
+        if any(cue in normalized for cue in DECISION_SUPPORT_CUES):
+            return SupportIntent.DECISION_SUPPORT
+        return SupportIntent.TASK_GUIDANCE
+    if parsed_intent.intent in {"script_example", "workflow_guidance"}:
+        if any(cue in normalized for cue in DECISION_SUPPORT_CUES):
+            return SupportIntent.DECISION_SUPPORT
+        return SupportIntent.TASK_GUIDANCE
+    return SupportIntent.CONCEPT_UNDERSTANDING
+
+
+def _build_route_decision(
+    *,
+    task: SupportTask,
+    issue_type: str,
+    parsed_intent: ReferenceIntent,
+    info: dict[str, str],
+    reason: str,
+    query: str,
+    explicit: bool,
+) -> SupportRouteDecision:
+    vendor_version = _resolved_vendor_version(SENTIEON_VENDOR_ID, info)
+    return SupportRouteDecision(
+        task=task,
+        issue_type=issue_type,
+        parsed_intent=parsed_intent,
+        info=info,
+        reason=reason,
+        support_intent=_support_intent_for_route(task, parsed_intent, query),
+        fallback_mode=_fallback_mode_for_version(SENTIEON_VENDOR_ID, vendor_version),
+        vendor_id=SENTIEON_VENDOR_ID,
+        vendor_version=vendor_version,
+        explicit=explicit,
+    )
+
+
+def _clarification_round_limit(vendor_id: str) -> int:
+    profile = get_vendor_profile(vendor_id)
+    try:
+        return max(0, int(profile.clarification_policy.get("max_rounds", 2)))
+    except (TypeError, ValueError):
+        return 2
 
 
 def is_capability_question(query: str) -> bool:
@@ -324,42 +403,46 @@ def select_support_route(
     explicit_module = extract_explicit_module_candidate(query)
     parsed_intent = parse_reference_intent_fn(query, model_generate=model_generate)
     if is_capability_question(query):
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="capability_explanation",
             issue_type=issue_type,
             parsed_intent=ReferenceIntent(),
             info=info,
             reason="capability_question",
+            query=query,
             explicit=True,
         )
     if issue_type in {"license", "install"} and parsed_intent.is_reference:
         if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES):
             parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=max(parsed_intent.confidence, 0.44))
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="reference_lookup",
             issue_type=issue_type,
             parsed_intent=parsed_intent,
             info=info,
             reason=parsed_intent.intent or f"{issue_type}_reference_lookup",
+            query=query,
             explicit=True,
         )
     if issue_type != "other":
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="troubleshooting",
             issue_type=issue_type,
             parsed_intent=ReferenceIntent(),
             info=info,
             reason=f"issue_type:{issue_type}",
+            query=query,
             explicit=True,
         )
     if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES) and not is_external_reference_query(query):
         if parsed_intent.intent == "reference_other":
-            return SupportRouteDecision(
+            return _build_route_decision(
                 task="reference_lookup",
                 issue_type=issue_type,
                 parsed_intent=parsed_intent,
                 info=info,
                 reason=parsed_intent.intent,
+                query=query,
                 explicit=True,
             )
         explicit_intent = "module_intro"
@@ -369,49 +452,54 @@ def select_support_route(
             explicit_intent = "parameter_lookup"
         elif any(cue in query.lower() for cue in ("脚本", "示例", "命令", "workflow", "pipeline")):
             explicit_intent = "script_example"
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="reference_lookup",
             issue_type=issue_type,
             parsed_intent=ReferenceIntent(intent=explicit_intent, module=explicit_module, confidence=0.42),
             info=info,
             reason=explicit_intent,
+            query=query,
             explicit=True,
         )
     if is_external_error_query_fn(query, info):
         if not parsed_intent.is_reference:
             parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.5)
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="troubleshooting",
             issue_type=issue_type,
             parsed_intent=parsed_intent,
             info=info,
             reason="external_error_query",
+            query=query,
             explicit=True,
         )
     if parsed_intent.intent == "workflow_guidance":
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="onboarding_guidance",
             issue_type=issue_type,
             parsed_intent=parsed_intent,
             info=info,
             reason="workflow_guidance",
+            query=query,
             explicit=True,
         )
     if parsed_intent.is_reference or is_reference_query_fn(query):
-        return SupportRouteDecision(
+        return _build_route_decision(
             task="reference_lookup",
             issue_type=issue_type,
             parsed_intent=parsed_intent,
             info=info,
             reason=parsed_intent.intent or "reference_query",
+            query=query,
             explicit=True,
         )
-    return SupportRouteDecision(
+    return _build_route_decision(
         task="capability_explanation",
         issue_type=issue_type,
         parsed_intent=ReferenceIntent(),
         info=info,
         reason="ambiguous_support_request",
+        query=query,
         explicit=False,
     )
 
@@ -503,6 +591,10 @@ def update_support_state(
     facts.update({key: value for key, value in planned_turn.route.info.items() if value})
     facts.update(_extract_guidance_facts(planned_turn.effective_query))
     slots = infer_open_clarification_slots(response)
+    clarification_rounds = min(
+        state.clarification_rounds + 1,
+        _clarification_round_limit(planned_turn.route.vendor_id),
+    ) if (response_requires_followup(response) or slots) else 0
 
     if planned_turn.route.task == "troubleshooting":
         if response_requires_followup(response) or slots:
@@ -511,6 +603,7 @@ def update_support_state(
                 anchor_query=planned_turn.effective_query,
                 confirmed_facts=facts,
                 open_clarification_slots=slots,
+                clarification_rounds=clarification_rounds,
                 last_route_reason=planned_turn.route.reason,
             )
         return state.cleared()
@@ -521,6 +614,7 @@ def update_support_state(
             anchor_query=planned_turn.effective_query,
             confirmed_facts=facts,
             open_clarification_slots=slots,
+            clarification_rounds=clarification_rounds,
             last_route_reason=planned_turn.route.reason,
         )
     if response_supports_reference_context(response):
@@ -529,6 +623,7 @@ def update_support_state(
             anchor_query=planned_turn.effective_query,
             confirmed_facts=facts,
             open_clarification_slots=slots,
+            clarification_rounds=0,
             last_route_reason=planned_turn.route.reason,
         )
     return state.cleared()

@@ -71,6 +71,10 @@ def test_run_support_session_records_trace_for_parameter_lookup():
     assert result.route_reason == "parameter_lookup"
     assert result.parsed_intent_intent == "parameter_lookup"
     assert result.parsed_intent_module == "GVCFtyper"
+    assert result.support_intent == "concept_understanding"
+    assert result.fallback_mode == ""
+    assert result.vendor_id == "sentieon"
+    assert result.vendor_version == "202503.03"
     assert result.response_mode == "parameter"
 
 
@@ -89,6 +93,7 @@ def test_run_support_session_marks_workflow_clarification_as_clarify_mode():
     assert result.task == "onboarding_guidance"
     assert result.route_reason == "workflow_guidance"
     assert result.parsed_intent_intent == "workflow_guidance"
+    assert result.support_intent == "task_guidance"
     assert result.response_mode == "clarify"
 
 
