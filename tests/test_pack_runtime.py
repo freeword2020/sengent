@@ -75,3 +75,45 @@ def test_required_pack_status_marks_malformed_required_pack_invalid(tmp_path: Pa
     assert workflow_status.exists is True
     assert workflow_status.valid is False
     assert workflow_status.error == "entries-list-required"
+
+
+def test_required_pack_status_marks_non_utf8_pack_invalid(tmp_path: Path):
+    for file_name in (
+        "sentieon-modules.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+        "incident-memory.json",
+    ):
+        (tmp_path / file_name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (tmp_path / "workflow-guides.json").write_bytes(b"\xff\xfe\x00\x00")
+
+    status = required_pack_status(tmp_path, "sentieon")
+    workflow_status = next(item for item in status if item.logical_kind == "vendor-decision")
+
+    assert workflow_status.valid is False
+    assert workflow_status.error == "invalid-json"
+
+
+def test_required_pack_status_marks_missing_version_or_invalid_entries_invalid(tmp_path: Path):
+    valid_payload = '{"version":"","entries":[]}\n'
+    for file_name in (
+        "sentieon-modules.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+        "incident-memory.json",
+    ):
+        (tmp_path / file_name).write_text(valid_payload, encoding="utf-8")
+
+    (tmp_path / "workflow-guides.json").write_text('{"entries":[{"id":"wes-qc"}]}\n', encoding="utf-8")
+    status = required_pack_status(tmp_path, "sentieon")
+    workflow_status = next(item for item in status if item.logical_kind == "vendor-decision")
+    assert workflow_status.valid is False
+    assert workflow_status.error == "version-string-required"
+
+    (tmp_path / "workflow-guides.json").write_text('{"version":"","entries":["bad-entry"]}\n', encoding="utf-8")
+    status = required_pack_status(tmp_path, "sentieon")
+    workflow_status = next(item for item in status if item.logical_kind == "vendor-decision")
+    assert workflow_status.valid is False
+    assert workflow_status.error == "entries-dict-items-required"

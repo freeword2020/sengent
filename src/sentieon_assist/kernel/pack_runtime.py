@@ -70,12 +70,18 @@ def pack_path_for_kind(source_directory: str | Path, vendor_id: str, logical_kin
 def _validate_runtime_pack(path: Path) -> tuple[bool, str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False, "invalid-json"
     if not isinstance(payload, dict):
         return False, "json-object-required"
-    if not isinstance(payload.get("entries"), list):
+    version = payload.get("version")
+    if not isinstance(version, str):
+        return False, "version-string-required"
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
         return False, "entries-list-required"
+    if any(not isinstance(entry, dict) for entry in entries):
+        return False, "entries-dict-items-required"
     return True, ""
 
 
