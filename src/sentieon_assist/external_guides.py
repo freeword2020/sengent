@@ -5,15 +5,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+from sentieon_assist.kernel import pack_path_for_kind, resolve_pack_entry
 
-EXTERNAL_FORMAT_GUIDE_FILENAME = "external-format-guides.json"
-EXTERNAL_TOOL_GUIDE_FILENAME = "external-tool-guides.json"
-EXTERNAL_ERROR_ASSOCIATION_FILENAME = "external-error-associations.json"
-EXTERNAL_GUIDE_FILENAMES = (
-    EXTERNAL_FORMAT_GUIDE_FILENAME,
-    EXTERNAL_TOOL_GUIDE_FILENAME,
-)
-EXTERNAL_REFERENCE_FILENAMES = EXTERNAL_GUIDE_FILENAMES + (EXTERNAL_ERROR_ASSOCIATION_FILENAME,)
+SENTIEON_VENDOR_ID = "sentieon"
+EXTERNAL_FORMAT_GUIDE_LOGICAL_KIND = "domain-standard"
+EXTERNAL_TOOL_GUIDE_LOGICAL_KIND = "playbook"
+EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND = "troubleshooting"
 EXTERNAL_GUIDE_TERMS = (
     "vcf",
     "bcf",
@@ -117,6 +114,35 @@ AMBIGUOUS_GUIDE_ALIASES = {
 }
 
 
+def _external_guide_logical_kinds() -> tuple[str, str]:
+    return (
+        EXTERNAL_FORMAT_GUIDE_LOGICAL_KIND,
+        EXTERNAL_TOOL_GUIDE_LOGICAL_KIND,
+    )
+
+
+def _external_guide_paths(source_directory: str | Path) -> tuple[Path, ...]:
+    return tuple(
+        pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, logical_kind)
+        for logical_kind in _external_guide_logical_kinds()
+    )
+
+
+def _external_error_association_path(source_directory: str | Path) -> Path:
+    return pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND)
+
+
+def external_guide_file_names() -> tuple[str, ...]:
+    return tuple(
+        resolve_pack_entry(SENTIEON_VENDOR_ID, logical_kind).file_name
+        for logical_kind in _external_guide_logical_kinds()
+    )
+
+
+def external_error_association_file_name() -> str:
+    return resolve_pack_entry(SENTIEON_VENDOR_ID, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND).file_name
+
+
 def _load_external_guide_file(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -152,16 +178,14 @@ def _load_external_association_file(path: Path) -> list[dict[str, Any]]:
 
 
 def list_external_guide_entries(source_directory: str | Path) -> list[dict[str, Any]]:
-    root = Path(source_directory)
     entries: list[dict[str, Any]] = []
-    for filename in EXTERNAL_GUIDE_FILENAMES:
-        entries.extend(_load_external_guide_file(root / filename))
+    for path in _external_guide_paths(source_directory):
+        entries.extend(_load_external_guide_file(path))
     return entries
 
 
 def list_external_error_associations(source_directory: str | Path) -> list[dict[str, Any]]:
-    root = Path(source_directory)
-    return _load_external_association_file(root / EXTERNAL_ERROR_ASSOCIATION_FILENAME)
+    return _load_external_association_file(_external_error_association_path(source_directory))
 
 
 def is_external_reference_query(query: str, info: dict[str, str] | None = None) -> bool:
@@ -328,7 +352,7 @@ def format_external_error_association(entry: dict[str, Any]) -> str:
     return (
         "【资料查询】\n"
         f"- 命中外部错误关联：{name}\n"
-        f"- 资料文件：{entry.get('source_file', EXTERNAL_ERROR_ASSOCIATION_FILENAME)}\n\n"
+        f"- 资料文件：{entry.get('source_file', external_error_association_file_name())}\n\n"
         "【关联判断】\n"
         f"- {summary_line}\n\n"
         "【优先检查】\n"

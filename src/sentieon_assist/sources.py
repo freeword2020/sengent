@@ -6,11 +6,12 @@ from collections import OrderedDict
 from pathlib import Path
 
 from sentieon_assist.external_guides import (
-    EXTERNAL_ERROR_ASSOCIATION_FILENAME,
-    EXTERNAL_GUIDE_FILENAMES,
+    external_error_association_file_name,
+    external_guide_file_names,
     is_external_error_query,
     is_external_reference_query,
 )
+from sentieon_assist.kernel import LOGICAL_PACK_KINDS, resolve_pack_entry
 
 
 RELEASE_FILE_PATTERN = re.compile(r"Sentieon(?P<release>\d{6}\.\d{2})\.pdf", re.IGNORECASE)
@@ -39,53 +40,67 @@ NOISE_MARKERS = (
     ". . .",
     "....",
 )
+SENTIEON_VENDOR_ID = "sentieon"
+PACK_SOURCE_PRIORITIES = {
+    "vendor-decision": 1,
+    "vendor-reference": 2,
+    "domain-standard": 6,
+    "playbook": 7,
+    "troubleshooting": 8,
+    "incident-memory": 9,
+}
+PACK_REFERENCE_BONUSES = {
+    "vendor-decision": 32,
+    "vendor-reference": 30,
+    "domain-standard": 16,
+    "playbook": 15,
+    "troubleshooting": 17,
+    "incident-memory": 6,
+}
+
+
+def _resolved_pack_entries_by_name() -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for logical_kind in LOGICAL_PACK_KINDS:
+        entries[resolve_pack_entry(SENTIEON_VENDOR_ID, logical_kind).file_name.lower()] = logical_kind
+    return entries
+
+
+def _logical_pack_kind_for_source(name: str) -> str | None:
+    return _resolved_pack_entries_by_name().get(name.lower())
 
 
 def _source_priority(path: Path) -> int:
     name = path.name.lower()
     if path.suffix.lower() == ".pdf" and name.startswith("sentieon20"):
         return 0
-    if name == "workflow-guides.json":
-        return 1
-    if name == "sentieon-modules.json":
-        return 2
+    logical_kind = _logical_pack_kind_for_source(name)
+    if logical_kind in PACK_SOURCE_PRIORITIES:
+        return PACK_SOURCE_PRIORITIES[logical_kind]
     if name == "sentieon-doc-map.md":
         return 3
     if name == "sentieon-module-index.md":
         return 4
     if name == "sentieon-github-map.md":
         return 5
-    if name == "external-format-guides.json":
-        return 6
-    if name == "external-tool-guides.json":
-        return 7
-    if name == "external-error-associations.json":
-        return 8
     if name == "readme.md":
-        return 9
-    if name == "sentieon-chinese-reference.md":
         return 10
-    if name.startswith("thread-") and name.endswith("-summary.md"):
+    if name == "sentieon-chinese-reference.md":
         return 11
-    return 10
+    if name.startswith("thread-") and name.endswith("-summary.md"):
+        return 12
+    return 11
 
 
 def _reference_source_bonus(name: str) -> int:
     lowered = name.lower()
-    if lowered == "workflow-guides.json":
-        return 32
-    if lowered == "sentieon-modules.json":
-        return 30
+    logical_kind = _logical_pack_kind_for_source(lowered)
+    if logical_kind in PACK_REFERENCE_BONUSES:
+        return PACK_REFERENCE_BONUSES[logical_kind]
     if lowered.startswith("sentieon20") and lowered.endswith(".pdf"):
         return 24
     if lowered == "sentieon-doc-map.md":
         return 18
-    if lowered == "external-format-guides.json":
-        return 16
-    if lowered == "external-tool-guides.json":
-        return 15
-    if lowered == "external-error-associations.json":
-        return 17
     if lowered == "sentieon-github-map.md":
         return 12
     if lowered == "sentieon-module-index.md":
@@ -103,15 +118,12 @@ def _source_trust(path: Path) -> str:
         return "official"
     if name == "sentieon-chinese-reference.md":
         return "secondary"
+    if _logical_pack_kind_for_source(name) is not None:
+        return "derived"
     if name in {
-        "workflow-guides.json",
-        "sentieon-modules.json",
         "sentieon-doc-map.md",
         "sentieon-module-index.md",
         "sentieon-github-map.md",
-        "external-format-guides.json",
-        "external-tool-guides.json",
-        "external-error-associations.json",
         "readme.md",
     }:
         return "derived"
@@ -240,10 +252,12 @@ def search_sources(
     include_external_error_associations: bool = True,
 ) -> list[dict[str, str]]:
     matches: list[dict[str, str]] = []
+    guide_file_names = set(external_guide_file_names())
+    error_association_file_name = external_error_association_file_name()
     for source in list_sources(directory):
-        if not include_external_guides and source["name"] in EXTERNAL_GUIDE_FILENAMES:
+        if not include_external_guides and source["name"] in guide_file_names:
             continue
-        if not include_external_error_associations and source["name"] == EXTERNAL_ERROR_ASSOCIATION_FILENAME:
+        if not include_external_error_associations and source["name"] == error_association_file_name:
             continue
         text = extract_source_text(source["path"])
         snippet = _build_snippet(text, keyword)

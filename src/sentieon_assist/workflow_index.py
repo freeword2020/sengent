@@ -5,8 +5,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from sentieon_assist.kernel import pack_path_for_kind
 
-WORKFLOW_GUIDE_FILENAME = "workflow-guides.json"
+SENTIEON_VENDOR_ID = "sentieon"
+WORKFLOW_GUIDE_LOGICAL_KIND = "vendor-decision"
 WORKFLOW_QUERY_NOISE_PATTERN = re.compile(r"示例脚本|参考脚本|示例命令|参考命令|脚本|命令|示例")
 GENERIC_WGS_TERMS = ("wgs", "whole genome", "全基因组")
 EXPLICIT_LONG_READ_TERMS = (
@@ -64,7 +66,7 @@ SHORT_READ_WGS_ENTRY_IDS = {"short-read-wgs"}
 
 
 def workflow_index_path(source_directory: str | Path) -> Path:
-    return Path(source_directory) / WORKFLOW_GUIDE_FILENAME
+    return pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, WORKFLOW_GUIDE_LOGICAL_KIND)
 
 
 def load_workflow_index(source_directory: str | Path) -> dict[str, Any]:

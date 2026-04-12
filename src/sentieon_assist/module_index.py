@@ -5,8 +5,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from sentieon_assist.kernel import pack_path_for_kind, resolve_pack_entry
 
-MODULE_INDEX_FILENAME = "sentieon-modules.json"
+SENTIEON_VENDOR_ID = "sentieon"
+MODULE_INDEX_LOGICAL_KIND = "vendor-reference"
 PARAMETER_TOKEN_PATTERN = r"(?<![A-Za-z0-9_])-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*"
 MODULE_OVERVIEW_GROUPS = (
     ("Alignment", ("alignment",)),
@@ -15,6 +17,10 @@ MODULE_OVERVIEW_GROUPS = (
     ("RNA / Specialized Analysis", ("rna-variant-calling", "specialized-analysis")),
     ("Preprocess / QC / Support", ("family", "bam-processing", "vcf-filtering", "architecture", "fastq-generation")),
 )
+
+
+def _module_index_file_name() -> str:
+    return resolve_pack_entry(SENTIEON_VENDOR_ID, MODULE_INDEX_LOGICAL_KIND).file_name
 
 
 def _has_parameter_language(normalized: str) -> bool:
@@ -26,7 +32,7 @@ def _has_parameter_language(normalized: str) -> bool:
 
 
 def module_index_path(source_directory: str | Path) -> Path:
-    return Path(source_directory) / MODULE_INDEX_FILENAME
+    return pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, MODULE_INDEX_LOGICAL_KIND)
 
 
 def load_module_index(source_directory: str | Path) -> dict[str, Any]:
@@ -263,8 +269,8 @@ def build_module_evidence(entry: dict[str, Any]) -> dict[str, str]:
     if outputs:
         snippet_parts.append(f"输出：{outputs}")
     return {
-        "name": MODULE_INDEX_FILENAME,
-        "path": MODULE_INDEX_FILENAME,
+        "name": _module_index_file_name(),
+        "path": _module_index_file_name(),
         "type": "json",
         "trust": "derived",
         "priority": "1",
@@ -283,8 +289,8 @@ def build_parameter_evidence(entry: dict[str, Any], parameter: dict[str, Any]) -
     if details:
         snippet_parts.append(f"说明：{details}")
     return {
-        "name": MODULE_INDEX_FILENAME,
-        "path": MODULE_INDEX_FILENAME,
+        "name": _module_index_file_name(),
+        "path": _module_index_file_name(),
         "type": "json",
         "trust": "derived",
         "priority": "1",

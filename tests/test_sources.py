@@ -227,6 +227,38 @@ def test_search_sources_prefers_curated_reference_index_over_generic_pdf(monkeyp
     assert matches[0]["name"] == "sentieon-modules.json"
 
 
+def test_search_sources_prefers_curated_reference_index_using_resolved_vendor_reference_name(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "Sentieon202503.03.pdf"
+    pdf_path.write_text("fake")
+    module_path = tmp_path / "vendor-reference-v2.json"
+    module_path.write_text("fake")
+
+    def fake_resolve_pack_entry(vendor_id, logical_kind):
+        mapping = {
+            "vendor-reference": "vendor-reference-v2.json",
+            "vendor-decision": "workflow-guides-v2.json",
+            "domain-standard": "domain-standard-v2.json",
+            "playbook": "playbook-v2.json",
+            "troubleshooting": "troubleshooting-v2.json",
+            "incident-memory": "incident-memory-v2.json",
+        }
+        return type("Resolved", (), {"file_name": mapping[logical_kind]})()
+
+    def fake_extract_source_text(path):
+        name = path.name if hasattr(path, "name") else str(path)
+        if str(name).endswith("vendor-reference-v2.json"):
+            return '{"entries":[{"name":"DNAscope","summary":"DNAscope 是短读长胚系主流程。"}]}'
+        return "Reference manual. DNAscope mentioned in a long generic chapter."
+
+    monkeypatch.setattr("sentieon_assist.sources.resolve_pack_entry", fake_resolve_pack_entry, raising=False)
+    monkeypatch.setattr("sentieon_assist.sources.extract_source_text", fake_extract_source_text)
+
+    matches = search_sources(tmp_path, "DNAscope")
+
+    assert matches
+    assert matches[0]["name"] == "vendor-reference-v2.json"
+
+
 def test_collect_source_evidence_includes_external_guides_for_external_format_query(tmp_path):
     (tmp_path / "external-format-guides.json").write_text(
         """
@@ -437,6 +469,43 @@ def test_match_external_guide_entry_does_not_match_sam_inside_sample(tmp_path):
     assert match_external_guide_entry("sample column 是什么", tmp_path) is None
 
 
+def test_match_external_guide_entry_uses_resolved_domain_standard_name(monkeypatch, tmp_path):
+    from sentieon_assist.external_guides import match_external_guide_entry
+
+    def fake_pack_path_for_kind(source_directory, vendor_id, logical_kind):
+        file_names = {
+            "domain-standard": "domain-standard-v2.json",
+            "playbook": "playbook-v2.json",
+        }
+        return tmp_path / file_names[logical_kind]
+
+    (tmp_path / "domain-standard-v2.json").write_text(
+        """
+        {
+          "entries": [
+            {
+              "name": "VCF/BCF",
+              "aliases": ["vcf", "info", "format"],
+              "summary": "VCF/BCF 是变异记录格式。"
+            }
+          ]
+        }
+        """.strip()
+    )
+    (tmp_path / "playbook-v2.json").write_text('{"version":"","entries":[]}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        "sentieon_assist.external_guides.pack_path_for_kind",
+        fake_pack_path_for_kind,
+        raising=False,
+    )
+
+    matched = match_external_guide_entry("vcf 是什么格式", tmp_path)
+
+    assert matched is not None
+    assert matched["name"] == "VCF/BCF"
+
+
 def test_match_external_guide_entry_does_not_match_bare_format_without_vcf_context(tmp_path):
     from sentieon_assist.external_guides import match_external_guide_entry
 
@@ -521,3 +590,48 @@ def test_collect_source_evidence_includes_external_error_associations_for_shell_
 
     assert evidence
     assert any(item["name"] == "external-error-associations.json" for item in evidence)
+
+
+def test_collect_source_evidence_uses_resolved_troubleshooting_name(monkeypatch, tmp_path):
+    def fake_resolve_pack_entry(vendor_id, logical_kind):
+        mapping = {
+            "vendor-reference": "vendor-reference-v2.json",
+            "vendor-decision": "workflow-guides-v2.json",
+            "domain-standard": "domain-standard-v2.json",
+            "playbook": "playbook-v2.json",
+            "troubleshooting": "troubleshooting-v2.json",
+            "incident-memory": "incident-memory-v2.json",
+        }
+        return type("Resolved", (), {"file_name": mapping[logical_kind]})()
+
+    (tmp_path / "troubleshooting-v2.json").write_text(
+        """
+        {
+          "entries": [
+            {
+              "name": "VCF indexing / bgzip-tabix mismatch",
+              "summary": "这更像是 VCF 索引和 bgzip/tabix 前提不满足的问题。"
+            }
+          ]
+        }
+        """.strip()
+    )
+
+    monkeypatch.setattr("sentieon_assist.sources.resolve_pack_entry", fake_resolve_pack_entry, raising=False)
+
+    evidence = collect_source_evidence(
+        tmp_path,
+        issue_type="reference",
+        query="VCF 索引报错怎么办",
+        info={
+            "version": "",
+            "input_type": "",
+            "error": "",
+            "error_keywords": "",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert evidence
+    assert any(item["name"] == "troubleshooting-v2.json" for item in evidence)

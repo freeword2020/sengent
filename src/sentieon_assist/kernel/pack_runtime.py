@@ -59,7 +59,7 @@ def resolve_pack_entry(vendor_id: str, logical_kind: str) -> ResolvedPackEntry:
     except KeyError as exc:
         raise KeyError(f"unknown logical pack kind for vendor {vendor_id}: {logical_kind}") from exc
     return ResolvedPackEntry(
-        vendor_id=profile.vendor_id,
+        vendor_id=getattr(profile, "vendor_id", vendor_id),
         logical_kind=logical_kind,
         file_name=_manifest_entry_value(entry, "file_name"),
         entry_schema_version=_manifest_entry_value(entry, "entry_schema_version"),

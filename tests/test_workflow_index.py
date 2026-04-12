@@ -79,3 +79,32 @@ def test_match_workflow_entry_defaults_generic_wgs_to_short_read_when_long_read_
 
     assert matched is not None
     assert matched["id"] == "short-read-wgs"
+
+
+def test_match_workflow_entry_uses_vendor_decision_pack_resolution(monkeypatch, tmp_path):
+    resolved_path = tmp_path / "workflow-guides-v2.json"
+    payload = {
+        "version": "test",
+        "entries": [
+            {
+                "id": "short-read-wgs",
+                "name": "Short-read WGS",
+                "priority": 53,
+                "require_any_groups": [["wgs"], ["short-read", "短读长"]],
+                "prefer_any": ["脚本", "分析"],
+                "summary": "default short-read wgs",
+            }
+        ],
+    }
+    resolved_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "sentieon_assist.workflow_index.pack_path_for_kind",
+        lambda source_directory, vendor_id, logical_kind: resolved_path,
+        raising=False,
+    )
+
+    matched = match_workflow_entry("我要做 short-read wgs 分析", tmp_path)
+
+    assert matched is not None
+    assert matched["id"] == "short-read-wgs"
