@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from sentieon_assist.kernel.pack_contract import PackManifestEntry
-from sentieon_assist.vendors import get_vendor_profile
 
 
 @dataclass(frozen=True)
@@ -35,6 +34,12 @@ def _manifest_entry_value(entry: PackManifestEntry, field_name: str) -> Any:
     if value is None:
         raise AttributeError(f"pack manifest entry does not expose {field_name}")
     return value
+
+
+def get_vendor_profile(vendor_id: str):
+    from sentieon_assist.vendors import get_vendor_profile as resolve_vendor_profile
+
+    return resolve_vendor_profile(vendor_id)
 
 
 def _ordered_required_manifest_items(vendor_id: str) -> tuple[tuple[str, PackManifestEntry], ...]:

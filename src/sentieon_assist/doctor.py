@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from sentieon_assist.config import load_config
+from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
 from sentieon_assist.ollama_client import probe_ollama
 from sentieon_assist.runtime_guidance import doctor_guidance_lines
 from sentieon_assist.rules import knowledge_dir as default_knowledge_dir
@@ -13,16 +14,6 @@ from sentieon_assist.vendors import get_vendor_profile
 
 
 SENTIEON_VENDOR_ID = "sentieon"
-# Doctor mirrors the Phase 1 runtime-managed pack subset so health checks stay
-# aligned with build/activate/rollback compatibility. `incident-memory` remains
-# part of the vendor contract without being part of the managed runtime pack set yet.
-ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
-    "vendor-reference",
-    "vendor-decision",
-    "domain-standard",
-    "playbook",
-    "troubleshooting",
-)
 
 
 def _manifest_entry_value(entry: Any, field: str) -> Any:
@@ -34,27 +25,22 @@ def _manifest_entry_value(entry: Any, field: str) -> Any:
 
 
 def _managed_pack_file_names() -> tuple[str, ...]:
-    profile = get_vendor_profile(SENTIEON_VENDOR_ID)
-    manifest = profile.pack_manifest
-    entries = sorted(
-        (
-            (logical_kind, manifest[logical_kind])
-            for logical_kind in ACTIVE_MANAGED_LOGICAL_KINDS
-            if logical_kind in manifest
-        ),
-        key=lambda item: (_manifest_entry_value(item[1], "load_order"), item[0]),
-    )
-    return tuple(
-        _manifest_entry_value(entry, "file_name")
-        for _, entry in entries
-    )
+    return ordered_required_pack_file_names(SENTIEON_VENDOR_ID)
 
 
 def _missing_managed_pack_files(directory: Path) -> list[str]:
     return [
-        file_name
-        for file_name in _managed_pack_file_names()
-        if not (directory / file_name).exists()
+        status.file_name
+        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        if status.required and not status.exists
+    ]
+
+
+def _invalid_managed_pack_files(directory: Path) -> list[str]:
+    return [
+        status.file_name
+        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        if status.required and status.exists and not status.valid
     ]
 
 
@@ -95,12 +81,14 @@ def gather_doctor_report(
 
     docling_is_available = importlib.util.find_spec("docling") is not None
     missing_pack_files = _missing_managed_pack_files(effective_source_directory)
+    invalid_pack_files = _invalid_managed_pack_files(effective_source_directory)
     sources = _directory_summary(effective_source_directory)
     sources["file_count"] = len(list_sources(effective_source_directory))
     sources["files"] = [item["name"] for item in list_sources(effective_source_directory)]
     sources.update(collect_source_bundle_metadata(effective_source_directory))
-    sources["managed_pack_complete"] = not missing_pack_files
+    sources["managed_pack_complete"] = not missing_pack_files and not invalid_pack_files
     sources["missing_managed_pack_files"] = missing_pack_files
+    sources["invalid_managed_pack_files"] = invalid_pack_files
 
     return {
         "ollama": ollama,
@@ -178,6 +166,7 @@ def format_doctor_report(report: dict[str, Any]) -> str:
             f"primary_reference: {sources.get('primary_reference') or '-'}",
             f"managed_pack_complete: {'yes' if sources.get('managed_pack_complete') else 'no'}",
             f"missing_managed_pack_files: {_format_file_list(sources.get('missing_managed_pack_files') or [])}",
+            f"invalid_managed_pack_files: {_format_file_list(sources.get('invalid_managed_pack_files') or [])}",
         ]
         + (
             ["", "【建议下一步】"]

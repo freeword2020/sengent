@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
+from sentieon_assist.kernel.pack_contract import PackManifestEntry
 
 
 def test_gather_doctor_report_uses_effective_directories(tmp_path):
@@ -125,6 +126,7 @@ def test_gather_doctor_report_includes_build_runtime_and_source_pack_health(tmp_
     assert report["sources"]["managed_pack_complete"] is False
     assert "external-tool-guides.json" in report["sources"]["missing_managed_pack_files"]
     assert "external-error-associations.json" in report["sources"]["missing_managed_pack_files"]
+    assert "incident-memory.json" in report["sources"]["missing_managed_pack_files"]
 
 
 def test_gather_doctor_report_reports_missing_managed_pack_files_from_vendor_profile(tmp_path, monkeypatch):
@@ -136,43 +138,20 @@ def test_gather_doctor_report_reports_missing_managed_pack_files_from_vendor_pro
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (source_dir / name).write_text('{"version":"","entries":[]}\n')
 
     monkeypatch.setattr(
-        "sentieon_assist.doctor.get_vendor_profile",
+        "sentieon_assist.kernel.pack_runtime.get_vendor_profile",
         lambda vendor_id: SimpleNamespace(
             pack_manifest={
-                "vendor-reference": {
-                    "required": True,
-                    "file_name": "sentieon-modules-v2.json",
-                    "entry_schema_version": "2.0",
-                    "load_order": 10,
-                },
-                "vendor-decision": {
-                    "required": True,
-                    "file_name": "workflow-guides.json",
-                    "entry_schema_version": "2.0",
-                    "load_order": 20,
-                },
-                "domain-standard": {
-                    "required": True,
-                    "file_name": "external-format-guides.json",
-                    "entry_schema_version": "2.0",
-                    "load_order": 30,
-                },
-                "playbook": {
-                    "required": True,
-                    "file_name": "external-tool-guides.json",
-                    "entry_schema_version": "2.0",
-                    "load_order": 40,
-                },
-                "troubleshooting": {
-                    "required": True,
-                    "file_name": "external-error-associations.json",
-                    "entry_schema_version": "2.0",
-                    "load_order": 50,
-                },
+                "vendor-reference": PackManifestEntry(required=True, file_name="sentieon-modules-v2.json", entry_schema_version="2.0", load_order=10),
+                "vendor-decision": PackManifestEntry(required=True, file_name="workflow-guides.json", entry_schema_version="2.0", load_order=20),
+                "domain-standard": PackManifestEntry(required=True, file_name="external-format-guides.json", entry_schema_version="2.0", load_order=30),
+                "playbook": PackManifestEntry(required=True, file_name="external-tool-guides.json", entry_schema_version="2.0", load_order=40),
+                "troubleshooting": PackManifestEntry(required=True, file_name="external-error-associations.json", entry_schema_version="2.0", load_order=50),
+                "incident-memory": PackManifestEntry(required=True, file_name="incident-memory.json", entry_schema_version="2.0", load_order=60),
             }
         ),
     )
@@ -185,6 +164,29 @@ def test_gather_doctor_report_reports_missing_managed_pack_files_from_vendor_pro
 
     assert report["sources"]["managed_pack_complete"] is False
     assert "sentieon-modules-v2.json" in report["sources"]["missing_managed_pack_files"]
+
+
+def test_gather_doctor_report_reports_invalid_required_runtime_pack(tmp_path):
+    source_dir = tmp_path / "sources"
+    source_dir.mkdir()
+    for name in (
+        "sentieon-modules.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+        "incident-memory.json",
+    ):
+        (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (source_dir / "workflow-guides.json").write_text('{"version":""}\n', encoding="utf-8")
+
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "knowledge"),
+        source_directory=str(source_dir),
+        api_probe=lambda base_url: {"ok": False, "error": "connection refused"},
+    )
+
+    assert report["sources"]["managed_pack_complete"] is False
+    assert report["sources"]["invalid_managed_pack_files"] == ["workflow-guides.json"]
 
 
 def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
@@ -216,6 +218,7 @@ def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
                 "primary_reference": "Sentieon202503.03.pdf",
                 "managed_pack_complete": False,
                 "missing_managed_pack_files": ["external-tool-guides.json"],
+                "invalid_managed_pack_files": ["workflow-guides.json"],
             },
         }
     )
@@ -224,6 +227,7 @@ def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
     assert "docling_available: no" in text
     assert "managed_pack_complete: no" in text
     assert "external-tool-guides.json" in text
+    assert "workflow-guides.json" in text
 
 
 def test_format_doctor_report_includes_actionable_ollama_guidance_for_error_state():

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from sentieon_assist.kernel.pack_runtime import (
@@ -117,3 +120,25 @@ def test_required_pack_status_marks_missing_version_or_invalid_entries_invalid(t
     workflow_status = next(item for item in status if item.logical_kind == "vendor-decision")
     assert workflow_status.valid is False
     assert workflow_status.error == "entries-dict-items-required"
+
+
+def test_kernel_public_exports_import_without_vendor_cycle():
+    env = os.environ.copy()
+    src_path = str(Path(__file__).resolve().parents[1] / "src")
+    env["PYTHONPATH"] = src_path if not env.get("PYTHONPATH") else f"{src_path}:{env['PYTHONPATH']}"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sentieon_assist.kernel as kernel; "
+                "assert kernel.resolve_pack_entry('sentieon', 'vendor-reference').file_name == 'sentieon-modules.json'"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr

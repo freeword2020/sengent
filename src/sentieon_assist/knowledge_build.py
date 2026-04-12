@@ -13,6 +13,7 @@ from uuid import uuid4
 import yaml
 
 from sentieon_assist.app_paths import default_knowledge_build_root, default_knowledge_inbox_dir, default_runtime_root
+from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
 from sentieon_assist.vendors import get_vendor_profile
 
 
@@ -33,10 +34,7 @@ GATE_COMMANDS: tuple[str, ...] = (
     "python scripts/pilot_closed_loop.py",
 )
 SENTIEON_VENDOR_ID = "sentieon"
-# Phase 1 keeps build/activate/rollback compatible with the existing runtime-managed
-# JSON packs. `incident-memory` is part of the 2.0 vendor contract, but it is not
-# activated through the runtime pack set in this milestone.
-ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
+SCAFFOLDABLE_LOGICAL_KINDS: tuple[str, ...] = (
     "vendor-reference",
     "vendor-decision",
     "domain-standard",
@@ -259,14 +257,14 @@ def _managed_pack_logical_entries() -> list[tuple[str, Any]]:
     manifest = _sentieon_pack_manifest()
     entries = [
         (logical_kind, manifest[logical_kind])
-        for logical_kind in ACTIVE_MANAGED_LOGICAL_KINDS
+        for logical_kind in SCAFFOLDABLE_LOGICAL_KINDS
         if logical_kind in manifest
     ]
     return sorted(entries, key=lambda item: (_manifest_entry_value(item[1], "load_order"), item[0]))
 
 
 def _managed_pack_file_names() -> tuple[str, ...]:
-    return tuple(_manifest_entry_value(entry, "file_name") for _, entry in _managed_pack_logical_entries())
+    return ordered_required_pack_file_names(SENTIEON_VENDOR_ID)
 
 
 def _pack_entry_types() -> dict[str, str]:
@@ -806,17 +804,30 @@ def _managed_pack_files_from_directory(directory: Path) -> list[str]:
 
 def missing_managed_pack_files(directory: Path) -> list[str]:
     return [
-        file_name
-        for file_name in _managed_pack_file_names()
-        if not (directory / file_name).exists()
+        status.file_name
+        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        if status.required and not status.exists
+    ]
+
+
+def invalid_managed_pack_files(directory: Path) -> list[str]:
+    return [
+        status.file_name
+        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        if status.required and status.exists and not status.valid
     ]
 
 
 def require_complete_managed_pack_set(directory: Path, *, label: str) -> None:
     missing_files = missing_managed_pack_files(directory)
-    if missing_files:
-        missing_text = ", ".join(missing_files)
-        raise ValueError(f"{label} managed packs are incomplete: missing {missing_text}")
+    invalid_files = invalid_managed_pack_files(directory)
+    if missing_files or invalid_files:
+        issues: list[str] = []
+        if missing_files:
+            issues.append(f"missing {', '.join(missing_files)}")
+        if invalid_files:
+            issues.append(f"invalid {', '.join(invalid_files)}")
+        raise ValueError(f"{label} managed packs are incomplete: {'; '.join(issues)}")
 
 
 def require_complete_managed_pack_list(file_names: list[str] | tuple[str, ...], *, label: str) -> None:

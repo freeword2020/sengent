@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sentieon_assist.cli import main
+from sentieon_assist.kernel.pack_contract import PackManifestEntry
 
 
 def _write_source_packs(source_dir: Path) -> None:
@@ -15,6 +16,7 @@ def _write_source_packs(source_dir: Path) -> None:
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
 
@@ -32,13 +34,15 @@ def _profile_with_managed_pack_files(*, renamed_file: str | None = None) -> Simp
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     )
     pack_manifest = {
-        "vendor-reference": {"required": True, "file_name": renamed_file or manifest_files[0], "entry_schema_version": "2.0", "load_order": 10},
-        "vendor-decision": {"required": True, "file_name": manifest_files[1], "entry_schema_version": "2.0", "load_order": 20},
-        "domain-standard": {"required": True, "file_name": manifest_files[2], "entry_schema_version": "2.0", "load_order": 30},
-        "playbook": {"required": True, "file_name": manifest_files[3], "entry_schema_version": "2.0", "load_order": 40},
-        "troubleshooting": {"required": True, "file_name": manifest_files[4], "entry_schema_version": "2.0", "load_order": 50},
+        "vendor-reference": PackManifestEntry(required=True, file_name=renamed_file or manifest_files[0], entry_schema_version="2.0", load_order=10),
+        "vendor-decision": PackManifestEntry(required=True, file_name=manifest_files[1], entry_schema_version="2.0", load_order=20),
+        "domain-standard": PackManifestEntry(required=True, file_name=manifest_files[2], entry_schema_version="2.0", load_order=30),
+        "playbook": PackManifestEntry(required=True, file_name=manifest_files[3], entry_schema_version="2.0", load_order=40),
+        "troubleshooting": PackManifestEntry(required=True, file_name=manifest_files[4], entry_schema_version="2.0", load_order=50),
+        "incident-memory": PackManifestEntry(required=True, file_name=manifest_files[5], entry_schema_version="2.0", load_order=60),
     }
     return SimpleNamespace(pack_manifest=pack_manifest)
 
@@ -56,6 +60,7 @@ def _write_activation_candidate_build(build_root: Path, build_id: str, *, module
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (candidate_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
@@ -119,7 +124,7 @@ def test_knowledge_build_uses_vendor_profile_managed_pack_contract(tmp_path: Pat
     outputs: list[str] = []
 
     monkeypatch.setattr(
-        "sentieon_assist.knowledge_build.get_vendor_profile",
+        "sentieon_assist.kernel.pack_runtime.get_vendor_profile",
         lambda vendor_id: _profile_with_managed_pack_files(renamed_file="sentieon-modules-v2.json"),
     )
 
@@ -140,6 +145,35 @@ def test_knowledge_build_uses_vendor_profile_managed_pack_contract(tmp_path: Pat
     assert code == 2
     assert any("sentieon-modules-v2.json" in item for item in outputs)
     assert not build_root.exists()
+
+
+def test_knowledge_build_rejects_invalid_required_runtime_pack(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "release-note.md").write_text("# Release\n\nDNAscope supports PCR-free.\n", encoding="utf-8")
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    (source_dir / "workflow-guides.json").write_text('{"version":""}\n', encoding="utf-8")
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("workflow-guides.json" in item and "invalid" in item.lower() for item in outputs)
 
 
 def test_knowledge_build_queues_pdf_when_docling_is_unavailable(tmp_path: Path):
@@ -278,6 +312,7 @@ def test_knowledge_build_preserves_current_physical_managed_pack_files(tmp_path:
         "external-error-associations.json",
         "external-format-guides.json",
         "external-tool-guides.json",
+        "incident-memory.json",
         "manifest.json",
         "sentieon-modules.json",
         "workflow-guides.json",
@@ -664,6 +699,7 @@ def test_knowledge_build_manifest_records_added_and_updated_candidate_ids(tmp_pa
     (source_dir / "external-format-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (source_dir / "external-tool-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (source_dir / "external-error-associations.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (source_dir / "incident-memory.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     build_root = tmp_path / "runtime" / "knowledge-build"
 
     code = main(
@@ -1460,6 +1496,7 @@ def test_knowledge_build_delete_action_removes_candidate_entry_and_reports_remov
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     build_root = tmp_path / "runtime" / "knowledge-build"
@@ -1598,6 +1635,7 @@ def test_knowledge_activate_preserves_current_physical_managed_pack_files(tmp_pa
         "external-error-associations.json",
         "external-format-guides.json",
         "external-tool-guides.json",
+        "incident-memory.json",
         "sentieon-modules.json",
         "workflow-guides.json",
     ]
@@ -1658,6 +1696,7 @@ def test_knowledge_rollback_exactly_restores_managed_pack_set(tmp_path: Path):
         "external-error-associations.json",
         "external-format-guides.json",
         "external-tool-guides.json",
+        "incident-memory.json",
         "sentieon-modules.json",
         "workflow-guides.json",
     ]
@@ -1720,6 +1759,7 @@ def test_knowledge_rollback_preserves_current_physical_managed_pack_files(tmp_pa
         "external-error-associations.json",
         "external-format-guides.json",
         "external-tool-guides.json",
+        "incident-memory.json",
         "sentieon-modules.json",
         "workflow-guides.json",
     ]

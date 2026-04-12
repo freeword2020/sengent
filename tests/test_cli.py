@@ -25,6 +25,7 @@ def _write_activation_source_packs(source_dir: Path) -> None:
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
 
@@ -42,6 +43,7 @@ def _write_activation_candidate_build(build_root: Path, build_id: str, *, module
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (candidate_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
@@ -247,6 +249,7 @@ def test_cli_knowledge_activate_refuses_when_gate_reports_fail(tmp_path: Path):
         "external-format-guides.json",
         "external-tool-guides.json",
         "external-error-associations.json",
+        "incident-memory.json",
     ):
         (candidate_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
@@ -3038,6 +3041,7 @@ def test_cli_knowledge_activate_rejects_incomplete_candidate_pack_set(tmp_path: 
     (candidate_dir / "workflow-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "external-format-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "external-error-associations.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "incident-memory.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
     (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
     (build_dir / "pilot-readiness-report.json").write_text('{"ok": true}\n', encoding="utf-8")
     (build_dir / "pilot-closed-loop-report.json").write_text('{"ok": true}\n', encoding="utf-8")
@@ -3061,6 +3065,46 @@ def test_cli_knowledge_activate_rejects_incomplete_candidate_pack_set(tmp_path: 
     assert any("external-tool-guides.json" in item for item in outputs)
 
 
+def test_cli_knowledge_activate_rejects_invalid_required_candidate_pack(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "build-invalid-pack"
+    build_dir = build_root / build_id
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True)
+    (candidate_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "fastdedup", "name": "FastDedup"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (candidate_dir / "workflow-guides.json").write_text('{"version":""}\n', encoding="utf-8")
+    (candidate_dir / "external-format-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "external-tool-guides.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "external-error-associations.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "incident-memory.json").write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+    (candidate_dir / "manifest.json").write_text('{"status":"candidate_only"}\n', encoding="utf-8")
+    (build_dir / "pilot-readiness-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (build_dir / "pilot-closed-loop-report.json").write_text('{"ok": true}\n', encoding="utf-8")
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "activate",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_id,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("workflow-guides.json" in item and "invalid" in item.lower() for item in outputs)
+
+
 def test_cli_knowledge_rollback_rejects_incomplete_backup_pack_set(tmp_path: Path):
     source_dir = tmp_path / "sentieon-note"
     _write_activation_source_packs(source_dir)
@@ -3077,6 +3121,7 @@ def test_cli_knowledge_rollback_rejects_incomplete_backup_pack_set(tmp_path: Pat
                     "workflow-guides.json",
                     "external-format-guides.json",
                     "external-tool-guides.json",
+                    "incident-memory.json",
                 ],
             },
             ensure_ascii=False,
@@ -3089,6 +3134,7 @@ def test_cli_knowledge_rollback_rejects_incomplete_backup_pack_set(tmp_path: Pat
         "workflow-guides.json",
         "external-format-guides.json",
         "external-tool-guides.json",
+        "incident-memory.json",
     ):
         (backup_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
 
