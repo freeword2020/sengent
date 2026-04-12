@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from sentieon_assist.answer_contracts import format_boundary_contract
 from sentieon_assist.external_guides import (
     format_external_error_association,
     format_external_guide_answer,
@@ -79,13 +80,20 @@ def format_reference_boundary_answer(query: str, tags: list[str]) -> str:
     if "deep_mechanism" in tags:
         reasons.append("深度机制拆解")
     reason_text = "、".join(reasons) or "当前结构化支持边界之外的资料型问题"
-    return (
-        "【资料边界】\n"
-        f"- 这个问题属于 {reason_text}；当前本地支持资料没有足够的结构化证据，不能直接给出确定性结论。\n"
-        "- 现阶段系统稳定支持的是：模块定位、参数语义、输入输出、流程导航和常见排障。\n\n"
-        "【建议下一步】\n"
-        "- 如果你要继续推进，建议把问题收窄到模块是什么、参数怎么用、输入输出是什么、该走哪条流程。\n"
-        "- 如果你需要精确 benchmark、竞品比较、路线图或论文级机制说明，请补充对应 app note、release note、benchmark 文档或官方链接。"
+    return format_boundary_contract(
+        summary_lines=[
+            f"这个问题属于 {reason_text}。",
+            "当前本地支持资料没有足够的结构化证据，不能直接给出确定性结论。",
+            "现阶段系统稳定支持的是：模块定位、参数语义、输入输出、流程导航和常见排障。",
+        ],
+        next_steps=[
+            "如果你要继续推进，建议把问题收窄到模块是什么、参数怎么用、输入输出是什么、该走哪条流程。",
+            "如果你需要精确 benchmark、竞品比较、路线图或论文级机制说明，请补充对应 app note、release note、benchmark 文档或官方链接。",
+        ],
+        needed_materials=[
+            "对应版本的 app note / release note / benchmark 文档 / 官方链接",
+            "更具体的模块、参数、输入输出或 workflow 场景",
+        ],
     )
 
 

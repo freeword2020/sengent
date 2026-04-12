@@ -5,7 +5,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from sentieon_assist.answer_contracts import (
+    format_knowledge_gap_answer,
+    format_no_answer_boundary,
+    format_unsupported_version_boundary,
+)
 from sentieon_assist.config import AppConfig, load_config
+from sentieon_assist.gap_records import build_gap_record
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
@@ -13,6 +19,7 @@ from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
 from sentieon_assist.trace_vocab import ResolverPath
+from sentieon_assist.vendors import get_vendor_profile
 
 
 REQUIRED_FIELDS = {
@@ -80,6 +87,36 @@ def missing_required_fields(issue_type: str, info: dict[str, str]) -> list[str]:
 def ask_for_missing(missing_fields: list[str]) -> str:
     labels = [FIELD_LABELS.get(field, field) for field in missing_fields]
     return f"需要补充以下信息：{', '.join(labels)}"
+
+
+def _missing_field_labels(missing_fields: list[str]) -> list[str]:
+    return [FIELD_LABELS.get(field, field) for field in missing_fields]
+
+
+def _clarification_round_limit(vendor_id: str) -> int:
+    profile = get_vendor_profile(vendor_id)
+    try:
+        return max(0, int(profile.clarification_policy.get("max_rounds", 2)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _extract_confirmation_materials(text: str) -> list[str]:
+    lines = str(text).splitlines()
+    materials: list[str] = []
+    collecting = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line == "【需要确认的信息】":
+            collecting = True
+            continue
+        if collecting and re.fullmatch(r"【[^】]+】", line):
+            break
+        if not collecting:
+            continue
+        if line.startswith("- "):
+            materials.append(line[2:].strip())
+    return [item for item in materials if item]
 
 
 def format_capability_explanation_answer() -> str:
@@ -334,6 +371,28 @@ class SupportAnswerTrace:
     sources: list[str]
     boundary_tags: list[str]
     resolver_path: list[str]
+    gap_record: dict[str, Any] | None = None
+
+
+def _trace_gap_record(
+    *,
+    vendor_id: str,
+    vendor_version: str,
+    support_intent: str,
+    gap_type: str,
+    query: str,
+    known_context: dict[str, str],
+    missing_materials: list[str],
+) -> dict[str, Any]:
+    return build_gap_record(
+        vendor_id=vendor_id,
+        vendor_version=vendor_version,
+        intent=support_intent,
+        gap_type=gap_type,
+        user_question=query,
+        known_context=known_context,
+        missing_materials=missing_materials,
+    )
 
 
 def call_model_fallback(model_fallback, issue_type: str, query: str, info: dict[str, str], evidence: list[dict[str, str]]) -> str:
@@ -354,21 +413,86 @@ def answer_query(
     query: str,
     info: dict[str, str],
     *,
+    route_decision=None,
+    clarification_rounds: int = 0,
     model_fallback=None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
     trace_collector=None,
 ) -> str:
+    vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+    vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
+    support_intent = str(getattr(route_decision, "support_intent", "troubleshooting")).strip() or "troubleshooting"
+    known_context = {key: value for key, value in info.items() if str(value).strip()}
+    if route_decision is not None and str(getattr(route_decision, "fallback_mode", "")).strip() == "unsupported-version":
+        text = format_unsupported_version_boundary(
+            vendor_id=vendor_id,
+            requested_version=vendor_version,
+        )
+        gap_record = _trace_gap_record(
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            support_intent=support_intent,
+            gap_type="unsupported_version",
+            query=query,
+            known_context={"query_version": vendor_version, **known_context},
+            missing_materials=[f"Sentieon {vendor_version or '目标版本'} 对应的 manual / release notes"],
+        )
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=text,
+                    sources=[],
+                    boundary_tags=["unsupported-version"],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_UNSUPPORTED_VERSION],
+                    gap_record=gap_record,
+                )
+            )
+        return text
+
     missing = missing_required_fields(issue_type, info)
     if missing:
-        text = ask_for_missing(missing)
+        missing_labels = _missing_field_labels(missing)
+        gap_record = _trace_gap_record(
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            support_intent=support_intent,
+            gap_type="clarification_open",
+            query=query,
+            known_context=known_context,
+            missing_materials=missing_labels,
+        )
+        if clarification_rounds >= _clarification_round_limit(vendor_id):
+            text = format_no_answer_boundary(
+                vendor_id=vendor_id,
+                vendor_version=vendor_version,
+                missing_labels=missing_labels,
+                reason="连续补问后仍缺少关键上下文。",
+            )
+            if trace_collector is not None:
+                trace_collector(
+                    SupportAnswerTrace(
+                    text=text,
+                    sources=[],
+                    boundary_tags=["clarify-limit"],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_CLARIFY_LIMIT],
+                    gap_record=gap_record,
+                )
+            )
+            return text
+        text = format_knowledge_gap_answer(
+            missing_labels,
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+        )
         if trace_collector is not None:
             trace_collector(
                 SupportAnswerTrace(
                     text=text,
                     sources=[],
                     boundary_tags=[],
-                    resolver_path=[ResolverPath.TROUBLESHOOTING_MISSING_INFO],
+                    resolver_path=[ResolverPath.TROUBLESHOOTING_KNOWLEDGE_GAP],
+                    gap_record=gap_record,
                 )
             )
         return text
@@ -462,11 +586,42 @@ def answer_query(
 def answer_reference_query(
     query: str,
     *,
+    route_decision=None,
+    clarification_rounds: int = 0,
     model_fallback=None,
     source_directory: str | None = None,
     parsed_intent: ReferenceIntent | None = None,
     trace_collector=None,
 ) -> str:
+    if route_decision is not None and str(getattr(route_decision, "fallback_mode", "")).strip() == "unsupported-version":
+        vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+        vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
+        support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
+        rendered = format_unsupported_version_boundary(
+            vendor_id=vendor_id,
+            requested_version=vendor_version,
+        )
+        gap_record = _trace_gap_record(
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            support_intent=support_intent,
+            gap_type="unsupported_version",
+            query=query,
+            known_context={"query_version": vendor_version},
+            missing_materials=[f"Sentieon {vendor_version or '目标版本'} 对应的 manual / release notes"],
+        )
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=rendered,
+                    sources=[],
+                    boundary_tags=["unsupported-version"],
+                    resolver_path=[ResolverPath.REFERENCE_UNSUPPORTED_VERSION],
+                    gap_record=gap_record,
+                )
+            )
+        return rendered
+
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
     source_context = collect_source_bundle_metadata(effective_source_directory)
@@ -485,13 +640,40 @@ def answer_reference_query(
             sources=resolved.sources,
         )
     )
+    vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+    vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
+    support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
+    confirmation_materials = _extract_confirmation_materials(rendered)
+    gap_record = None
+    boundary_tags = list(resolved.boundary_tags)
+    resolver_path = list(resolved.resolver_path)
+    if confirmation_materials:
+        gap_record = _trace_gap_record(
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            support_intent=support_intent,
+            gap_type="clarification_open",
+            query=query,
+            known_context={},
+            missing_materials=confirmation_materials,
+        )
+        if clarification_rounds >= _clarification_round_limit(vendor_id):
+            rendered = format_no_answer_boundary(
+                vendor_id=vendor_id,
+                vendor_version=vendor_version,
+                missing_labels=confirmation_materials,
+                reason="连续补问后仍缺少关键上下文。",
+            )
+            boundary_tags = ["clarify-limit"]
+            resolver_path = [ResolverPath.BOUNDARY_REFERENCE]
     if trace_collector is not None:
         trace_collector(
             SupportAnswerTrace(
                 text=rendered,
                 sources=list(resolved.sources),
-                boundary_tags=list(resolved.boundary_tags),
-                resolver_path=list(resolved.resolver_path),
+                boundary_tags=boundary_tags,
+                resolver_path=resolver_path,
+                gap_record=gap_record,
             )
         )
     return rendered

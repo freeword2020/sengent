@@ -22,6 +22,8 @@ class FallbackMode(StrEnum):
 
 
 class GapType(StrEnum):
+    KNOWLEDGE_GAP = "knowledge_gap"
+    CLARIFICATION_OPEN = "clarification_open"
     MISSING_VENDOR_REFERENCE = "missing_vendor_reference"
     MISSING_VENDOR_DECISION = "missing_vendor_decision"
     MISSING_DOMAIN_STANDARD = "missing_domain_standard"

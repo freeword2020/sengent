@@ -37,13 +37,14 @@ def run_support_session(
             extract_info_fn=extract_info_from_query,
             is_external_error_query_fn=is_external_error_query,
         )
-        trace: dict[str, object] = {"sources": [], "boundary_tags": [], "resolver_path": []}
+        trace: dict[str, object] = {"sources": [], "boundary_tags": [], "resolver_path": [], "gap_record": None}
         response = run_query(
             planned_turn.effective_query,
             model_fallback=model_fallback,
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
             route_decision=planned_turn.route,
+            clarification_rounds=state.clarification_rounds,
             trace_collector=lambda payload: trace.update(payload),
         )
         response_mode = classify_response_mode(response, task=planned_turn.route.task)
@@ -74,6 +75,7 @@ def run_support_session(
             sources=[str(item) for item in trace.get("sources", [])],
             boundary_tags=[str(item) for item in trace.get("boundary_tags", [])],
             resolver_path=[str(item) for item in trace.get("resolver_path", [])],
+            gap_record=trace.get("gap_record"),
         )
         results.append(turn_view_from_event(turn_event))
     return results

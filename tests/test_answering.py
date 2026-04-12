@@ -7,6 +7,10 @@ import sys
 from sentieon_assist.ollama_client import build_generate_payload, generate_stream
 from sentieon_assist.answering import answer_query, answer_reference_query, format_rule_answer, normalize_model_answer
 from sentieon_assist.prompts import ANSWER_TEMPLATE, build_support_prompt
+from sentieon_assist.reference_intents import ReferenceIntent
+from sentieon_assist.session_events import classify_response_mode
+from sentieon_assist.support_contracts import FallbackMode, SupportIntent
+from sentieon_assist.support_coordinator import SupportRouteDecision
 
 
 def test_build_generate_payload_uses_configured_model():
@@ -132,7 +136,173 @@ def test_answer_query_asks_for_missing_fields_in_chinese():
         },
     )
 
-    assert text == "需要补充以下信息：Sentieon 版本"
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+    assert "【需要确认的信息】" in text
+
+
+def test_answer_query_returns_knowledge_gap_contract_for_missing_fields():
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+    assert "【当前判断】" in text
+    assert "【需要确认的信息】" in text
+    assert "【建议下一步】" in text
+    assert classify_response_mode(text, task="troubleshooting") == "clarify"
+
+
+def test_answer_query_returns_boundary_contract_when_clarify_limit_reached():
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "",
+                "input_type": "",
+                "error": "许可证激活失败",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.CLARIFICATION_OPEN,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+        ),
+        clarification_rounds=2,
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "Sentieon 版本" in text
+    assert "不能直接给出确定性建议" in text or "仍缺少" in text
+
+
+def test_answer_query_trace_collector_reports_gap_record_for_clarification_open():
+    seen: dict[str, object] = {}
+
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "",
+                "input_type": "",
+                "error": "许可证激活失败",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.CLARIFICATION_OPEN,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+        ),
+        trace_collector=lambda trace: seen.update({"gap_record": trace.gap_record}),
+    )
+
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+    assert seen["gap_record"]["gap_type"] == "clarification_open"
+    assert seen["gap_record"]["vendor_id"] == "sentieon"
+    assert seen["gap_record"]["missing_materials"] == ["Sentieon 版本"]
+
+
+def test_answer_query_trace_collector_reports_gap_record_for_unsupported_version():
+    seen: dict[str, object] = {}
+
+    text = answer_query(
+        "license",
+        "Sentieon 202401.01 license 报错，找不到 license 文件",
+        {
+            "version": "202401.01",
+            "input_type": "",
+            "error": "Sentieon 202401.01 license 报错，找不到 license 文件",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "202401.01",
+                "input_type": "",
+                "error": "Sentieon 202401.01 license 报错，找不到 license 文件",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.UNSUPPORTED_VERSION,
+            vendor_id="sentieon",
+            vendor_version="202401.01",
+            explicit=True,
+        ),
+        trace_collector=lambda trace: seen.update({"gap_record": trace.gap_record}),
+    )
+
+    assert text.startswith("【资料边界】")
+    assert seen["gap_record"]["gap_type"] == "unsupported_version"
+    assert seen["gap_record"]["vendor_version"] == "202401.01"
+
+
+def test_answer_reference_query_returns_boundary_when_clarify_limit_reached():
+    text = answer_reference_query(
+        "能提供个 wes 参考脚本吗",
+        route_decision=SupportRouteDecision(
+            task="onboarding_guidance",
+            issue_type="other",
+            parsed_intent=ReferenceIntent(intent="workflow_guidance", confidence=0.88),
+            info={},
+            reason="workflow_guidance",
+            support_intent=SupportIntent.TASK_GUIDANCE,
+            fallback_mode=FallbackMode.CLARIFICATION_OPEN,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+        ),
+        clarification_rounds=2,
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "不能直接给出确定性建议" in text or "连续补问" in text
 
 
 def test_answer_query_uses_model_fallback_when_rule_misses(monkeypatch):

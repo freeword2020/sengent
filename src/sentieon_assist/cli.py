@@ -791,6 +791,8 @@ def _run_troubleshooting_query(
     issue_type: str,
     query: str,
     *,
+    route_decision=None,
+    clarification_rounds: int = 0,
     model_fallback=None,
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
@@ -807,6 +809,8 @@ def _run_troubleshooting_query(
             issue_type,
             query,
             info,
+            route_decision=route_decision,
+            clarification_rounds=clarification_rounds,
             model_fallback=model_fallback,
             knowledge_directory=knowledge_directory,
             source_directory=source_directory,
@@ -815,6 +819,7 @@ def _run_troubleshooting_query(
                     "sources": list(trace.sources),
                     "boundary_tags": list(trace.boundary_tags),
                     "resolver_path": list(trace.resolver_path),
+                    "gap_record": trace.gap_record,
                 }
             )
             if trace_collector is not None
@@ -828,6 +833,8 @@ def _run_troubleshooting_query(
         issue_type,
         query,
         info,
+        route_decision=route_decision,
+        clarification_rounds=clarification_rounds,
         model_fallback=model_fallback,
         knowledge_directory=knowledge_directory,
         source_directory=source_directory,
@@ -836,6 +843,7 @@ def _run_troubleshooting_query(
                 "sources": list(trace.sources),
                 "boundary_tags": list(trace.boundary_tags),
                 "resolver_path": list(trace.resolver_path),
+                "gap_record": trace.gap_record,
             }
         )
         if trace_collector is not None
@@ -850,6 +858,7 @@ def run_query(
     knowledge_directory: str | None = None,
     source_directory: str | None = None,
     route_decision=None,
+    clarification_rounds: int = 0,
     trace_collector: Callable[[dict[str, object]], None] | None = None,
 ) -> str:
     decision = route_decision or select_support_route(
@@ -868,6 +877,8 @@ def run_query(
         parsed_intent = decision.parsed_intent if decision.parsed_intent.is_reference else None
         return answer_reference_query(
             query,
+            route_decision=decision,
+            clarification_rounds=clarification_rounds,
             model_fallback=model_fallback,
             source_directory=source_directory,
             parsed_intent=parsed_intent,
@@ -876,6 +887,7 @@ def run_query(
                     "sources": list(trace.sources),
                     "boundary_tags": list(trace.boundary_tags),
                     "resolver_path": list(trace.resolver_path),
+                    "gap_record": trace.gap_record,
                 }
             )
             if trace_collector is not None
@@ -884,6 +896,8 @@ def run_query(
     return _run_troubleshooting_query(
         decision.issue_type,
         query,
+        route_decision=decision,
+        clarification_rounds=clarification_rounds,
         model_fallback=model_fallback,
         knowledge_directory=knowledge_directory,
         source_directory=source_directory,
@@ -980,6 +994,7 @@ def chat_loop(
                 knowledge_directory=knowledge_directory,
                 source_directory=source_directory,
                 route_decision=planned_turn.route,
+                clarification_rounds=support_state.clarification_rounds,
                 trace_collector=lambda payload: trace.update(payload),
             )
         finally:
@@ -1013,6 +1028,7 @@ def chat_loop(
             sources=[str(item) for item in trace.get("sources", [])],
             boundary_tags=[str(item) for item in trace.get("boundary_tags", [])],
             resolver_path=[str(item) for item in trace.get("resolver_path", [])],
+            gap_record=trace.get("gap_record"),
         )
         append_turn_event(turn_event, runtime_root=runtime_root)
         turn_history.append(turn_view_from_event(turn_event))

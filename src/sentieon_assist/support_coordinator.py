@@ -209,6 +209,11 @@ DECISION_SUPPORT_CUES = (
 SENTIEON_VENDOR_ID = "sentieon"
 
 
+def _version_family(version: str) -> str:
+    match = re.search(r"(20\d{4})", version or "")
+    return match.group(1) if match else ""
+
+
 @dataclass(frozen=True)
 class SupportRouteDecision:
     task: SupportTask
@@ -239,7 +244,16 @@ def _resolved_vendor_version(vendor_id: str, info: dict[str, str]) -> str:
 
 def _fallback_mode_for_version(vendor_id: str, vendor_version: str) -> str:
     profile = get_vendor_profile(vendor_id)
-    if vendor_version and vendor_version not in profile.supported_versions:
+    normalized_version = str(vendor_version).strip()
+    if not normalized_version:
+        return FallbackMode.NONE
+    if normalized_version in profile.supported_versions:
+        return FallbackMode.NONE
+    requested_family = _version_family(normalized_version)
+    supported_families = {_version_family(version) for version in profile.supported_versions if _version_family(version)}
+    if "." not in normalized_version and requested_family and requested_family in supported_families:
+        return FallbackMode.NONE
+    if normalized_version:
         return FallbackMode.UNSUPPORTED_VERSION
     return FallbackMode.NONE
 
@@ -412,7 +426,15 @@ def select_support_route(
             query=query,
             explicit=True,
         )
-    if issue_type in {"license", "install"} and parsed_intent.is_reference:
+    license_install_reference = (
+        is_reference_query_fn(query)
+        or (parsed_intent.is_reference and parsed_intent.intent != "reference_other")
+        or (
+            bool(explicit_module)
+            and any(cue in query.lower() for cue in ("哪个", "哪一个", "如何", "怎么", "工具", "命令", "检查", "支持"))
+        )
+    )
+    if issue_type in {"license", "install"} and license_install_reference:
         if explicit_module and any(cue in query.lower() for cue in GENERAL_MODULE_QUERY_CUES):
             parsed_intent = ReferenceIntent(intent="module_intro", module=explicit_module, confidence=max(parsed_intent.confidence, 0.44))
         return _build_route_decision(

@@ -7,6 +7,9 @@ from sentieon_assist.cli import _build_input_prompt
 from sentieon_assist.cli import main
 from sentieon_assist.cli import render_chat_response
 from sentieon_assist.cli import run_query
+from sentieon_assist.reference_intents import ReferenceIntent
+from sentieon_assist.support_contracts import FallbackMode, SupportIntent
+from sentieon_assist.support_coordinator import SupportRouteDecision
 
 
 class FakeTTY:
@@ -665,7 +668,7 @@ def test_build_input_prompt_uses_ansi_for_interactive_tty():
     assert prompt.endswith("\x1b[0m ")
 
 
-def test_chat_loop_answers_once_and_quits():
+def test_chat_loop_answers_once_and_quits(monkeypatch):
     prompts = iter(["Sentieon 202503 license 报错", "/quit"])
     outputs: list[str] = []
     statuses: list[tuple[str, bool]] = []
@@ -677,6 +680,11 @@ def test_chat_loop_answers_once_and_quits():
 
     def fake_output(message: str) -> None:
         outputs.append(message)
+
+    monkeypatch.setattr(
+        "sentieon_assist.cli.run_query",
+        lambda query, **kwargs: "【问题判断】\n这是一个 Sentieon license 相关问题。",
+    )
 
     code = main(
         ["chat"],
@@ -862,7 +870,7 @@ def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
     assert (runtime_directory / "sessions" / f"{record['session_id']}.jsonl").exists()
 
 
-def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path):
+def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path, monkeypatch):
     runtime_directory = tmp_path / "runtime"
     prompts = iter(
         [
@@ -874,6 +882,20 @@ def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path):
 
     def fake_input(_prompt: str) -> str:
         return next(prompts)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        trace_collector = kwargs.get("trace_collector")
+        if trace_collector is not None:
+            trace_collector(
+                {
+                    "sources": ["sentieon-modules.json"],
+                    "boundary_tags": [],
+                    "resolver_path": ["doc_reference"],
+                }
+            )
+        return "【资料说明】\n- `-t` 用于设置线程数。"
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
 
     code = main(
         ["chat"],
@@ -898,7 +920,7 @@ def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path):
     assert answer["sources"]
 
 
-def test_chat_loop_writes_troubleshooting_trace_metadata_into_session_log(tmp_path):
+def test_chat_loop_writes_troubleshooting_trace_metadata_into_session_log(tmp_path, monkeypatch):
     runtime_directory = tmp_path / "runtime"
     prompts = iter(
         [
@@ -910,6 +932,20 @@ def test_chat_loop_writes_troubleshooting_trace_metadata_into_session_log(tmp_pa
 
     def fake_input(_prompt: str) -> str:
         return next(prompts)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        trace_collector = kwargs.get("trace_collector")
+        if trace_collector is not None:
+            trace_collector(
+                {
+                    "sources": [],
+                    "boundary_tags": [],
+                    "resolver_path": ["troubleshooting_rule"],
+                }
+            )
+        return "【问题判断】\n这是一个 Sentieon license 相关问题。"
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
 
     code = main(
         ["chat"],
@@ -1262,6 +1298,67 @@ def test_run_query_returns_boundary_for_roadmap_style_reference_prompt():
     assert "roadmap" in text or "未来" in text or "精确数值" in text
 
 
+def test_run_query_returns_boundary_contract_for_unsupported_version():
+    text = run_query(
+        "Sentieon 202401.01 license 报错，找不到 license 文件",
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "202401.01",
+                "input_type": "",
+                "error": "Sentieon 202401.01 license 报错，找不到 license 文件",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.UNSUPPORTED_VERSION,
+            vendor_id="sentieon",
+            vendor_version="202401.01",
+            explicit=True,
+        ),
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "202401.01" in text
+    assert "202503.03" in text
+
+
+def test_run_query_trace_collector_receives_gap_record_for_clarification_open():
+    seen: dict[str, object] = {}
+
+    text = run_query(
+        "license 报错",
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "",
+                "input_type": "",
+                "error": "license 报错",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.CLARIFICATION_OPEN,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+        ),
+        trace_collector=lambda trace: seen.update(trace),
+    )
+
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+    assert seen["gap_record"]["gap_type"] == "clarification_open"
+    assert seen["gap_record"]["missing_materials"] == ["Sentieon 版本"]
+
+
 def test_run_query_returns_boundary_for_install_packaging_reference_prompt():
     text = run_query("如何通过命令行安装 Sentieon 工具？使用 sdist 安装 sentieon-cli 时，想结合 Poetry 虚拟环境进行依赖管理，具体配置步骤是什么？")
 
@@ -1479,7 +1576,7 @@ def test_render_chat_response_keeps_mvp_boundary_message_stable_without_polish()
     assert streamed_calls == []
 
 
-def test_chat_loop_streams_model_output_chunks():
+def test_chat_loop_streams_model_output_chunks(monkeypatch):
     prompts = iter(["license 报错", "/quit"])
     outputs: list[str] = []
     statuses: list[tuple[str, bool]] = []
@@ -1498,6 +1595,8 @@ def test_chat_loop_streams_model_output_chunks():
             streamed.append(chunk)
             on_chunk(chunk)
         return "".join(chunks)
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "需要补充以下信息：Sentieon 版本")
 
     code = main(
         ["chat"],
@@ -1565,6 +1664,8 @@ def test_chat_loop_uses_default_stream_writer_when_no_stream_output_fn(monkeypat
             on_chunk(chunk)
         return "请告诉我 Sentieon 版本号，例如 202503.03。"
 
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "需要补充以下信息：Sentieon 版本")
+
     code = main(
         ["chat"],
         input_fn=fake_input,
@@ -1593,6 +1694,10 @@ def test_chat_loop_prefers_explicit_non_stream_model_generate_over_backend_strea
         raise AssertionError("stream backend should not be used when model_generate is explicitly injected")
 
     monkeypatch.setattr("sentieon_assist.cli._chat_model_stream_generate", fail_if_stream_used)
+    monkeypatch.setattr(
+        "sentieon_assist.cli.run_query",
+        lambda query, **kwargs: "需要补充以下信息：Sentieon 版本",
+    )
 
     code = main(
         ["chat"],
@@ -1607,7 +1712,7 @@ def test_chat_loop_prefers_explicit_non_stream_model_generate_over_backend_strea
     assert any("【问题判断】" in item for item in outputs)
 
 
-def test_chat_loop_falls_back_to_non_stream_generate_when_stream_fails():
+def test_chat_loop_falls_back_to_non_stream_generate_when_stream_fails(monkeypatch):
     prompts = iter(["license 报错", "/quit"])
     outputs: list[str] = []
 
@@ -1616,6 +1721,8 @@ def test_chat_loop_falls_back_to_non_stream_generate_when_stream_fails():
 
     def fake_output(message: str) -> None:
         outputs.append(message)
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", lambda query, **kwargs: "需要补充以下信息：Sentieon 版本")
 
     code = main(
         ["chat"],
@@ -1651,6 +1758,8 @@ def test_chat_loop_carries_pending_question_context(monkeypatch):
         raise AssertionError(f"unexpected query: {query}")
 
     monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+    monkeypatch.setattr("sentieon_assist.cli.parse_reference_intent", lambda query, **kwargs: ReferenceIntent())
+    monkeypatch.setattr("sentieon_assist.cli.is_reference_query", lambda query: False)
 
     generated_prompts: list[str] = []
 
@@ -1696,6 +1805,8 @@ def test_chat_loop_reset_clears_pending_question(monkeypatch):
         raise AssertionError(f"unexpected query: {query}")
 
     monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+    monkeypatch.setattr("sentieon_assist.cli.parse_reference_intent", lambda query, **kwargs: ReferenceIntent())
+    monkeypatch.setattr("sentieon_assist.cli.is_reference_query", lambda query: False)
 
     code = main(
         ["chat"],
@@ -1736,6 +1847,8 @@ def test_chat_loop_starts_new_query_when_pending_context_exists_but_user_enters_
         raise AssertionError(f"unexpected query: {query}")
 
     monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+    monkeypatch.setattr("sentieon_assist.cli.parse_reference_intent", lambda query, **kwargs: ReferenceIntent())
+    monkeypatch.setattr("sentieon_assist.cli.is_reference_query", lambda query: False)
 
     code = main(
         ["chat"],
@@ -2773,6 +2886,25 @@ def test_run_query_trace_collector_receives_troubleshooting_metadata():
 
     text = run_query(
         "Sentieon 202503 license 报错，找不到 license 文件",
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "202503",
+                "input_type": "",
+                "error": "Sentieon 202503 license 报错，找不到 license 文件",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503",
+            explicit=True,
+        ),
         trace_collector=lambda trace: seen.update(trace),
     )
 

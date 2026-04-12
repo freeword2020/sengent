@@ -103,6 +103,30 @@ def test_select_support_route_marks_unsupported_vendor_version():
     assert route.fallback_mode == "unsupported-version"
 
 
+def test_select_support_route_keeps_same_family_vendor_version_supported():
+    route = select_support_route(
+        "Sentieon 202503 license 报错，找不到 license 文件",
+        classify_query_fn=lambda query: "license",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(),
+    )
+
+    assert route.task == "troubleshooting"
+    assert route.vendor_version == "202503"
+    assert route.fallback_mode == ""
+
+
+def test_select_support_route_marks_unsupported_vendor_patch_version():
+    route = select_support_route(
+        "Sentieon 202503.99 license 报错，找不到 license 文件",
+        classify_query_fn=lambda query: "license",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(),
+    )
+
+    assert route.task == "troubleshooting"
+    assert route.vendor_version == "202503.99"
+    assert route.fallback_mode == "unsupported-version"
+
+
 def test_select_support_route_marks_workflow_guidance_as_task_guidance():
     route = select_support_route(
         "能提供个 wes 参考脚本吗",

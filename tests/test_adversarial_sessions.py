@@ -118,3 +118,43 @@ def test_classify_response_mode_uses_fixed_modes():
     assert classify_response_mode("【参考命令】\n- B") == "script"
     assert classify_response_mode("【资料边界】\n- C") == "boundary"
     assert classify_response_mode("【流程指导】\n...\n【需要确认的信息】\n- D") == "clarify"
+
+
+def test_run_support_session_preserves_gap_record_for_unsupported_version(monkeypatch):
+    def fake_run_query(query: str, **kwargs) -> str:
+        trace_collector = kwargs.get("trace_collector")
+        if trace_collector is not None:
+            trace_collector(
+                {
+                    "sources": [],
+                    "boundary_tags": ["unsupported-version"],
+                    "resolver_path": ["reference_unsupported_version"],
+                    "gap_record": {
+                        "vendor_id": "sentieon",
+                        "vendor_version": "202401.01",
+                        "intent": "concept_understanding",
+                        "gap_type": "unsupported_version",
+                        "user_question": query,
+                        "known_context": {"query_version": "202401.01"},
+                        "missing_materials": ["Sentieon 202401.01 对应的 manual / release notes"],
+                        "captured_at": "2026-04-13T00:00:00+00:00",
+                        "status": "open",
+                    },
+                }
+            )
+        return "【资料边界】\n- 当前版本不受支持。"
+
+    monkeypatch.setattr("sentieon_assist.adversarial_sessions.run_query", fake_run_query)
+
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+    results = run_support_session(
+        [
+            "Sentieon 202401.01 的 DNAscope 是什么",
+        ],
+        source_directory=str(source_directory),
+    )
+
+    assert len(results) == 1
+    assert results[0].response_mode == "boundary"
+    assert results[0].gap_record["gap_type"] == "unsupported_version"
+    assert results[0].gap_record["vendor_version"] == "202401.01"

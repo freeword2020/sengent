@@ -138,6 +138,57 @@ def test_build_turn_event_normalizes_trace_vocab_values():
     assert turn_event.answer["resolver_path"] == [ResolverPath.DOC_REFERENCE, "future_path"]
 
 
+def test_session_event_round_trip_preserves_gap_record(tmp_path: Path):
+    runtime_root = tmp_path / "runtime"
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+
+    turn_event = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="license 报错",
+        effective_query="license 报错",
+        reused_anchor=False,
+        task="troubleshooting",
+        issue_type="license",
+        route_reason="issue_type:license",
+        support_intent="troubleshooting",
+        fallback_mode="clarification-open",
+        vendor_id="sentieon",
+        vendor_version="202503.03",
+        parsed_intent_intent="not_reference",
+        parsed_intent_module="",
+        response_text="需要补充以下信息：Sentieon 版本",
+        response_mode="clarify",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "troubleshooting"},
+        gap_record={
+            "vendor_id": "sentieon",
+            "vendor_version": "202503.03",
+            "intent": "troubleshooting",
+            "gap_type": "clarification_open",
+            "user_question": "license 报错",
+            "known_context": {"error": "license 报错"},
+            "missing_materials": ["Sentieon 版本"],
+            "captured_at": "2026-04-13T00:00:00+00:00",
+            "status": "open",
+        },
+    )
+    append_turn_event(turn_event, runtime_root=runtime_root)
+
+    view = load_turn_views(session.session_id, runtime_root=runtime_root)[0]
+
+    assert view.gap_record is not None
+    assert view.gap_record["gap_type"] == "clarification_open"
+    assert view.gap_record["missing_materials"] == ["Sentieon 版本"]
+
+
 def test_turn_view_from_event_normalizes_legacy_blank_response_mode():
     view = turn_view_from_event(
         {

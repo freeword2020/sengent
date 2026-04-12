@@ -38,7 +38,7 @@ def test_resolve_reference_answer_prioritizes_parameter_answer_for_dnascope_pcr_
     assert "sentieon-modules.json" in resolved.sources
 
 
-def test_resolve_reference_answer_prioritizes_boundary_answer_for_svsolver_break_end_prompt():
+def test_resolve_reference_answer_uses_boundary_contract_for_svsolver_break_end_prompt():
     source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
 
     resolved = resolve_reference_answer(
@@ -50,5 +50,6 @@ def test_resolve_reference_answer_prioritizes_boundary_answer_for_svsolver_break
     assert resolved is not None
     assert "【资料边界】" in resolved.text
     assert "具体参数名" not in resolved.text
+    assert "【需要补充的材料】" in resolved.text
     assert resolved.resolver_path == ["boundary_reference"]
     assert "deep_mechanism" in resolved.boundary_tags

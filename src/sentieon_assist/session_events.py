@@ -189,6 +189,7 @@ class SupportTurnView:
     parsed_intent_intent: str
     parsed_intent_module: str
     response_mode: str
+    gap_record: dict[str, Any] | None = None
 
 
 def build_turn_event(
@@ -201,19 +202,20 @@ def build_turn_event(
     task: str,
     issue_type: str,
     route_reason: str,
-    support_intent: str,
-    fallback_mode: str,
-    vendor_id: str,
-    vendor_version: str,
     parsed_intent_intent: str,
     parsed_intent_module: str,
     response_text: str,
     response_mode: str,
     state_before: dict[str, Any],
     state_after: dict[str, Any],
+    support_intent: str = "",
+    fallback_mode: str = "",
+    vendor_id: str = "",
+    vendor_version: str = "",
     sources: list[str] | None = None,
     boundary_tags: list[str] | None = None,
     resolver_path: list[str] | None = None,
+    gap_record: dict[str, Any] | None = None,
 ) -> SupportTurnEvent:
     return SupportTurnEvent(
         session_id=session_id,
@@ -242,6 +244,7 @@ def build_turn_event(
             "sources": list(sources or []),
             "boundary_tags": list(boundary_tags or []),
             "resolver_path": normalize_resolver_path(resolver_path),
+            "gap_record": dict(gap_record or {}) if gap_record else None,
         },
         state_before=state_before,
         state_after=state_after,
@@ -314,6 +317,7 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
         parsed_intent_intent=str(parsed_intent.get("intent", "")),
         parsed_intent_module=str(parsed_intent.get("module", "")),
         response_mode=normalize_response_mode(str(answer.get("response_mode", ""))),
+        gap_record=dict(answer.get("gap_record", {})) if isinstance(answer.get("gap_record"), dict) else None,
     )
 
 
