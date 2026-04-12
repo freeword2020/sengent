@@ -13,6 +13,7 @@ from uuid import uuid4
 import yaml
 
 from sentieon_assist.app_paths import default_knowledge_build_root, default_knowledge_inbox_dir, default_runtime_root
+from sentieon_assist.vendors import get_vendor_profile
 
 
 TEXT_FILE_TYPES = {
@@ -31,20 +32,27 @@ GATE_COMMANDS: tuple[str, ...] = (
     "python scripts/pilot_readiness_eval.py",
     "python scripts/pilot_closed_loop.py",
 )
-PACK_ENTRY_TYPES: dict[str, str] = {
-    "sentieon-modules.json": "module",
-    "workflow-guides.json": "workflow",
-    "external-format-guides.json": "external_format",
-    "external-tool-guides.json": "external_tool",
-    "external-error-associations.json": "external_error",
+SENTIEON_VENDOR_ID = "sentieon"
+ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
+    "vendor-reference",
+    "vendor-decision",
+    "domain-standard",
+    "playbook",
+    "troubleshooting",
+)
+SCAFFOLD_KIND_TO_LOGICAL_KIND: dict[str, str] = {
+    "module": "vendor-reference",
+    "workflow": "vendor-decision",
+    "external-format": "domain-standard",
+    "external-tool": "playbook",
+    "external-error": "troubleshooting",
 }
-MANAGED_PACK_FILES: tuple[str, ...] = tuple(sorted(PACK_ENTRY_TYPES))
-SCAFFOLD_KIND_TO_PACK_TARGET: dict[str, str] = {
-    "module": "sentieon-modules.json",
-    "workflow": "workflow-guides.json",
-    "external-format": "external-format-guides.json",
-    "external-tool": "external-tool-guides.json",
-    "external-error": "external-error-associations.json",
+LOGICAL_KIND_TO_ENTRY_TYPE: dict[str, str] = {
+    "vendor-reference": "module",
+    "vendor-decision": "workflow",
+    "domain-standard": "external_format",
+    "playbook": "external_tool",
+    "troubleshooting": "external_error",
 }
 PILOT_READINESS_REPORT_NAME = "pilot-readiness-report.json"
 PILOT_CLOSED_LOOP_REPORT_NAME = "pilot-closed-loop-report.json"
@@ -226,6 +234,48 @@ def default_build_root(*, runtime_root: str | Path | None = None) -> Path:
     if runtime_root is not None:
         return Path(runtime_root) / "knowledge-build"
     return default_knowledge_build_root()
+
+
+def _sentieon_profile() -> Any:
+    return get_vendor_profile(SENTIEON_VENDOR_ID)
+
+
+def _manifest_entry_value(entry: Any, field: str) -> Any:
+    if hasattr(entry, field):
+        return getattr(entry, field)
+    if isinstance(entry, dict):
+        return entry[field]
+    raise AttributeError(f"pack manifest entry does not expose {field}")
+
+
+def _sentieon_pack_manifest() -> dict[str, Any]:
+    return dict(_sentieon_profile().pack_manifest)
+
+
+def _managed_pack_logical_entries() -> list[tuple[str, Any]]:
+    manifest = _sentieon_pack_manifest()
+    entries = [
+        (logical_kind, manifest[logical_kind])
+        for logical_kind in ACTIVE_MANAGED_LOGICAL_KINDS
+        if logical_kind in manifest
+    ]
+    return sorted(entries, key=lambda item: (_manifest_entry_value(item[1], "load_order"), item[0]))
+
+
+def _managed_pack_file_names() -> tuple[str, ...]:
+    return tuple(_manifest_entry_value(entry, "file_name") for _, entry in _managed_pack_logical_entries())
+
+
+def _pack_entry_types() -> dict[str, str]:
+    return {
+        _manifest_entry_value(entry, "file_name"): LOGICAL_KIND_TO_ENTRY_TYPE[logical_kind]
+        for logical_kind, entry in _managed_pack_logical_entries()
+    }
+
+
+def _pack_target_for_scaffold_kind(kind: str) -> str:
+    logical_kind = SCAFFOLD_KIND_TO_LOGICAL_KIND[kind]
+    return _manifest_entry_value(_sentieon_pack_manifest()[logical_kind], "file_name")
 
 
 def docling_available() -> bool:
@@ -577,7 +627,7 @@ def scaffold_knowledge_source(
     file_stem: str | None = None,
 ) -> KnowledgeScaffoldResult:
     normalized_kind = kind.strip().lower()
-    if normalized_kind not in SCAFFOLD_KIND_TO_PACK_TARGET:
+    if normalized_kind not in SCAFFOLD_KIND_TO_LOGICAL_KIND:
         raise ValueError(f"unsupported scaffold kind: {kind}")
     normalized_action = _normalize_scaffold_action(action)
     if normalized_action == "upsert" and not _string_or_none(name):
@@ -680,8 +730,8 @@ def _scaffold_markdown_body(*, kind: str, entry_id: str, name: str | None, actio
 
 
 def _scaffold_metadata_defaults(*, kind: str, entry_id: str, name: str | None, action: str) -> dict[str, Any]:
-    pack_target = SCAFFOLD_KIND_TO_PACK_TARGET[kind]
-    entry_type = PACK_ENTRY_TYPES[pack_target]
+    pack_target = _pack_target_for_scaffold_kind(kind)
+    entry_type = _pack_entry_types()[pack_target]
     today = datetime.now(timezone.utc).date().isoformat()
     defaults: dict[str, Any] = {
         "pack_target": pack_target,
@@ -746,7 +796,7 @@ def _activation_backup_root(build_root: Path) -> Path:
 def _managed_pack_files_from_directory(directory: Path) -> list[str]:
     return [
         file_name
-        for file_name in MANAGED_PACK_FILES
+        for file_name in _managed_pack_file_names()
         if (directory / file_name).exists()
     ]
 
@@ -754,7 +804,7 @@ def _managed_pack_files_from_directory(directory: Path) -> list[str]:
 def missing_managed_pack_files(directory: Path) -> list[str]:
     return [
         file_name
-        for file_name in MANAGED_PACK_FILES
+        for file_name in _managed_pack_file_names()
         if not (directory / file_name).exists()
     ]
 
@@ -768,7 +818,7 @@ def require_complete_managed_pack_set(directory: Path, *, label: str) -> None:
 
 def require_complete_managed_pack_list(file_names: list[str] | tuple[str, ...], *, label: str) -> None:
     normalized = {str(item).strip() for item in file_names if str(item).strip()}
-    missing_files = [file_name for file_name in MANAGED_PACK_FILES if file_name not in normalized]
+    missing_files = [file_name for file_name in _managed_pack_file_names() if file_name not in normalized]
     if missing_files:
         missing_text = ", ".join(missing_files)
         raise ValueError(f"{label} is incomplete: missing {missing_text}")
@@ -842,7 +892,7 @@ def _replace_managed_pack_set(
             temp_path = target_directory / f".{file_name}.{uuid4().hex[:8]}.tmp"
             shutil.copy2(source_path, temp_path)
             temp_path.replace(target_directory / file_name)
-        for file_name in MANAGED_PACK_FILES:
+        for file_name in _managed_pack_file_names():
             if file_name in desired_files:
                 continue
             target_path = target_directory / file_name
@@ -875,7 +925,7 @@ def _restore_managed_pack_set(
         temp_path = target_directory / f".{file_name}.{uuid4().hex[:8]}.tmp"
         shutil.copy2(source_path, temp_path)
         temp_path.replace(target_directory / file_name)
-    for file_name in MANAGED_PACK_FILES:
+    for file_name in _managed_pack_file_names():
         if file_name in desired_files:
             continue
         target_path = target_directory / file_name
@@ -1346,6 +1396,7 @@ def _compile_candidate_packs(
 
 
 def _compile_skip_reason(record: CanonicalDocumentRecord) -> str | None:
+    pack_entry_types = _pack_entry_types()
     if record.file_type != "markdown":
         return None
     if _string_or_none(record.source_metadata.get("action")) == "delete":
@@ -1357,9 +1408,9 @@ def _compile_skip_reason(record: CanonicalDocumentRecord) -> str | None:
             return "missing pack_target"
         if not record.entry_type:
             return "missing entry_type"
-        if record.pack_target not in PACK_ENTRY_TYPES:
+        if record.pack_target not in pack_entry_types:
             return f"unsupported pack_target: {record.pack_target}"
-        expected_entry_type = PACK_ENTRY_TYPES[record.pack_target]
+        expected_entry_type = pack_entry_types[record.pack_target]
         if record.entry_type != expected_entry_type:
             return f"unsupported entry_type for {record.pack_target}: {record.entry_type}"
         if missing_fields:
@@ -1371,9 +1422,9 @@ def _compile_skip_reason(record: CanonicalDocumentRecord) -> str | None:
         return "missing pack_target"
     if not record.entry_type:
         return "missing entry_type"
-    if record.pack_target not in PACK_ENTRY_TYPES:
+    if record.pack_target not in pack_entry_types:
         return f"unsupported pack_target: {record.pack_target}"
-    expected_entry_type = PACK_ENTRY_TYPES[record.pack_target]
+    expected_entry_type = pack_entry_types[record.pack_target]
     if record.entry_type != expected_entry_type:
         return f"unsupported entry_type for {record.pack_target}: {record.entry_type}"
     required_fields = ["id", "name"]

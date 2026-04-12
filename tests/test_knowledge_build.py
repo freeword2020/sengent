@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from sentieon_assist.cli import main
 
@@ -22,6 +23,24 @@ def _latest_build_dir(build_root: Path) -> Path:
     build_dirs = sorted(path for path in build_root.iterdir() if path.is_dir())
     assert build_dirs
     return build_dirs[-1]
+
+
+def _profile_with_managed_pack_files(*, renamed_file: str | None = None) -> SimpleNamespace:
+    manifest_files = (
+        "sentieon-modules.json",
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+    )
+    pack_manifest = {
+        "vendor-reference": {"required": True, "file_name": renamed_file or manifest_files[0], "entry_schema_version": "2.0", "load_order": 10},
+        "vendor-decision": {"required": True, "file_name": manifest_files[1], "entry_schema_version": "2.0", "load_order": 20},
+        "domain-standard": {"required": True, "file_name": manifest_files[2], "entry_schema_version": "2.0", "load_order": 30},
+        "playbook": {"required": True, "file_name": manifest_files[3], "entry_schema_version": "2.0", "load_order": 40},
+        "troubleshooting": {"required": True, "file_name": manifest_files[4], "entry_schema_version": "2.0", "load_order": 50},
+    }
+    return SimpleNamespace(pack_manifest=pack_manifest)
 
 
 def _write_activation_candidate_build(build_root: Path, build_id: str, *, module_id: str, module_name: str) -> Path:
@@ -87,6 +106,40 @@ def test_knowledge_build_command_writes_artifacts_and_candidate_packs(tmp_path: 
     assert len(doc_records) == 2
     assert {record["file_type"] for record in doc_records} == {"markdown", "shell"}
     assert any("knowledge build completed" in item.lower() for item in outputs)
+
+
+def test_knowledge_build_uses_vendor_profile_managed_pack_contract(tmp_path: Path, monkeypatch):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "release-note.md").write_text("# Release\n\nDNAscope supports PCR-free.\n", encoding="utf-8")
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    outputs: list[str] = []
+
+    monkeypatch.setattr(
+        "sentieon_assist.knowledge_build.get_vendor_profile",
+        lambda vendor_id: _profile_with_managed_pack_files(renamed_file="sentieon-modules-v2.json"),
+    )
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("sentieon-modules-v2.json" in item for item in outputs)
+    assert not build_root.exists()
 
 
 def test_knowledge_build_queues_pdf_when_docling_is_unavailable(tmp_path: Path):
@@ -193,6 +246,42 @@ def test_knowledge_build_keeps_active_packs_unchanged_and_reports_gate_commands(
     assert "python scripts/pilot_closed_loop.py --source-dir" in report
     assert "candidate-packs" in report
     assert "candidate packs are not active runtime packs yet" in report
+
+
+def test_knowledge_build_preserves_current_physical_managed_pack_files(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "release-note.md").write_text("# Release\n\nTNscope update\n", encoding="utf-8")
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    build_dir = _latest_build_dir(build_root)
+    candidate_files = sorted(path.name for path in (build_dir / "candidate-packs").glob("*.json"))
+    assert candidate_files == [
+        "external-error-associations.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "manifest.json",
+        "sentieon-modules.json",
+        "workflow-guides.json",
+    ]
 
 
 def test_knowledge_build_compiles_markdown_front_matter_into_candidate_packs(tmp_path: Path):
@@ -1472,6 +1561,48 @@ def test_knowledge_activate_keeps_only_latest_three_backups(tmp_path: Path):
     assert backed_up_module_ids == ["module-1", "module-2", "module-3"]
 
 
+def test_knowledge_activate_preserves_current_physical_managed_pack_files(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    (source_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "module-0", "name": "Module 0"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_activation_candidate_build(
+        build_root,
+        "build-activate",
+        module_id="fastdedup",
+        module_name="FastDedup",
+    )
+
+    assert (
+        main(
+            [
+                "--source-dir",
+                str(source_dir),
+                "knowledge",
+                "activate",
+                "--build-root",
+                str(build_root),
+                "--build-id",
+                "build-activate",
+            ],
+            output_fn=lambda _message: None,
+        )
+        == 0
+    )
+
+    activation_manifest = json.loads((build_dir / "activation-manifest.json").read_text(encoding="utf-8"))
+    assert sorted(activation_manifest["activated_files"]) == [
+        "external-error-associations.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "sentieon-modules.json",
+        "workflow-guides.json",
+    ]
+
+
 def test_knowledge_rollback_exactly_restores_managed_pack_set(tmp_path: Path):
     source_dir = tmp_path / "sentieon-note"
     _write_source_packs(source_dir)
@@ -1532,6 +1663,66 @@ def test_knowledge_rollback_exactly_restores_managed_pack_set(tmp_path: Path):
     ]
     restored_modules = json.loads((source_dir / "sentieon-modules.json").read_text(encoding="utf-8"))
     assert restored_modules["entries"][0]["id"] == "baseline"
+
+
+def test_knowledge_rollback_preserves_current_physical_managed_pack_files(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    (source_dir / "sentieon-modules.json").write_text(
+        json.dumps({"version": "", "entries": [{"id": "baseline", "name": "Baseline"}]}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_activation_candidate_build(
+        build_root,
+        "build-restore",
+        module_id="fastdedup",
+        module_name="FastDedup",
+    )
+
+    assert (
+        main(
+            [
+                "--source-dir",
+                str(source_dir),
+                "knowledge",
+                "activate",
+                "--build-root",
+                str(build_root),
+                "--build-id",
+                "build-restore",
+            ],
+            output_fn=lambda _message: None,
+        )
+        == 0
+    )
+    backup_id = json.loads((build_dir / "activation-manifest.json").read_text(encoding="utf-8"))["backup_id"]
+
+    assert (
+        main(
+            [
+                "--source-dir",
+                str(source_dir),
+                "knowledge",
+                "rollback",
+                "--build-root",
+                str(build_root),
+                "--backup-id",
+                backup_id,
+            ],
+            output_fn=lambda _message: None,
+        )
+        == 0
+    )
+
+    restored_files = sorted(path.name for path in source_dir.glob("*.json"))
+    assert restored_files == [
+        "external-error-associations.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "sentieon-modules.json",
+        "workflow-guides.json",
+    ]
 
 
 def test_knowledge_build_queues_malformed_front_matter_instead_of_crashing(tmp_path: Path):

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 
 
@@ -123,6 +125,66 @@ def test_gather_doctor_report_includes_build_runtime_and_source_pack_health(tmp_
     assert report["sources"]["managed_pack_complete"] is False
     assert "external-tool-guides.json" in report["sources"]["missing_managed_pack_files"]
     assert "external-error-associations.json" in report["sources"]["missing_managed_pack_files"]
+
+
+def test_gather_doctor_report_reports_missing_managed_pack_files_from_vendor_profile(tmp_path, monkeypatch):
+    source_dir = tmp_path / "sources"
+    source_dir.mkdir()
+    for name in (
+        "sentieon-modules.json",
+        "workflow-guides.json",
+        "external-format-guides.json",
+        "external-tool-guides.json",
+        "external-error-associations.json",
+    ):
+        (source_dir / name).write_text('{"version":"","entries":[]}\n')
+
+    monkeypatch.setattr(
+        "sentieon_assist.doctor.get_vendor_profile",
+        lambda vendor_id: SimpleNamespace(
+            pack_manifest={
+                "vendor-reference": {
+                    "required": True,
+                    "file_name": "sentieon-modules-v2.json",
+                    "entry_schema_version": "2.0",
+                    "load_order": 10,
+                },
+                "vendor-decision": {
+                    "required": True,
+                    "file_name": "workflow-guides.json",
+                    "entry_schema_version": "2.0",
+                    "load_order": 20,
+                },
+                "domain-standard": {
+                    "required": True,
+                    "file_name": "external-format-guides.json",
+                    "entry_schema_version": "2.0",
+                    "load_order": 30,
+                },
+                "playbook": {
+                    "required": True,
+                    "file_name": "external-tool-guides.json",
+                    "entry_schema_version": "2.0",
+                    "load_order": 40,
+                },
+                "troubleshooting": {
+                    "required": True,
+                    "file_name": "external-error-associations.json",
+                    "entry_schema_version": "2.0",
+                    "load_order": 50,
+                },
+            }
+        ),
+    )
+
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "knowledge"),
+        source_directory=str(source_dir),
+        api_probe=lambda base_url: {"ok": False, "error": "connection refused"},
+    )
+
+    assert report["sources"]["managed_pack_complete"] is False
+    assert "sentieon-modules-v2.json" in report["sources"]["missing_managed_pack_files"]
 
 
 def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():

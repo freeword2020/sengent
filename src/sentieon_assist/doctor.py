@@ -5,11 +5,54 @@ from pathlib import Path
 from typing import Any, Callable
 
 from sentieon_assist.config import load_config
-from sentieon_assist.knowledge_build import missing_managed_pack_files
 from sentieon_assist.ollama_client import probe_ollama
 from sentieon_assist.runtime_guidance import doctor_guidance_lines
 from sentieon_assist.rules import knowledge_dir as default_knowledge_dir
 from sentieon_assist.sources import collect_source_bundle_metadata, list_sources
+from sentieon_assist.vendors import get_vendor_profile
+
+
+SENTIEON_VENDOR_ID = "sentieon"
+ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
+    "vendor-reference",
+    "vendor-decision",
+    "domain-standard",
+    "playbook",
+    "troubleshooting",
+)
+
+
+def _manifest_entry_value(entry: Any, field: str) -> Any:
+    if hasattr(entry, field):
+        return getattr(entry, field)
+    if isinstance(entry, dict):
+        return entry[field]
+    raise AttributeError(f"pack manifest entry does not expose {field}")
+
+
+def _managed_pack_file_names() -> tuple[str, ...]:
+    profile = get_vendor_profile(SENTIEON_VENDOR_ID)
+    manifest = profile.pack_manifest
+    entries = sorted(
+        (
+            (logical_kind, manifest[logical_kind])
+            for logical_kind in ACTIVE_MANAGED_LOGICAL_KINDS
+            if logical_kind in manifest
+        ),
+        key=lambda item: (_manifest_entry_value(item[1], "load_order"), item[0]),
+    )
+    return tuple(
+        _manifest_entry_value(entry, "file_name")
+        for _, entry in entries
+    )
+
+
+def _missing_managed_pack_files(directory: Path) -> list[str]:
+    return [
+        file_name
+        for file_name in _managed_pack_file_names()
+        if not (directory / file_name).exists()
+    ]
 
 
 def _directory_summary(directory: str | Path) -> dict[str, Any]:
@@ -48,7 +91,7 @@ def gather_doctor_report(
             ollama.update({"ok": False, "error": str(exc)})
 
     docling_is_available = importlib.util.find_spec("docling") is not None
-    missing_pack_files = missing_managed_pack_files(effective_source_directory)
+    missing_pack_files = _missing_managed_pack_files(effective_source_directory)
     sources = _directory_summary(effective_source_directory)
     sources["file_count"] = len(list_sources(effective_source_directory))
     sources["files"] = [item["name"] for item in list_sources(effective_source_directory)]
