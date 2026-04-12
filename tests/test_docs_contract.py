@@ -28,3 +28,31 @@ def test_readmes_explain_how_to_get_the_package_before_install():
     assert "Download ZIP" in english
     assert "GitHub Releases" in chinese
     assert "Download ZIP" in chinese
+
+
+def test_platform_principles_doc_exists_with_kernel_rules():
+    text = (
+        REPO_ROOT
+        / "docs/superpowers/architecture/2026-04-12-sengent-2-0-platform-principles.md"
+    ).read_text(encoding="utf-8")
+
+    assert "support kernel" in text
+    assert "vendor profile" in text
+    assert "evidence hierarchy" in text
+    assert "证据不足时先澄清" in text
+    assert "answer contract" in text
+    assert "controlled learning loop" in text
+
+
+def test_vendor_onboarding_contract_doc_exists_with_required_sources():
+    text = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-12-sengent-vendor-onboarding-contract.md"
+    ).read_text(encoding="utf-8")
+
+    assert "official sources" in text
+    assert "domain standards" in text
+    assert "playbooks" in text
+    assert "incident cases" in text
+    assert "eval corpus" in text
+    assert "support boundaries" in text
