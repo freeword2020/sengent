@@ -42,7 +42,7 @@ SENTIEON_PROFILE = VendorProfile(
         ),
         "incident-memory": PackManifestEntry(
             required=True,
-            file_name="sentieon-module-index.md",
+            file_name="incident-memory.json",
             entry_schema_version="2.0",
             load_order=60,
         ),

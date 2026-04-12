@@ -31,3 +31,9 @@ def test_sentieon_profile_pack_manifest_entries_include_required_schema_fields()
         assert entry.file_name
         assert entry.entry_schema_version
         assert entry.load_order is not None
+
+
+def test_sentieon_profile_maps_incident_memory_to_runtime_json_pack():
+    profile = get_vendor_profile("sentieon")
+
+    assert profile.pack_manifest["incident-memory"].file_name == "incident-memory.json"
