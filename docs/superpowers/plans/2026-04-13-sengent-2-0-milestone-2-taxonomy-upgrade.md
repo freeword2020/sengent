@@ -10,6 +10,31 @@
 
 ---
 
+## Scope Boundary
+
+This plan implements **Milestone 2 only** from the approved 2.0 spec: the knowledge taxonomy upgrade.
+
+This plan explicitly includes:
+
+- six-pack taxonomy support
+- runtime pack registry / logical-pack resolution
+- regression coverage for the existing vendor profile contract fields already introduced in Milestone 1
+- build / doctor / activate / rollback support for the six-pack contract
+- pack-health validation for missing and malformed required packs
+- migration of runtime knowledge loaders away from scattered filename ownership
+
+This plan explicitly does **not** implement Milestone 3 or Milestone 4 work:
+
+- support-intent upgrades
+- clarify/fallback runtime policy
+- canonical boundary output shapes
+- answer contracts
+- controlled learning loop
+- gap-record capture
+- unsupported-version runtime decision handling
+
+Those remain separate execution units after Milestone 2 lands.
+
 ## Chunk 1: Add A Runtime Pack Registry And Six-Pack Contract
 
 ### Task 1: Introduce a kernel pack registry with failing tests first
@@ -29,6 +54,22 @@ Add tests that assert:
 - `Sentieon` exposes all six logical packs, including `incident-memory`
 - `incident-memory` resolves to a runtime JSON pack file
 - required-pack completeness can be checked against an on-disk source directory using logical kinds
+- malformed required packs are reported as invalid / runtime-incomplete instead of silently loading
+- the Sentieon profile keeps `incident-memory` explicitly `required=True`
+- the existing vendor profile contract fields remain intact:
+  - `vendor_id`
+  - `display_name`
+  - `default_version`
+  - `supported_versions`
+  - `pack_manifest`
+  - `domain_dependencies`
+  - `clarification_policy`
+  - `support_boundaries`
+- each manifest entry still exposes:
+  - `required`
+  - `file_name`
+  - `entry_schema_version`
+  - `load_order`
 
 Example shape:
 
@@ -51,6 +92,7 @@ In `src/sentieon_assist/kernel/pack_runtime.py`, define:
 - `resolve_pack_entry(vendor_id, logical_kind)`
 - `pack_path_for_kind(source_directory, vendor_id, logical_kind)`
 - `required_pack_status(source_directory, vendor_id)`
+- a focused validation helper for required runtime pack files
 - any focused helper needed to list required pack files in manifest order
 
 Keep this module vendor-agnostic. It should delegate all pack ownership to vendor profiles.
@@ -60,6 +102,7 @@ Keep this module vendor-agnostic. It should delegate all pack ownership to vendo
 Update `src/sentieon_assist/vendors/sentieon/profile.py` so:
 
 - `incident-memory` points to `incident-memory.json`
+- `incident-memory` remains explicitly `required=True` for the Sentieon profile
 - the five existing physical filenames remain unchanged
 - the profile still expresses the six-pack 2.0 contract
 
@@ -94,6 +137,7 @@ Add tests that prove:
 
 - managed-pack completeness now includes `incident-memory.json`
 - `doctor` reports a missing `incident-memory.json` when absent
+- `doctor` reports malformed required runtime packs as invalid / incomplete
 - build/activate/rollback preserve six physical runtime pack files
 - the repository’s baseline Sentieon note directory contains a valid empty `incident-memory.json`
 
@@ -116,6 +160,7 @@ Refactor the Phase 1 compatibility boundary in `knowledge_build.py` and `doctor.
 
 - `ACTIVE_MANAGED_LOGICAL_KINDS` becomes the full six-pack runtime set
 - completeness checks, activation, rollback, and candidate-pack generation all include `incident-memory`
+- malformed required runtime packs are surfaced as invalid instead of being treated as healthy
 - CLI/operator messages stay explicit about runtime-required packs
 
 Add `sentieon-note/incident-memory.json` as an empty valid pack:
@@ -168,7 +213,8 @@ Add tests that prove:
 
 - module/workflow/external-guide loaders resolve their source file through logical pack kinds
 - `sources.py` assigns trust/priority using the pack registry rather than hard-coded filenames
-- `incident_memory.py` can load the new pack and returns a stable empty payload when missing
+- `incident_memory.py` can load the new pack when present
+- missing or malformed `incident-memory` remains a runtime-health failure surfaced through the pack registry / doctor path, not a silent empty normalization
 
 Example shape:
 
@@ -257,6 +303,7 @@ Expected:
 
 - runtime pack ownership is expressed through the pack registry / vendor profile path
 - `incident-memory.json` exists as a first-class runtime pack
+- malformed or missing required packs are visible through the runtime pack health path
 - the old five filenames may still appear in tests and profile declarations, but not as scattered ownership logic across runtime modules
 
 - [ ] **Step 3: Commit any final cleanup**
