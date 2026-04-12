@@ -68,6 +68,7 @@ sengent knowledge scaffold --kind module --id fastdedup --name FastDedup
 - `external-format`
 - `external-tool`
 - `external-error`
+- `incident`
 
 命令会生成两份文件：
 
@@ -193,6 +194,29 @@ runtime feedback 当前兼容两种记录：
 - 新格式：`session_id + selected_turn_ids`
 - 旧格式：`captured_turns`
 
+如果某一轮已经带了 `gap_record`，可以把它正式导回 knowledge inbox：
+
+```bash
+sengent knowledge intake-gap \
+  --session-id <session_id> \
+  --turn-id <turn_id>
+```
+
+如果只想拿该 session 里最近一条 gap：
+
+```bash
+sengent knowledge intake-gap \
+  --session-id <session_id> \
+  --latest
+```
+
+这个命令会在 inbox 里生成两份 incident intake 文件：
+
+- markdown 说明
+- `*.meta.yaml` sidecar
+
+它们默认进入 `incident-memory.json` 的候选编译链路，但仍然只是 inbox 输入，不会直接改 active packs。
+
 如果 feedback JSONL 被单独导出到别的目录，但 session logs 还在原 runtime 下：
 
 ```bash
@@ -224,6 +248,18 @@ python scripts/pilot_closed_loop.py \
 3. 具体失败 bucket
 
 然后修资料或 metadata，再重新 build。
+
+### Case 2.5: runtime gap 已导入 inbox，但还没变成正式能力
+
+这是正常状态。
+
+继续按下面顺序做：
+
+1. `sengent knowledge build`
+2. `sengent knowledge review`
+3. 看 `gap_intake_review.jsonl`
+4. 补材料或修 sidecar
+5. gate 通过后再 activate
 
 ### Case 3: activation 后效果不对
 

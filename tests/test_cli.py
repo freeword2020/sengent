@@ -8,6 +8,10 @@ from sentieon_assist.cli import main
 from sentieon_assist.cli import render_chat_response
 from sentieon_assist.cli import run_query
 from sentieon_assist.reference_intents import ReferenceIntent
+from sentieon_assist.session_events import SupportSessionRecord
+from sentieon_assist.session_events import append_session_record
+from sentieon_assist.session_events import append_turn_event
+from sentieon_assist.session_events import build_turn_event
 from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_coordinator import SupportRouteDecision
 
@@ -55,6 +59,40 @@ def _write_activation_candidate_build(build_root: Path, build_id: str, *, module
     return build_dir
 
 
+def _write_session_with_gap(runtime_root: Path, *, gap_record: dict[str, object]) -> tuple[str, str]:
+    session = SupportSessionRecord.new(
+        repo_root="/tmp/repo",
+        git_sha="deadbeef",
+        source_directory="/tmp/sources",
+        knowledge_directory="/tmp/knowledge",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+    turn_event = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="为什么这里答不上来？",
+        effective_query="为什么这里答不上来？",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="reference",
+        route_reason="unit-test",
+        support_intent="knowledge-gap",
+        fallback_mode="clarification-open",
+        vendor_id="sentieon",
+        vendor_version="202503.03",
+        parsed_intent_intent="reference_definition",
+        parsed_intent_module="",
+        response_text="【需要确认的信息】\n- Sentieon 版本",
+        response_mode="clarify",
+        state_before={"clarification_rounds": 0},
+        state_after={"clarification_rounds": 1},
+        gap_record=gap_record,
+    )
+    append_turn_event(turn_event, runtime_root=runtime_root)
+    return session.session_id, turn_event.turn_id
+
+
 def test_cli_requires_query(capsys):
     code = main([])
     out = capsys.readouterr().out
@@ -69,6 +107,7 @@ def test_cli_help_flag_prints_usage(capsys):
     assert code == 0
     assert "Usage: sengent" in out
     assert "sengent knowledge build" in out
+    assert "sengent knowledge intake-gap" in out
 
 
 def test_cli_chat_help_prints_usage_without_entering_runtime(monkeypatch):
@@ -551,6 +590,169 @@ def test_cli_knowledge_review_prints_latest_build_report(tmp_path: Path):
     assert "Knowledge review" in combined
     assert str(latest_dir) in combined
     assert "# Latest Report" in combined
+
+
+def test_cli_knowledge_intake_gap_requires_session_id():
+    outputs: list[str] = []
+
+    code = main(["knowledge", "intake-gap"], output_fn=outputs.append)
+
+    assert code == 2
+    assert outputs == ["knowledge intake-gap requires --session-id"]
+
+
+def test_cli_knowledge_intake_gap_requires_turn_selector(tmp_path: Path):
+    runtime_directory = tmp_path / "runtime"
+    session_id, _turn_id = _write_session_with_gap(
+        runtime_directory,
+        gap_record={
+            "vendor_id": "sentieon",
+            "vendor_version": "202503.03",
+            "intent": "knowledge-gap",
+            "gap_type": "clarification_open",
+            "user_question": "为什么这里答不上来？",
+            "known_context": {"workflow": "germline"},
+            "missing_materials": ["Sentieon 版本"],
+            "captured_at": "2026-04-13T12:00:00+00:00",
+            "status": "open",
+        },
+    )
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "intake-gap",
+            "--session-id",
+            session_id,
+            "--runtime-root",
+            str(runtime_directory),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert outputs == ["knowledge intake-gap requires --turn-id or --latest"]
+
+
+def test_cli_knowledge_intake_gap_exports_latest_gap_turn(tmp_path: Path):
+    runtime_directory = tmp_path / "runtime"
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    session_id, turn_id = _write_session_with_gap(
+        runtime_directory,
+        gap_record={
+            "vendor_id": "sentieon",
+            "vendor_version": "202503.03",
+            "intent": "knowledge-gap",
+            "gap_type": "clarification_open",
+            "user_question": "为什么这里答不上来？",
+            "known_context": {"workflow": "germline"},
+            "missing_materials": ["Sentieon 版本"],
+            "captured_at": "2026-04-13T12:00:00+00:00",
+            "status": "open",
+        },
+    )
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "intake-gap",
+            "--session-id",
+            session_id,
+            "--latest",
+            "--runtime-root",
+            str(runtime_directory),
+            "--inbox-dir",
+            str(inbox_dir),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    combined = "\n".join(outputs)
+    assert "Knowledge gap intake completed" in combined
+    assert session_id in combined
+    assert turn_id in combined
+    markdown_files = sorted(inbox_dir.glob("*.md"))
+    metadata_files = sorted(inbox_dir.glob("*.meta.yaml"))
+    assert len(markdown_files) == 1
+    assert len(metadata_files) == 1
+    assert "为什么这里答不上来" in markdown_files[0].read_text(encoding="utf-8")
+    metadata_text = metadata_files[0].read_text(encoding="utf-8")
+    assert "pack_target: incident-memory.json" in metadata_text
+    assert "entry_type: incident" in metadata_text
+
+
+def test_cli_knowledge_intake_gap_end_to_end_builds_incident_candidate(tmp_path: Path):
+    runtime_directory = tmp_path / "runtime"
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    source_dir = tmp_path / "sentieon-note"
+    build_root = runtime_directory / "knowledge-build"
+    _write_activation_source_packs(source_dir)
+    session_id, _turn_id = _write_session_with_gap(
+        runtime_directory,
+        gap_record={
+            "vendor_id": "sentieon",
+            "vendor_version": "202503.03",
+            "intent": "knowledge-gap",
+            "gap_type": "unsupported_version",
+            "user_question": "202401.01 能不能这样跑？",
+            "known_context": {"workflow": "tumor-normal"},
+            "missing_materials": ["Sentieon 202401.01 release notes"],
+            "captured_at": "2026-04-13T12:00:00+00:00",
+            "status": "open",
+        },
+    )
+
+    intake_outputs: list[str] = []
+    intake_code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "intake-gap",
+            "--session-id",
+            session_id,
+            "--latest",
+            "--runtime-root",
+            str(runtime_directory),
+            "--inbox-dir",
+            str(inbox_dir),
+        ],
+        output_fn=intake_outputs.append,
+    )
+
+    assert intake_code == 0
+    assert any("Knowledge gap intake completed" in item for item in intake_outputs)
+
+    build_outputs: list[str] = []
+    build_code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=build_outputs.append,
+    )
+
+    assert build_code == 0
+    build_dirs = [path for path in build_root.iterdir() if path.is_dir() and path.name != "activation-backups"]
+    assert len(build_dirs) == 1
+    build_dir = build_dirs[0]
+    incident_payload = json.loads((build_dir / "candidate-packs" / "incident-memory.json").read_text(encoding="utf-8"))
+    compiled_entry = next(entry for entry in incident_payload["entries"] if entry["gap_type"] == "unsupported_version")
+    assert compiled_entry["vendor_version"] == "202503.03"
+    assert compiled_entry["user_question"] == "202401.01 能不能这样跑？"
+    assert compiled_entry["missing_materials"] == ["Sentieon 202401.01 release notes"]
+    report = (build_dir / "report.md").read_text(encoding="utf-8")
+    assert "Gap intake review" in report
+    assert "gap_intake_review.jsonl" in report
 
 
 def test_cli_knowledge_review_ignores_activation_backups_when_selecting_latest_build(tmp_path: Path):

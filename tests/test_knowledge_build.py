@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 from sentieon_assist.cli import main
+from sentieon_assist.knowledge_build import scaffold_knowledge_source
 from sentieon_assist.kernel.pack_contract import PackManifestEntry
 
 
@@ -612,6 +615,109 @@ def test_knowledge_build_compiles_external_reference_candidate_packs(tmp_path: P
     assert compiled_tool["summary"] == "Generic samtools guidance."
     compiled_error = next(entry for entry in error_payload["entries"] if entry["id"] == "license-connectivity")
     assert compiled_error["checks"] == ["Confirm the license server is reachable."]
+
+
+def test_knowledge_scaffold_creates_incident_defaults_for_runtime_entries(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+
+    result = scaffold_knowledge_source(
+        inbox_directory=inbox_dir,
+        kind="incident",
+        entry_id="license-gap-001",
+        name="License gap capture",
+    )
+
+    metadata = yaml.safe_load(result.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["pack_target"] == "incident-memory.json"
+    assert metadata["entry_type"] == "incident"
+    assert metadata["id"] == "license-gap-001"
+    assert metadata["origin"] == "manual-runtime"
+    assert metadata["name"] == "License gap capture"
+    assert metadata["missing_materials"] == []
+    assert metadata["known_context"] == {}
+    assert metadata["captured_at"]
+
+
+def test_knowledge_build_compiles_incident_intake_into_candidate_pack_and_review_artifact(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    inbox_dir.mkdir(parents=True)
+    (inbox_dir / "incident-gap.md").write_text(
+        "---\n"
+        "pack_target: incident-memory.json\n"
+        "entry_type: incident\n"
+        "id: license-gap-001\n"
+        "name: License gap capture\n"
+        "summary: A runtime incident captured during support.\n"
+        "gap_type: clarification_open\n"
+        "vendor_version: 202503.03\n"
+        "user_question: Which Sentieon version is deployed?\n"
+        "missing_materials:\n"
+        "  - Sentieon 202503.03\n"
+        "known_context:\n"
+        "  query_version: 202503.03\n"
+        "captured_at: 2026-04-13T00:00:00+00:00\n"
+        "---\n\n"
+        "# Incident capture\n\n"
+        "Use this to track the runtime gap.\n",
+        encoding="utf-8",
+    )
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    build_dir = _latest_build_dir(build_root)
+    incident_payload = json.loads((build_dir / "candidate-packs" / "incident-memory.json").read_text(encoding="utf-8"))
+    compiled_incident = next(entry for entry in incident_payload["entries"] if entry["id"] == "license-gap-001")
+    assert compiled_incident["name"] == "License gap capture"
+    assert compiled_incident["gap_type"] == "clarification_open"
+    assert compiled_incident["vendor_version"] == "202503.03"
+    assert compiled_incident["user_question"] == "Which Sentieon version is deployed?"
+    assert compiled_incident["missing_materials"] == ["Sentieon 202503.03"]
+    assert compiled_incident["known_context"] == {"query_version": "202503.03"}
+    assert compiled_incident["captured_at"] == "2026-04-13T00:00:00+00:00"
+    assert compiled_incident["sources"] == ["incident-gap.md"]
+
+    review_records = [
+        json.loads(line)
+        for line in (build_dir / "gap_intake_review.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert review_records == [
+        {
+            "build_id": review_records[0]["build_id"],
+            "doc_id": review_records[0]["doc_id"],
+            "relative_path": "incident-gap.md",
+            "pack_target": "incident-memory.json",
+            "entry_id": "license-gap-001",
+            "gap_type": "clarification_open",
+            "vendor_version": "202503.03",
+            "user_question": "Which Sentieon version is deployed?",
+            "missing_materials": ["Sentieon 202503.03"],
+            "known_context": {"query_version": "202503.03"},
+            "captured_at": "2026-04-13T00:00:00+00:00",
+        }
+    ]
+
+    report = (build_dir / "report.md").read_text(encoding="utf-8")
+    assert "Captured gaps" in report
+    assert "Captured gap records: 1" in report
+    assert "gap_intake_review.jsonl" in report
 
 
 def test_knowledge_build_queues_duplicate_candidate_ids_as_exceptions(tmp_path: Path):

@@ -31,6 +31,7 @@ from sentieon_assist.feedback_runtime import (
     normalize_expected_task,
     normalize_feedback_scope,
 )
+from sentieon_assist.gap_intake import export_gap_turn_to_inbox
 from sentieon_assist.knowledge_build import (
     activate_knowledge_build,
     default_build_root,
@@ -129,6 +130,7 @@ def format_cli_help() -> str:
             "",
             "Knowledge maintenance:",
             "  sengent knowledge scaffold --kind <kind> --id <id> [--name <name>]",
+            "  sengent knowledge intake-gap --session-id <id> [--turn-id <id> | --latest] [--runtime-root <dir>] [--inbox-dir <dir>]",
             "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
             "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
@@ -201,6 +203,7 @@ def format_knowledge_help() -> str:
             "",
             "Subcommands:",
             "  scaffold    Create an inbox template for add/update/delete",
+            "  intake-gap  Export a captured runtime gap into the knowledge inbox",
             "  build       Compile inbox content into candidate packs",
             "  review      Show the latest or selected build report",
             "  activate    Promote a gated build into active packs",
@@ -224,6 +227,14 @@ def format_knowledge_subcommand_help(subcommand: str) -> str:
                 "Usage: sengent knowledge scaffold --kind <kind> --id <id> [--name <name>] [--action <upsert|delete>] [--inbox-dir <dir>] [--file-stem <stem>]",
                 "",
                 "Create or update an inbox markdown + metadata template.",
+            ]
+        )
+    if subcommand == "intake-gap":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge intake-gap --session-id <id> [--turn-id <id> | --latest] [--runtime-root <dir>] [--inbox-dir <dir>]",
+                "",
+                "Export a captured runtime gap record into an inbox incident artifact.",
             ]
         )
     if subcommand == "activate":
@@ -666,6 +677,38 @@ def _parse_knowledge_scaffold_options(
             file_stem = args[index]
         index += 1
     return inbox_directory, kind, entry_id, name, action, file_stem
+
+
+def _parse_knowledge_intake_gap_options(
+    args: list[str],
+) -> tuple[str | None, str | None, str | None, bool, str | None]:
+    inbox_directory: str | None = None
+    session_id: str | None = None
+    turn_id: str | None = None
+    latest = False
+    runtime_root: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option == "--latest":
+            latest = True
+            index += 1
+            continue
+        if option not in {"--inbox-dir", "--session-id", "--turn-id", "--runtime-root"}:
+            raise ValueError(f"unknown knowledge intake-gap option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--inbox-dir":
+            inbox_directory = args[index]
+        elif option == "--session-id":
+            session_id = args[index]
+        elif option == "--turn-id":
+            turn_id = args[index]
+        else:
+            runtime_root = args[index]
+        index += 1
+    return inbox_directory, session_id, turn_id, latest, runtime_root
 
 
 def _parse_doctor_options(args: list[str]) -> bool:
@@ -1222,6 +1265,34 @@ def main(
             "Knowledge scaffold completed: "
             f"{result.markdown_path} "
             f"(metadata={result.metadata_path}, action={result.action}, kind={result.kind})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "intake-gap":
+        try:
+            inbox_directory, session_id, turn_id, latest, runtime_root = _parse_knowledge_intake_gap_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not session_id:
+            output_fn("knowledge intake-gap requires --session-id")
+            return 2
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir())
+        resolved_runtime_root = runtime_root or runtime_directory
+        try:
+            result = export_gap_turn_to_inbox(
+                session_id=session_id,
+                inbox_directory=resolved_inbox_directory,
+                runtime_root=resolved_runtime_root,
+                turn_id=turn_id,
+                latest=latest,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge gap intake completed: "
+            f"{result.markdown_path} "
+            f"(metadata={result.metadata_path}, session_id={result.session_id}, turn_id={result.turn_id}, gap_type={result.gap_type})"
         )
         return 0
     if len(args) >= 2 and args[0] == "knowledge" and args[1] == "activate":

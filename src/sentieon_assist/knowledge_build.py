@@ -40,6 +40,7 @@ SCAFFOLDABLE_LOGICAL_KINDS: tuple[str, ...] = (
     "domain-standard",
     "playbook",
     "troubleshooting",
+    "incident-memory",
 )
 SCAFFOLD_KIND_TO_LOGICAL_KIND: dict[str, str] = {
     "module": "vendor-reference",
@@ -47,6 +48,7 @@ SCAFFOLD_KIND_TO_LOGICAL_KIND: dict[str, str] = {
     "external-format": "domain-standard",
     "external-tool": "playbook",
     "external-error": "troubleshooting",
+    "incident": "incident-memory",
 }
 LOGICAL_KIND_TO_ENTRY_TYPE: dict[str, str] = {
     "vendor-reference": "module",
@@ -54,6 +56,7 @@ LOGICAL_KIND_TO_ENTRY_TYPE: dict[str, str] = {
     "domain-standard": "external_format",
     "playbook": "external_tool",
     "troubleshooting": "external_error",
+    "incident-memory": "incident",
 }
 PILOT_READINESS_REPORT_NAME = "pilot-readiness-report.json"
 PILOT_CLOSED_LOOP_REPORT_NAME = "pilot-closed-loop-report.json"
@@ -151,6 +154,21 @@ class ParameterReviewSuggestionRecord:
 
 
 @dataclass(frozen=True)
+class GapIntakeReviewRecord:
+    build_id: str
+    doc_id: str
+    relative_path: str
+    pack_target: str
+    entry_id: str
+    gap_type: str | None
+    vendor_version: str | None
+    user_question: str | None
+    missing_materials: list[str]
+    known_context: dict[str, Any]
+    captured_at: str | None
+
+
+@dataclass(frozen=True)
 class KnowledgeBuildException:
     path: str
     relative_path: str
@@ -173,6 +191,7 @@ class CandidatePackBuildResult:
     pack_diffs: dict[str, dict[str, Any]]
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord]
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord]
+    gap_intake_reviews: list[GapIntakeReviewRecord]
 
 
 @dataclass(frozen=True)
@@ -468,6 +487,7 @@ def run_knowledge_build(
     _write_jsonl(build_dir / "parameter_candidate_record.jsonl", parameter_candidate_records)
     _write_jsonl(build_dir / "parameter_promotion_review.jsonl", candidate_pack_result.parameter_promotion_reviews)
     _write_jsonl(build_dir / "parameter_review_suggestion.jsonl", candidate_pack_result.parameter_review_suggestions)
+    _write_jsonl(build_dir / "gap_intake_review.jsonl", candidate_pack_result.gap_intake_reviews)
     _write_jsonl(build_dir / "exceptions.jsonl", exceptions)
     (build_dir / "report.md").write_text(
         _build_report(
@@ -482,6 +502,7 @@ def run_knowledge_build(
             parameter_candidate_records=parameter_candidate_records,
             parameter_promotion_reviews=candidate_pack_result.parameter_promotion_reviews,
             parameter_review_suggestions=candidate_pack_result.parameter_review_suggestions,
+            gap_intake_reviews=candidate_pack_result.gap_intake_reviews,
             docling_is_available=docling_is_available,
         ),
         encoding="utf-8",
@@ -663,6 +684,19 @@ def scaffold_knowledge_source(
         if isinstance(payload, dict):
             existing_metadata = _normalize_metadata_dict(payload)
     merged_metadata = _merge_metadata(existing_metadata, defaults)
+    if normalized_kind == "incident":
+        for key, value in {
+            "summary": "",
+            "gap_type": "knowledge_gap",
+            "vendor_version": "",
+            "user_question": "",
+            "missing_materials": [],
+            "known_context": {},
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "origin": "manual-runtime",
+        }.items():
+            if key not in merged_metadata:
+                merged_metadata[key] = value
     _write_yaml(metadata_path, merged_metadata)
 
     return KnowledgeScaffoldResult(
@@ -776,6 +810,20 @@ def _scaffold_metadata_defaults(*, kind: str, entry_id: str, name: str | None, a
                 "related_guides": [],
                 "usage_boundary": [],
                 "source_notes": [],
+            }
+        )
+    elif kind == "incident":
+        defaults.update(
+            {
+                "name": display_name,
+                "summary": "",
+                "gap_type": "knowledge_gap",
+                "vendor_version": "",
+                "user_question": "",
+                "missing_materials": [],
+                "known_context": {},
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "origin": "manual-runtime",
             }
         )
     return defaults
@@ -1321,6 +1369,7 @@ def _compile_candidate_packs(
     compiled_sources: dict[tuple[str, str], str] = {}
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord] = []
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord] = []
+    gap_intake_reviews: list[GapIntakeReviewRecord] = []
     for record in doc_records:
         compiled_entry = _compile_candidate_entry(
             record,
@@ -1337,6 +1386,7 @@ def _compile_candidate_packs(
         build_exceptions.extend(compiled_entry["exceptions"])
         parameter_promotion_reviews.extend(compiled_entry["parameter_promotion_reviews"])
         parameter_review_suggestions.extend(compiled_entry["parameter_review_suggestions"])
+        gap_intake_reviews.extend(compiled_entry["gap_intake_reviews"])
         pack_target = compiled_entry["pack_target"]
         candidate_id = str(compiled_entry.get("entry_id") or compiled_entry["entry"]["id"])
         seen_key = (pack_target, candidate_id)
@@ -1395,6 +1445,7 @@ def _compile_candidate_packs(
             "pack_diffs": pack_diffs,
             "parameter_promotion_reviews": [asdict(item) for item in parameter_promotion_reviews],
             "parameter_review_suggestions": [asdict(item) for item in parameter_review_suggestions],
+            "gap_intake_reviews": [asdict(item) for item in gap_intake_reviews],
             "status": "candidate_only",
             "note": "candidate packs are not active runtime packs yet",
         },
@@ -1406,6 +1457,7 @@ def _compile_candidate_packs(
         pack_diffs=pack_diffs,
         parameter_promotion_reviews=parameter_promotion_reviews,
         parameter_review_suggestions=parameter_review_suggestions,
+        gap_intake_reviews=gap_intake_reviews,
     )
 
 
@@ -1468,6 +1520,7 @@ def _compile_candidate_entry(
             "exceptions": [],
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
+            "gap_intake_reviews": [],
         }
     if record.pack_target == "sentieon-modules.json":
         entry: dict[str, Any] = {
@@ -1513,6 +1566,7 @@ def _compile_candidate_entry(
             "exceptions": parameter_exceptions,
             "parameter_promotion_reviews": parameter_review_records,
             "parameter_review_suggestions": parameter_suggestion_records,
+            "gap_intake_reviews": [],
         }
     if record.pack_target == "workflow-guides.json":
         workflow_entry: dict[str, Any] = {
@@ -1543,6 +1597,7 @@ def _compile_candidate_entry(
             "exceptions": [],
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
+            "gap_intake_reviews": [],
         }
     if record.pack_target in {"external-format-guides.json", "external-tool-guides.json"}:
         external_entry: dict[str, Any] = {
@@ -1562,6 +1617,7 @@ def _compile_candidate_entry(
             "exceptions": [],
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
+            "gap_intake_reviews": [],
         }
     if record.pack_target == "external-error-associations.json":
         error_entry: dict[str, Any] = {
@@ -1581,6 +1637,52 @@ def _compile_candidate_entry(
             "exceptions": [],
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
+            "gap_intake_reviews": [],
+        }
+    if record.pack_target == "incident-memory.json":
+        incident_entry: dict[str, Any] = {
+            "id": str(metadata["id"]),
+            "name": str(metadata["name"]),
+            "sources": [record.relative_path],
+        }
+        if "summary" in metadata:
+            incident_entry["summary"] = str(metadata.get("summary", ""))
+        if "gap_type" in metadata:
+            incident_entry["gap_type"] = _string_or_none(metadata.get("gap_type"))
+        if "vendor_version" in metadata:
+            incident_entry["vendor_version"] = _string_or_none(metadata.get("vendor_version"))
+        if "user_question" in metadata:
+            incident_entry["user_question"] = _string_or_none(metadata.get("user_question"))
+        if "missing_materials" in metadata:
+            incident_entry["missing_materials"] = _string_list(metadata.get("missing_materials"))
+        if "known_context" in metadata:
+            known_context = metadata.get("known_context")
+            if isinstance(known_context, dict):
+                incident_entry["known_context"] = known_context
+            else:
+                incident_entry["known_context"] = {}
+        if "captured_at" in metadata:
+            incident_entry["captured_at"] = _string_or_none(metadata.get("captured_at"))
+        gap_review = GapIntakeReviewRecord(
+            build_id=build_id,
+            doc_id=record.doc_id,
+            relative_path=record.relative_path,
+            pack_target=record.pack_target,
+            entry_id=str(metadata["id"]),
+            gap_type=_string_or_none(metadata.get("gap_type")),
+            vendor_version=_string_or_none(metadata.get("vendor_version")),
+            user_question=_string_or_none(metadata.get("user_question")),
+            missing_materials=_string_list(metadata.get("missing_materials")) if "missing_materials" in metadata else [],
+            known_context=metadata.get("known_context") if isinstance(metadata.get("known_context"), dict) else {},
+            captured_at=_string_or_none(metadata.get("captured_at")),
+        )
+        return {
+            "pack_target": record.pack_target,
+            "entry": incident_entry,
+            "exceptions": [],
+            "parameter_promotion_reviews": [],
+            "parameter_review_suggestions": [],
+            "gap_intake_reviews": [gap_review],
         }
     return None
 
@@ -1907,6 +2009,7 @@ def _build_report(
     parameter_candidate_records: list[ParameterCandidateRecord],
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord],
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord],
+    gap_intake_reviews: list[GapIntakeReviewRecord],
     docling_is_available: bool,
 ) -> str:
     candidate_pack_directory = build_dir / "candidate-packs"
@@ -1917,6 +2020,7 @@ def _build_report(
     promoted_without_evidence = [item for item in promoted_parameters if item.evidence_status == "missing"]
     covered_by_module = [item for item in parameter_promotion_reviews if item.status == "covered_by_module"]
     covered_by_shared_module = [item for item in parameter_promotion_reviews if item.status == "covered_by_shared_module"]
+    captured_gap_reviews = gap_intake_reviews
     changed_pack_diffs = {
         pack_name: diff
         for pack_name, diff in candidate_pack_result.pack_diffs.items()
@@ -1987,6 +2091,20 @@ def _build_report(
         for item in review_needed:
             lines.append(f"- `{item.relative_path}`: `{item.parameter_name}` ({item.status}, {item.evidence_status})")
             lines.append(f"  - {item.detail}")
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Captured gaps",
+            f"- Captured gap records: {len(captured_gap_reviews)}",
+            f"- Gap intake review artifact: `{build_dir / 'gap_intake_review.jsonl'}`",
+        ]
+    )
+    if captured_gap_reviews:
+        for item in captured_gap_reviews:
+            description = item.gap_type or "unknown"
+            lines.append(f"- `{item.relative_path}`: `{item.entry_id}` ({description})")
     else:
         lines.append("- none")
     lines.extend(
