@@ -13,6 +13,9 @@ from sentieon_assist.vendors import get_vendor_profile
 
 
 SENTIEON_VENDOR_ID = "sentieon"
+# Doctor mirrors the Phase 1 runtime-managed pack subset so health checks stay
+# aligned with build/activate/rollback compatibility. `incident-memory` remains
+# part of the vendor contract without being part of the managed runtime pack set yet.
 ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
     "vendor-reference",
     "vendor-decision",

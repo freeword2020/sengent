@@ -33,6 +33,9 @@ GATE_COMMANDS: tuple[str, ...] = (
     "python scripts/pilot_closed_loop.py",
 )
 SENTIEON_VENDOR_ID = "sentieon"
+# Phase 1 keeps build/activate/rollback compatible with the existing runtime-managed
+# JSON packs. `incident-memory` is part of the 2.0 vendor contract, but it is not
+# activated through the runtime pack set in this milestone.
 ACTIVE_MANAGED_LOGICAL_KINDS: tuple[str, ...] = (
     "vendor-reference",
     "vendor-decision",
