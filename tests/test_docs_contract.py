@@ -56,3 +56,18 @@ def test_vendor_onboarding_contract_doc_exists_with_required_sources():
     assert "incident cases" in text
     assert "eval corpus" in text
     assert "support boundaries" in text
+
+
+def test_pre_human_test_gate_doc_exists_with_required_boundary_terms():
+    text = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-13-sengent-2-1-pre-human-test-gate.md"
+    ).read_text(encoding="utf-8")
+
+    assert "pre-human-test gate" in text
+    assert "runtime provider env/config" in text
+    assert "factory provider env/config" in text
+    assert "doctor checks" in text
+    assert "prohibited operations" in text
+    assert "expected review-only behavior for factory drafts" in text
+    assert "manual test categories" in text
