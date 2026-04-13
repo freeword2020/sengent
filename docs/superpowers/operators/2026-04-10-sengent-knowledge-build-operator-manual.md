@@ -197,6 +197,14 @@ sengent knowledge factory-draft \
 - `sengent knowledge queue`
 - `sengent knowledge review-factory-draft`
 
+如果当前已经配置了 `SENGENT_FACTORY_HOSTED_PROVIDER` 等 hosted factory 变量，而你没有显式传 `--adapter`，CLI 现在会默认走 hosted adapter。
+
+如果你想强制走本地 stub，再显式传：
+
+```bash
+sengent knowledge factory-draft ... --adapter stub
+```
+
 如果你想生成 standalone draft，就只传 `--output`、不要传 `--build-id`；但 standalone draft 不会自动进入 maintainer queue。
 
 这个命令只会产出 `needs_review` 的 draft artifact，里面会保留 prompt/template provenance、source references、adapter 信息和 review-required 状态。

@@ -172,10 +172,11 @@ seed_active_source_packs() {
     "external-format-guides.json"
     "external-tool-guides.json"
     "external-error-associations.json"
+    "incident-memory.json"
   )
 
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    printf '+ Seed active source packs into %s\n' "$(resolve_default_source_dir)"
+    printf '+ Seed active source packs into %s (including incident-memory.json)\n' "$(resolve_default_source_dir)"
     return 0
   fi
 

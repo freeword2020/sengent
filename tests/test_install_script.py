@@ -44,6 +44,7 @@ def test_install_script_dry_run_prints_core_bootstrap_steps(tmp_path: Path):
     assert "pip install -e ." not in result.stdout
     assert "sengent doctor --skip-ollama" in result.stdout
     assert "Seed active source packs" in result.stdout
+    assert "incident-memory.json" in result.stdout
     assert f"source {tmp_path / '.venv' / 'bin' / 'activate'}" in result.stdout
 
 

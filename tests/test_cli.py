@@ -1781,6 +1781,103 @@ def test_knowledge_factory_draft_can_attach_to_existing_build(tmp_path: Path):
     assert f"Attached build: {build_dir.name}" in summary
 
 
+def test_knowledge_factory_draft_uses_hosted_adapter_by_default_when_factory_hosted_is_configured(
+    tmp_path: Path, monkeypatch
+):
+    source_path = tmp_path / "vendor-doc.md"
+    source_path.write_text("# FastDedup\n\nUse hosted draft by default.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "candidate-draft.json"
+    outputs: list[str] = []
+
+    class FakeHostedFactoryAdapter:
+        adapter_id = "hosted"
+        provider = "openai_compatible"
+        model_name = "deepseek-chat"
+
+        def draft(self, *, task_kind, vendor_id, prompt, source_references):
+            return {
+                "summary": "hosted draft summary",
+                "draft_items": [],
+                "review_hints": ["review required"],
+                "adapter_notes": {"execution_mode": "hosted-review-only"},
+            }
+
+    monkeypatch.setattr(
+        "sentieon_assist.factory_model.load_config",
+        lambda: SimpleNamespace(
+            factory_hosted_provider="openai_compatible",
+            factory_hosted_base_url="https://api.deepseek.com",
+            factory_hosted_model="deepseek-chat",
+            factory_hosted_api_key="secret",
+        ),
+    )
+    monkeypatch.setattr(
+        "sentieon_assist.factory_model.build_factory_backend",
+        lambda config: FakeHostedFactoryAdapter(),
+    )
+
+    code = main(
+        [
+            "knowledge",
+            "factory-draft",
+            "--task",
+            "candidate-draft",
+            "--source-ref",
+            str(source_path),
+            "--output",
+            str(output_path),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    summary = "\n".join(outputs)
+    assert payload["adapter"]["adapter_id"] == "hosted"
+    assert payload["adapter"]["provider"] == "openai_compatible"
+    assert "Adapter: hosted" in summary
+
+
+def test_knowledge_factory_draft_explicit_stub_overrides_hosted_default(tmp_path: Path, monkeypatch):
+    source_path = tmp_path / "vendor-doc.md"
+    source_path.write_text("# FastDedup\n\nForce stub draft.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "candidate-draft.json"
+    outputs: list[str] = []
+
+    monkeypatch.setattr(
+        "sentieon_assist.factory_model.load_config",
+        lambda: SimpleNamespace(
+            factory_hosted_provider="openai_compatible",
+            factory_hosted_base_url="https://api.deepseek.com",
+            factory_hosted_model="deepseek-chat",
+            factory_hosted_api_key="secret",
+        ),
+    )
+
+    code = main(
+        [
+            "knowledge",
+            "factory-draft",
+            "--task",
+            "candidate-draft",
+            "--source-ref",
+            str(source_path),
+            "--output",
+            str(output_path),
+            "--adapter",
+            "stub",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    summary = "\n".join(outputs)
+    assert payload["adapter"]["adapter_id"] == "stub"
+    assert payload["adapter"]["provider"] == "local-stub"
+    assert "Adapter: stub" in summary
+
+
 def test_knowledge_factory_draft_build_attachment_uses_canonical_directory_even_with_output(tmp_path: Path):
     build_root = tmp_path / "runtime" / "knowledge-build"
     build_dir = build_root / "20260413T010203Z-build1234"

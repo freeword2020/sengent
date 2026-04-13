@@ -175,7 +175,7 @@ sengent doctor --skip-ollama
 
 - creates a local virtualenv
 - installs Sengent **non-editably** from the current checkout
-- seeds the active source pack directory from the repo’s managed JSON packs
+- seeds the active source pack directory from the repo’s six managed JSON packs, including `incident-memory.json`
 - runs the installed `sengent doctor`
 - optionally runs `ollama pull <model>` when you explicitly pass `--ensure-ollama-model`
 

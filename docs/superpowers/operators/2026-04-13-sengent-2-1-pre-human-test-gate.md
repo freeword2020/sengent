@@ -48,6 +48,7 @@ Factory draft output is review material, not truth.
 - `sengent knowledge factory-draft` must produce a draft that stays `needs_review`.
 - Attached drafts should surface through `pending-factory-draft-review`.
 - Review happens with `sengent knowledge queue` and `sengent knowledge review-factory-draft`.
+- If factory hosted config is present and `--adapter` is omitted, the CLI may use the hosted adapter by default; pass `--adapter stub` only when you intentionally want the local stub path.
 - The maintainer then copies accepted evidence back into inbox or metadata changes by hand.
 - Standalone draft output created with `--output` does not automatically enter the maintainer queue.
 - Factory drafts never auto-activate candidate packs and never change active packs directly.

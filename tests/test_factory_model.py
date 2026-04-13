@@ -212,6 +212,63 @@ def test_run_factory_draft_marks_hosted_learning_pilot_artifact_without_changing
     assert payload["learning_pilot"]["status"] == "review_needed"
 
 
+def test_run_factory_draft_uses_hosted_adapter_by_default_when_factory_hosted_is_configured(
+    tmp_path: Path, monkeypatch
+):
+    source_path = tmp_path / "hosted-default-source.md"
+    source_path.write_text("# Candidate\n\nHosted default adapter test.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "hosted-default.json"
+    adapter = FakeHostedFactoryAdapter()
+    monkeypatch.setattr("sentieon_assist.factory_model.build_factory_backend", lambda config: adapter)
+
+    result = run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[source_path],
+        output_path=output_path,
+        vendor_id="sentieon",
+        instruction="Use the configured hosted adapter by default.",
+        config=_factory_config(
+            factory_hosted_provider="openai_compatible",
+            factory_hosted_base_url="https://factory.example/v1",
+            factory_hosted_model="factory-gpt",
+            factory_hosted_api_key="factory-secret",
+        ),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.adapter_id == "hosted"
+    assert payload["adapter"]["adapter_id"] == "hosted"
+    assert payload["adapter"]["provider"] == "openai_compatible"
+    assert payload["learning_pilot"]["track"] == "hosted_learning"
+
+
+def test_run_factory_draft_explicit_stub_overrides_hosted_factory_config(tmp_path: Path):
+    source_path = tmp_path / "stub-override-source.md"
+    source_path.write_text("# Candidate\n\nForce local stub.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "stub-override.json"
+
+    result = run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[source_path],
+        output_path=output_path,
+        vendor_id="sentieon",
+        instruction="Force the local stub adapter.",
+        adapter="stub",
+        config=_factory_config(
+            factory_hosted_provider="openai_compatible",
+            factory_hosted_base_url="https://factory.example/v1",
+            factory_hosted_model="factory-gpt",
+            factory_hosted_api_key="factory-secret",
+        ),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.adapter_id == "stub"
+    assert payload["adapter"]["adapter_id"] == "stub"
+    assert payload["adapter"]["provider"] == "local-stub"
+    assert payload["learning_pilot"]["track"] == "stub_draft"
+
+
 def test_run_factory_draft_marks_stub_drafts_as_stub_draft_pilot(tmp_path: Path):
     source_path = tmp_path / "stub-source.md"
     source_path.write_text("# Dataset\n\nDraft stub review notes.\n", encoding="utf-8")

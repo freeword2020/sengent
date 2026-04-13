@@ -228,7 +228,7 @@ def run_factory_draft(
     build_id: str | None = None,
     vendor_id: str = DEFAULT_VENDOR_ID,
     instruction: str | None = None,
-    adapter: str = DEFAULT_FACTORY_ADAPTER,
+    adapter: str | None = None,
     adapter_impl: FactoryModelAdapter | None = None,
     config: AppConfig | None = None,
 ) -> FactoryDraftResult:
@@ -571,12 +571,15 @@ def _build_source_preview(path: Path) -> str:
     return collapsed[:280]
 
 
-def _build_adapter(adapter: str, *, config: AppConfig | None = None) -> FactoryModelAdapter:
-    normalized_adapter = str(adapter).strip().lower() or DEFAULT_FACTORY_ADAPTER
+def _build_adapter(adapter: str | None, *, config: AppConfig | None = None) -> FactoryModelAdapter:
+    resolved_config = config or load_config()
+    normalized_adapter = str(adapter).strip().lower() if adapter is not None else ""
+    if not normalized_adapter:
+        normalized_adapter = "hosted" if str(resolved_config.factory_hosted_provider).strip() else DEFAULT_FACTORY_ADAPTER
     if normalized_adapter == DEFAULT_FACTORY_ADAPTER:
         return StubFactoryAdapter()
     if normalized_adapter in {"hosted", "openai_compatible"}:
-        backend = build_factory_backend(config or load_config())
+        backend = build_factory_backend(resolved_config)
         if backend.adapter_id == DEFAULT_FACTORY_ADAPTER:
             raise ValueError("factory hosted adapter requires SENGENT_FACTORY_HOSTED_PROVIDER configuration")
         return backend

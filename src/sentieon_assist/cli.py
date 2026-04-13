@@ -1779,7 +1779,7 @@ def main(
                 build_id=build_id,
                 vendor_id=vendor_id or "sentieon",
                 instruction=instruction,
-                adapter=adapter or "stub",
+                adapter=adapter,
             )
         except ValueError as error:
             output_fn(str(error))

@@ -175,7 +175,7 @@ sengent doctor --skip-ollama
 
 - 创建本地虚拟环境
 - 从当前 checkout 以非 editable 的方式安装 Sengent
-- 把 managed JSON packs 复制到 active source pack 目录
+- 把 6 个 managed JSON packs 复制到 active source pack 目录，其中包括 `incident-memory.json`
 - 运行已安装的 `sengent doctor`
 - 只有显式传入 `--ensure-ollama-model` 时，才会尝试执行 `ollama pull <model>`
 
