@@ -5,6 +5,36 @@ from sentieon_assist.llm_capabilities import LLMCapabilityDescriptor
 from sentieon_assist.llm_backends import BackendRouter, OllamaBackend, OpenAICompatibleBackend, build_backend_router
 
 
+class _FakeResponse:
+    def __init__(self, payload: bytes, *, stream_lines: list[bytes] | None = None):
+        self.payload = payload
+        self.stream_lines = stream_lines or []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.payload
+
+    def __iter__(self):
+        return iter(self.stream_lines)
+
+
+def _capture_request(monkeypatch, payload: bytes, *, stream_lines: list[bytes] | None = None):
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return _FakeResponse(payload, stream_lines=stream_lines)
+
+    monkeypatch.setattr("sentieon_assist.llm_backends.urlopen", fake_urlopen)
+    return captured
+
+
 class FakeBackend:
     def __init__(self, name: str, *, generate_error: Exception | None = None, stream_error: Exception | None = None):
         self.name = name
@@ -176,6 +206,67 @@ def test_openai_compatible_backend_uses_conservative_default_capabilities():
         max_context=0,
         prompt_cache_behavior="unknown",
     )
+
+
+def test_openai_compatible_backend_probe_reads_models_and_auth_header(monkeypatch):
+    captured = _capture_request(
+        monkeypatch,
+        b'{"data":[{"id":"gpt-5.4-mini"},{"id":"gpt-4.1"}]}',
+    )
+    backend = OpenAICompatibleBackend(base_url="https://llm.example/v1", model="gpt-5.4-mini", api_key="secret-token")
+
+    probe = backend.probe()
+
+    request = captured["request"]
+    assert probe == {"ok": True, "model_available": True, "models": ["gpt-5.4-mini", "gpt-4.1"]}
+    assert request.full_url == "https://llm.example/v1/models"
+    assert request.get_method() == "GET"
+    assert request.get_header("Authorization") == "Bearer secret-token"
+
+
+def test_openai_compatible_backend_generate_posts_chat_completion_payload_and_auth_header(monkeypatch):
+    captured = _capture_request(
+        monkeypatch,
+        b'{"choices":[{"message":{"content":"assistant answer"}}]}',
+    )
+    backend = OpenAICompatibleBackend(base_url="https://llm.example/v1", model="gpt-5.4-mini", api_key="secret-token")
+
+    text = backend.generate("hello world")
+
+    request = captured["request"]
+    assert text == "assistant answer"
+    assert request.full_url == "https://llm.example/v1/chat/completions"
+    assert request.get_method() == "POST"
+    assert request.get_header("Authorization") == "Bearer secret-token"
+    assert request.data is not None
+    assert b'"model": "gpt-5.4-mini"' in request.data
+    assert b'"stream": false' in request.data.lower()
+
+
+def test_openai_compatible_backend_generate_stream_parses_events_and_auth_header(monkeypatch):
+    captured = _capture_request(
+        monkeypatch,
+        b"",
+        stream_lines=[
+            b'data: {"choices":[{"delta":{"content":"hello"}}]}\n',
+            b'data: {"choices":[{"delta":{"content":" world"}}]}\n',
+            b"data: [DONE]\n",
+        ],
+    )
+    backend = OpenAICompatibleBackend(base_url="https://llm.example/v1", model="gpt-5.4-mini", api_key="secret-token")
+    streamed: list[str] = []
+
+    text = backend.generate_stream("hello world", on_chunk=streamed.append)
+
+    request = captured["request"]
+    assert text == "hello world"
+    assert streamed == ["hello", " world"]
+    assert request.full_url == "https://llm.example/v1/chat/completions"
+    assert request.get_method() == "POST"
+    assert request.get_header("Authorization") == "Bearer secret-token"
+    assert request.data is not None
+    assert b'"model": "gpt-5.4-mini"' in request.data
+    assert b'"stream": true' in request.data.lower()
 
 
 def test_build_backend_router_uses_provider_capabilities_for_fallback():

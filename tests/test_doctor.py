@@ -395,3 +395,25 @@ def test_format_doctor_report_includes_hosted_provider_guidance():
     assert "gpt-4.1" in text
     assert "ollama pull" not in text
     assert "API key" in text or "api_key" in text
+
+
+def test_gather_doctor_report_prefers_canonical_hosted_runtime_env_over_legacy_ollama_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("SENGENT_RUNTIME_LLM_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("SENGENT_RUNTIME_LLM_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("SENGENT_RUNTIME_LLM_MODEL", "gpt-4.1")
+    monkeypatch.setenv("SENGENT_RUNTIME_LLM_API_KEY", "secret-token")
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://legacy-box:11434")
+    monkeypatch.setenv("OLLAMA_MODEL", "legacy-model")
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "2h")
+
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "knowledge"),
+        source_directory=str(tmp_path / "sources"),
+        api_probe=lambda base_url: {"ok": False, "error": "connection refused"},
+    )
+
+    assert report["runtime_llm"]["provider"] == "openai_compatible"
+    assert report["runtime_llm"]["base_url"] == "https://api.example.com/v1"
+    assert report["runtime_llm"]["model"] == "gpt-4.1"
+    assert report["runtime_llm"]["error"] == "connection refused"
+    assert "ollama pull" not in format_doctor_report(report)

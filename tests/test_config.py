@@ -98,6 +98,26 @@ def test_load_config_maps_legacy_ollama_env_to_canonical_runtime_contract(monkey
     assert config.runtime_llm_prompt_cache_behavior == "provider_managed"
 
 
+def test_load_config_does_not_fall_back_to_legacy_ollama_env_for_openai_provider(monkeypatch):
+    monkeypatch.setenv("SENGENT_RUNTIME_LLM_PROVIDER", "openai_compatible")
+    monkeypatch.delenv("SENGENT_RUNTIME_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("SENGENT_RUNTIME_LLM_MODEL", raising=False)
+    monkeypatch.delenv("SENGENT_RUNTIME_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("SENGENT_RUNTIME_LLM_KEEP_ALIVE", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://legacy-box:11434")
+    monkeypatch.setenv("OLLAMA_MODEL", "legacy-model")
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "2h")
+
+    config = load_config()
+
+    assert config.runtime_llm_provider == "openai_compatible"
+    assert config.runtime_llm_base_url == ""
+    assert config.runtime_llm_model == ""
+    assert config.runtime_llm_api_key == ""
+    assert config.runtime_llm_keep_alive == ""
+    assert config.runtime_llm_prompt_cache_behavior == "unknown"
+
+
 def test_load_config_defaults_follow_selected_provider(monkeypatch):
     monkeypatch.setenv("SENGENT_RUNTIME_LLM_PROVIDER", "openai_compatible")
     monkeypatch.delenv("SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS", raising=False)

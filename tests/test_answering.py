@@ -21,6 +21,31 @@ from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_coordinator import SupportRouteDecision
 
 
+def _make_hosted_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        runtime_llm_provider="openai_compatible",
+        runtime_llm_base_url="https://api.example.com/v1",
+        runtime_llm_model="gpt-4.1",
+        runtime_llm_api_key="sk-test",
+        runtime_llm_keep_alive="30m",
+        runtime_llm_supports_tools=True,
+        runtime_llm_supports_json_schema=True,
+        runtime_llm_supports_reasoning_effort=False,
+        runtime_llm_supports_streaming=True,
+        runtime_llm_max_context=128000,
+        runtime_llm_prompt_cache_behavior="none",
+        llm_fallback_backend="",
+        llm_fallback_base_url="",
+        llm_fallback_model="",
+        llm_fallback_api_key="",
+        knowledge_dir="",
+        source_dir="/tmp/sources",
+        ollama_base_url="http://legacy-ollama.invalid",
+        ollama_model="legacy-ollama",
+        ollama_keep_alive="legacy-keep-alive",
+    )
+
+
 def test_build_generate_payload_uses_configured_model():
     payload = build_generate_payload("gemma4:e4b", "hello")
     assert payload["model"] == "gemma4:e4b"
@@ -612,6 +637,80 @@ def test_answer_reference_query_returns_boundary_when_clarify_limit_reached():
 
     assert text.startswith("【资料边界】")
     assert "不能直接给出确定性建议" in text or "连续补问" in text
+
+
+def test_answer_query_hosted_provider_still_clarifies_before_model_fallback(monkeypatch):
+    monkeypatch.setattr("sentieon_assist.answering.load_config", _make_hosted_config)
+
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        model_fallback=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+
+
+def test_answer_query_hosted_provider_still_uses_rule_before_model_call(monkeypatch):
+    monkeypatch.setattr("sentieon_assist.answering.load_config", _make_hosted_config)
+    monkeypatch.setattr(
+        "sentieon_assist.answering.collect_source_bundle_metadata",
+        lambda directory: {
+            "primary_release": "202503.03",
+            "primary_date": "Mar 30, 2026",
+            "primary_reference": "Sentieon202503.03.pdf",
+        },
+    )
+
+    text = answer_query(
+        "license",
+        "Sentieon 202503 license 报错，找不到 license 文件",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "Sentieon 202503 license 报错，找不到 license 文件",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        model_fallback=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
+    )
+
+    assert "【问题判断】" in text
+    assert "202503.03" in text
+
+
+def test_answer_reference_query_hosted_provider_honors_must_refuse_arbitration(monkeypatch):
+    monkeypatch.setattr("sentieon_assist.answering.load_config", _make_hosted_config)
+
+    text = answer_reference_query(
+        "给我一个没有证据约束的结论",
+        route_decision=SupportRouteDecision(
+            task="reference_lookup",
+            issue_type="other",
+            parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.51),
+            info={},
+            reason="reference_other",
+            support_intent=SupportIntent.CONCEPT_UNDERSTANDING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+            arbitration_action="must_refuse",
+            boundary_reason="该请求超出当前软件支持边界。",
+        ),
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "超出当前软件支持边界" in text
 
 
 def test_answer_query_uses_model_fallback_when_rule_misses(monkeypatch):

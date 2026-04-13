@@ -402,14 +402,14 @@ def require_chat_model(
 ) -> None:
     config = load_config()
     probe = api_probe or (lambda base_url: build_backend_router(config).probe_primary())
-    result = probe(config.ollama_base_url)
+    result = probe(config.runtime_llm_base_url)
     if not result.get("ok"):
         raise RuntimeError(
             format_runtime_provider_error(
                 provider=config.runtime_llm_provider,
                 error_text=str(result.get("error", "ollama probe failed")).strip(),
-                base_url=config.ollama_base_url,
-                model=config.ollama_model,
+                base_url=config.runtime_llm_base_url,
+                model=config.runtime_llm_model,
                 issue_kind="connectivity",
             )
         )
@@ -417,9 +417,9 @@ def require_chat_model(
         raise RuntimeError(
             format_runtime_provider_error(
                 provider=config.runtime_llm_provider,
-                error_text=f"target model is not available: {config.ollama_model}",
-                base_url=config.ollama_base_url,
-                model=config.ollama_model,
+                error_text=f"target model is not available: {config.runtime_llm_model}",
+                base_url=config.runtime_llm_base_url,
+                model=config.runtime_llm_model,
                 issue_kind="model_missing",
             )
         )
@@ -989,8 +989,8 @@ def _format_cli_runtime_error(error: RuntimeError) -> str:
     return format_runtime_provider_error(
         provider=config.runtime_llm_provider,
         error_text=message,
-        base_url=config.ollama_base_url,
-        model=config.ollama_model,
+        base_url=config.runtime_llm_base_url,
+        model=config.runtime_llm_model,
         issue_kind="model_missing" if "target model is not available" in message else "connectivity",
     )
 
@@ -1230,7 +1230,7 @@ def chat_loop(
         warmup = lambda model, base_url: None
     else:
         warmup = lambda model, base_url: build_backend_router(config).warmup_primary()
-    warmup(config.ollama_model, config.ollama_base_url)
+    warmup(config.runtime_llm_model, config.runtime_llm_base_url)
     ui.render_welcome_panel()
     repo_root = Path(__file__).resolve().parents[2]
     runtime_root = Path(runtime_directory) if runtime_directory else default_runtime_root()

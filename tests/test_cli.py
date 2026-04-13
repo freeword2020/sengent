@@ -52,6 +52,31 @@ def _make_hosted_config() -> SimpleNamespace:
     )
 
 
+def _make_mismatched_hosted_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        runtime_llm_provider="openai_compatible",
+        runtime_llm_base_url="https://api.example.com/v1",
+        runtime_llm_model="gpt-4.1",
+        runtime_llm_api_key="sk-test",
+        runtime_llm_keep_alive="30m",
+        runtime_llm_supports_tools=True,
+        runtime_llm_supports_json_schema=True,
+        runtime_llm_supports_reasoning_effort=False,
+        runtime_llm_supports_streaming=True,
+        runtime_llm_max_context=128000,
+        runtime_llm_prompt_cache_behavior="none",
+        llm_fallback_backend="",
+        llm_fallback_base_url="",
+        llm_fallback_model="",
+        llm_fallback_api_key="",
+        knowledge_dir="",
+        source_dir="/tmp/sources",
+        ollama_base_url="http://legacy-ollama.invalid",
+        ollama_model="legacy-ollama",
+        ollama_keep_alive="legacy-keep-alive",
+    )
+
+
 def _write_activation_source_packs(source_dir: Path) -> None:
     source_dir.mkdir(parents=True, exist_ok=True)
     for name in (
@@ -3765,6 +3790,44 @@ def test_chat_mode_warms_up_model_before_loop():
 
     assert code == 0
     assert warmup_calls == [("gemma4:e4b", "http://127.0.0.1:11434")]
+
+
+def test_chat_mode_uses_hosted_runtime_fields_when_config_is_openai_compatible(monkeypatch):
+    outputs: list[str] = []
+    probe_calls: list[str] = []
+    warmup_calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr("sentieon_assist.cli.load_config", _make_mismatched_hosted_config)
+
+    code = main(
+        ["chat"],
+        input_fn=lambda prompt: "/quit",
+        output_fn=outputs.append,
+        api_probe=lambda base_url: probe_calls.append(base_url) or {"ok": True, "model_available": True, "version": "0.20.0"},
+        warmup_model=lambda model, base_url: warmup_calls.append((model, base_url)),
+    )
+
+    assert code == 0
+    assert probe_calls == ["https://api.example.com/v1"]
+    assert warmup_calls == [("gpt-4.1", "https://api.example.com/v1")]
+
+
+def test_cli_chat_runtime_error_uses_runtime_fields_for_hosted_provider(monkeypatch):
+    def fail_chat_loop(**kwargs):
+        raise RuntimeError("openai-compatible request failed: connection refused")
+
+    monkeypatch.setattr("sentieon_assist.cli.chat_loop", fail_chat_loop)
+    monkeypatch.setattr("sentieon_assist.cli.load_config", _make_mismatched_hosted_config)
+    outputs: list[str] = []
+
+    code = main(["chat"], output_fn=outputs.append)
+
+    assert code == 2
+    joined = "\n".join(outputs)
+    assert "https://api.example.com/v1" in joined
+    assert "gpt-4.1" in joined
+    assert "legacy-ollama" not in joined
+    assert "ollama pull" not in joined
 
 
 def test_run_query_passes_source_directory_to_answer_query(monkeypatch):

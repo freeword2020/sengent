@@ -39,6 +39,7 @@ def test_format_runtime_provider_error_for_hosted_provider_connectivity_failure(
     assert "https://api.example.com/v1" in text
     assert "gpt-4.1" in text
     assert "ollama pull" not in text
+    assert "Ollama" not in text
     assert "API key" in text or "api_key" in text
 
 

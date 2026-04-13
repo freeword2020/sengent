@@ -68,10 +68,14 @@ def load_config() -> AppConfig:
     runtime_provider = normalize_provider(runtime_provider_raw or "ollama")
     provider_defaults = default_capabilities(runtime_provider)
 
-    runtime_base_url = _read_env("SENGENT_RUNTIME_LLM_BASE_URL") or _read_env("OLLAMA_BASE_URL", default="http://127.0.0.1:11434")
-    runtime_model = _read_env("SENGENT_RUNTIME_LLM_MODEL") or _read_env("OLLAMA_MODEL", default="gemma4:e4b")
+    runtime_base_url = _read_env("SENGENT_RUNTIME_LLM_BASE_URL")
+    runtime_model = _read_env("SENGENT_RUNTIME_LLM_MODEL")
     runtime_api_key = _read_env("SENGENT_RUNTIME_LLM_API_KEY")
-    runtime_keep_alive = _read_env("SENGENT_RUNTIME_LLM_KEEP_ALIVE") or _read_env("OLLAMA_KEEP_ALIVE", default="30m")
+    runtime_keep_alive = _read_env("SENGENT_RUNTIME_LLM_KEEP_ALIVE")
+    if runtime_provider == "ollama":
+        runtime_base_url = runtime_base_url or _read_env("OLLAMA_BASE_URL", default="http://127.0.0.1:11434")
+        runtime_model = runtime_model or _read_env("OLLAMA_MODEL", default="gemma4:e4b")
+        runtime_keep_alive = runtime_keep_alive or _read_env("OLLAMA_KEEP_ALIVE", default="30m")
 
     supports_tools_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS")
     supports_json_schema_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_JSON_SCHEMA")
