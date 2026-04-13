@@ -22,6 +22,7 @@ from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
 from sentieon_assist.dataset_export import export_reviewed_gap_dataset, format_dataset_export_summary
 from sentieon_assist.external_guides import is_external_error_query
 from sentieon_assist.extractor import extract_info_from_query
+from sentieon_assist.factory_model import format_factory_draft_summary, run_factory_draft
 from sentieon_assist.feedback_runtime import (
     append_feedback_record,
     build_feedback_record,
@@ -140,6 +141,7 @@ def format_cli_help() -> str:
             "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
             "  sengent knowledge queue [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge export-dataset --output <path> [--build-id <id>] [--build-root <dir>] [--runtime-root <dir>]",
+            "  sengent knowledge factory-draft --task <kind> --source-ref <path> --output <path> [--vendor-id <id>] [--instruction <text>] [--adapter <id>]",
             "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge triage-gap --build-id <id> --entry-id <id> --decision <decision> [--expected-mode <mode>] [--expected-task <task>]",
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
@@ -217,6 +219,7 @@ def format_knowledge_help() -> str:
             "  build       Compile inbox content into candidate packs",
             "  queue       Show the maintainer queue and next actions for a build",
             "  export-dataset  Export audited reviewed-gap training samples",
+            "  factory-draft  Draft offline model artifacts for maintainer review",
             "  review      Show the latest or selected build report",
             "  triage-gap  Record a maintainer decision for a captured gap entry",
             "  activate    Promote a gated build into active packs",
@@ -280,6 +283,14 @@ def format_knowledge_subcommand_help(subcommand: str) -> str:
                 "Usage: sengent knowledge export-dataset --output <path> [--build-id <id>] [--build-root <dir>] [--runtime-root <dir>]",
                 "",
                 "Export audited reviewed-gap support samples into a JSONL dataset artifact.",
+            ]
+        )
+    if subcommand == "factory-draft":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge factory-draft --task <kind> --source-ref <path> --output <path> [--vendor-id <id>] [--instruction <text>] [--adapter <id>]",
+                "",
+                "Draft an offline factory model artifact that always stays in review-needed status.",
             ]
         )
     if subcommand == "triage-gap":
@@ -714,6 +725,39 @@ def _parse_knowledge_export_dataset_options(args: list[str]) -> tuple[str | None
             runtime_root = args[index]
         index += 1
     return build_root, build_id, output_path, runtime_root
+
+
+def _parse_knowledge_factory_draft_options(
+    args: list[str],
+) -> tuple[str | None, list[str], str | None, str | None, str | None, str | None]:
+    task_kind: str | None = None
+    source_refs: list[str] = []
+    output_path: str | None = None
+    vendor_id: str | None = None
+    instruction: str | None = None
+    adapter: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--task", "--source-ref", "--output", "--vendor-id", "--instruction", "--adapter"}:
+            raise ValueError(f"unknown knowledge factory-draft option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--task":
+            task_kind = args[index]
+        elif option == "--source-ref":
+            source_refs.append(args[index])
+        elif option == "--output":
+            output_path = args[index]
+        elif option == "--vendor-id":
+            vendor_id = args[index]
+        elif option == "--instruction":
+            instruction = args[index]
+        else:
+            adapter = args[index]
+        index += 1
+    return task_kind, source_refs, output_path, vendor_id, instruction, adapter
 
 
 def _parse_knowledge_intake_source_options(
@@ -1630,6 +1674,37 @@ def main(
             output_path=output_path,
         )
         output_fn(format_dataset_export_summary(result))
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "factory-draft":
+        try:
+            task_kind, source_refs, output_path, vendor_id, instruction, adapter = _parse_knowledge_factory_draft_options(
+                args[2:]
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not task_kind:
+            output_fn("knowledge factory-draft requires --task")
+            return 2
+        if not source_refs:
+            output_fn("knowledge factory-draft requires at least one --source-ref")
+            return 2
+        if not output_path:
+            output_fn("knowledge factory-draft requires --output")
+            return 2
+        try:
+            result = run_factory_draft(
+                task_kind=task_kind,
+                source_refs=source_refs,
+                output_path=output_path,
+                vendor_id=vendor_id or "sentieon",
+                instruction=instruction,
+                adapter=adapter or "stub",
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(format_factory_draft_summary(result))
         return 0
     if args and args[0] == "search":
         if len(args) >= 2 and args[1] in HELP_FLAGS:

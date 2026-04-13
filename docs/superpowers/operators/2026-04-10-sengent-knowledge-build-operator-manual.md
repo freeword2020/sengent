@@ -162,6 +162,26 @@ sengent knowledge review --build-id <build_id>
 4. `gap_intake_review.jsonl`
 5. `gap_eval_seed.jsonl`
 
+## Offline Factory Draft
+
+如果 maintainer 想先让离线 factory worker 帮忙起草 candidate / normalization / contradiction / dataset 草稿，可以先跑：
+
+```bash
+sengent knowledge factory-draft \
+  --task candidate-draft \
+  --source-ref <path> \
+  --output <path>
+```
+
+这个命令只会产出 `needs_review` 的 draft artifact，里面会保留 prompt/template provenance、source references、adapter 信息和 review-required 状态。
+
+它不会：
+
+- 改 runtime truth
+- 改 active packs
+- 绕过 `build -> review -> gate -> activate`
+- 自动激活任何 candidate
+
 ## Gate
 
 在 activation 之前，必须生成这两份 gate 报告：

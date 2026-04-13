@@ -1534,6 +1534,45 @@ def test_knowledge_export_dataset_writes_reviewed_gap_samples(tmp_path: Path):
     assert str(output_path) in summary
 
 
+def test_knowledge_factory_draft_writes_review_needed_artifact(tmp_path: Path):
+    source_a = tmp_path / "vendor-doc.md"
+    source_b = tmp_path / "dataset.jsonl"
+    source_a.write_text("# FastDedup\n\nUse FastDedup before alignment.\n", encoding="utf-8")
+    source_b.write_text('{"sample_id":"s1"}\n', encoding="utf-8")
+    output_path = tmp_path / "drafts" / "dataset-draft.json"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "factory-draft",
+            "--task",
+            "dataset-draft",
+            "--source-ref",
+            str(source_a),
+            "--source-ref",
+            str(source_b),
+            "--instruction",
+            "Draft a dataset review note.",
+            "--output",
+            str(output_path),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert output_path.exists()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["task_kind"] == "dataset_draft"
+    assert len(payload["source_references"]) == 2
+    summary = "\n".join(outputs)
+    assert f"Factory draft artifact: {output_path}" in summary
+    assert "Task: dataset_draft" in summary
+    assert "Adapter: stub" in summary
+    assert "Review status: needs_review" in summary
+    assert "Source references: 2" in summary
+
+
 def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path, monkeypatch):
     runtime_directory = tmp_path / "runtime"
     prompts = iter(
