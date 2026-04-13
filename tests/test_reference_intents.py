@@ -259,6 +259,45 @@ def test_parse_reference_intent_marks_cpu_thread_usage_prompt_as_reference_other
     assert result.confidence > 0.0
 
 
+def test_parse_reference_intent_hosted_prompt_redacts_local_path_email_and_secret_like_text():
+    captured: dict[str, str] = {}
+
+    def capture_prompt(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return '{"intent":"reference_other","confidence":0.62}'
+
+    result = parse_reference_intent(
+        "我想问 FooFeature 是做什么的，日志在 /Users/alice/project/run.log，联系 alice@example.com，token=secret-token-1234567890",
+        model_generate=capture_prompt,
+    )
+
+    assert result.intent == "reference_other"
+    assert "/Users/alice/project/run.log" not in captured["prompt"]
+    assert "alice@example.com" not in captured["prompt"]
+    assert "secret-token-1234567890" not in captured["prompt"]
+    assert "[PATH]" in captured["prompt"]
+    assert "[EMAIL]" in captured["prompt"]
+    assert "[REDACTED]" in captured["prompt"]
+
+
+def test_parse_reference_intent_hosted_prompt_keeps_reference_semantics_after_redaction():
+    captured: dict[str, str] = {}
+
+    def capture_prompt(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return '{"intent":"reference_other","confidence":0.51}'
+
+    result = parse_reference_intent(
+        "我想知道 FooFeature 是做什么的，日志在 /data/case-001/run.log",
+        model_generate=capture_prompt,
+    )
+
+    assert result.intent == "reference_other"
+    assert "FooFeature" in captured["prompt"]
+    assert "/data/case-001/run.log" not in captured["prompt"]
+    assert "[PATH]" in captured["prompt"]
+
+
 def test_parse_reference_intent_marks_license_tool_selection_prompt_as_reference_other():
     result = parse_reference_intent(
         "当我配置好本地 License 服务器后，如果分析任务报错提示 License 获取失败，我该使用哪个官方二进制工具如 LICCLNT 来测试服务器连通性并检查可用授权数？",

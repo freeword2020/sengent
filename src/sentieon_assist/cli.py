@@ -1120,6 +1120,7 @@ def _run_troubleshooting_query(
                     "boundary_tags": list(trace.boundary_tags),
                     "resolver_path": list(trace.resolver_path),
                     "gap_record": trace.gap_record,
+                    "trust_boundary_summary": trace.trust_boundary_summary,
                 }
             )
             if trace_collector is not None
@@ -1144,6 +1145,7 @@ def _run_troubleshooting_query(
                 "boundary_tags": list(trace.boundary_tags),
                 "resolver_path": list(trace.resolver_path),
                 "gap_record": trace.gap_record,
+                "trust_boundary_summary": trace.trust_boundary_summary,
             }
         )
         if trace_collector is not None
@@ -1188,6 +1190,7 @@ def run_query(
                     "boundary_tags": list(trace.boundary_tags),
                     "resolver_path": list(trace.resolver_path),
                     "gap_record": trace.gap_record,
+                    "trust_boundary_summary": trace.trust_boundary_summary,
                 }
             )
             if trace_collector is not None
@@ -1329,6 +1332,7 @@ def chat_loop(
             boundary_tags=[str(item) for item in trace.get("boundary_tags", [])],
             resolver_path=[str(item) for item in trace.get("resolver_path", [])],
             gap_record=trace.get("gap_record"),
+            trust_boundary_result=trace.get("trust_boundary_summary"),
         )
         append_turn_event(turn_event, runtime_root=runtime_root)
         turn_history.append(turn_view_from_event(turn_event))

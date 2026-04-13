@@ -18,6 +18,10 @@ from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
 from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
+from sentieon_assist.runtime_outbound_trust import (
+    build_reference_answer_outbound_trust,
+    build_support_answer_outbound_trust,
+)
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
 from sentieon_assist.support_contracts import BoundaryOutcome
 from sentieon_assist.trace_vocab import ResolverPath
@@ -349,7 +353,20 @@ def generate_model_fallback(
     config: AppConfig | None = None,
 ) -> str:
     app_config = config or load_config()
-    prompt = build_support_prompt(issue_type, query, info, source_context=source_context, evidence=evidence)
+    outbound = build_support_answer_outbound_trust(
+        issue_type=issue_type,
+        query=query,
+        info=info,
+        source_context=source_context,
+        evidence=evidence,
+    )
+    prompt = build_support_prompt(
+        issue_type,
+        outbound.query,
+        outbound.info,
+        source_context=outbound.source_context,
+        evidence=list(outbound.evidence),
+    )
     text = build_backend_router(app_config).generate(prompt)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
@@ -368,7 +385,16 @@ def generate_reference_fallback(
     config: AppConfig | None = None,
 ) -> str:
     app_config = config or load_config()
-    prompt = build_reference_prompt(query, source_context=source_context, evidence=evidence)
+    outbound = build_reference_answer_outbound_trust(
+        query=query,
+        source_context=source_context,
+        evidence=evidence,
+    )
+    prompt = build_reference_prompt(
+        outbound.query,
+        source_context=outbound.source_context,
+        evidence=list(outbound.evidence),
+    )
     text = build_backend_router(app_config).generate(prompt)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
@@ -385,6 +411,7 @@ class SupportAnswerTrace:
     boundary_tags: list[str]
     resolver_path: list[str]
     gap_record: dict[str, Any] | None = None
+    trust_boundary_summary: dict[str, Any] | None = None
 
 
 def _trace_gap_record(
@@ -647,8 +674,20 @@ def answer_query(
     )
 
     if model_fallback is not None:
-        text = call_model_fallback(model_fallback, issue_type, query, info, evidence)
-        source_names = [item["name"] for item in evidence]
+        outbound = build_support_answer_outbound_trust(
+            issue_type=issue_type,
+            query=query,
+            info=info,
+            evidence=evidence,
+        )
+        text = call_model_fallback(
+            model_fallback,
+            issue_type,
+            outbound.query,
+            outbound.info,
+            list(outbound.evidence),
+        )
+        source_names = [item["name"] for item in (list(outbound.evidence) or evidence)]
         rendered = normalize_model_answer(
             text,
             query_version=info.get("version", ""),
@@ -662,10 +701,18 @@ def answer_query(
                     sources=source_names,
                     boundary_tags=[],
                     resolver_path=[ResolverPath.TROUBLESHOOTING_MODEL_FALLBACK],
+                    trust_boundary_summary=outbound.trust_boundary_result.summary,
                 )
             )
         return rendered
 
+    outbound = build_support_answer_outbound_trust(
+        issue_type=issue_type,
+        query=query,
+        info=info,
+        source_context=source_context,
+        evidence=evidence,
+    )
     rendered = generate_model_fallback(
         issue_type,
         query,
@@ -681,6 +728,7 @@ def answer_query(
                 sources=[item["name"] for item in evidence],
                 boundary_tags=[],
                 resolver_path=[ResolverPath.TROUBLESHOOTING_GENERATED_FALLBACK],
+                trust_boundary_summary=outbound.trust_boundary_result.summary,
             )
         )
     return rendered

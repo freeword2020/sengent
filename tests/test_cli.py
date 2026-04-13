@@ -1923,6 +1923,69 @@ def test_chat_loop_writes_troubleshooting_trace_metadata_into_session_log(tmp_pa
     assert answer["sources"] == []
 
 
+def test_chat_loop_threads_trust_boundary_summary_into_session_log(tmp_path, monkeypatch):
+    runtime_directory = tmp_path / "runtime"
+    prompts = iter(
+        [
+            "Sentieon 202503 install 失败",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        trace_collector = kwargs.get("trace_collector")
+        if trace_collector is not None:
+            trace_collector(
+                {
+                    "sources": ["notes.md"],
+                    "boundary_tags": ["must-tool"],
+                    "resolver_path": ["troubleshooting_model_fallback"],
+                    "trust_boundary_summary": {
+                        "policy_name": "support-answer-outbound-v1",
+                        "decision_id": "decision-1",
+                        "created_at": "2026-04-13T00:00:00+00:00",
+                        "item_count": 2,
+                        "allowed_count": 1,
+                        "redacted_count": 1,
+                        "local_only_count": 0,
+                        "allowed_keys": ["query"],
+                        "redacted_keys": ["error"],
+                        "local_only_keys": [],
+                        "leaked_value": "super-secret",
+                    },
+                }
+            )
+        return "【问题判断】\n这是一个 install 问题。"
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=lambda prompt, **kwargs: "SHOULD_NOT_RUN",
+        stream_output_fn=outputs.append,
+    )
+
+    assert code == 0
+    session_logs = sorted((runtime_directory / "sessions").glob("*.jsonl"))
+    session_logs = [path for path in session_logs if path.name != "index.jsonl"]
+    assert len(session_logs) == 1
+    events = [json.loads(line) for line in session_logs[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+    turn_events = [event for event in events if event.get("event_type") == "turn_resolved"]
+    assert len(turn_events) == 1
+    answer = turn_events[0]["answer"]
+    assert answer["trust_boundary_summary"]["policy_name"] == "support-answer-outbound-v1"
+    assert answer["trust_boundary_summary"]["allowed_count"] == 1
+    assert "leaked_value" not in answer["trust_boundary_summary"]
+
+
 def test_chat_loop_passes_terse_example_followup_with_workflow_context(monkeypatch):
     prompts = iter(
         [

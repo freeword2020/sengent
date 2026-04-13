@@ -12,6 +12,7 @@ from sentieon_assist.answering import (
     answer_reference_query,
     format_capability_explanation_answer,
     format_rule_answer,
+    generate_reference_fallback,
     normalize_model_answer,
 )
 from sentieon_assist.prompts import ANSWER_TEMPLATE, build_support_prompt
@@ -740,6 +741,130 @@ def test_answer_query_uses_model_fallback_when_rule_misses(monkeypatch):
         model_fallback=fake_generate,
     )
     assert text.endswith("notes.md")
+
+
+def test_answer_query_projects_trust_boundary_before_model_fallback_callback(monkeypatch):
+    monkeypatch.setattr("sentieon_assist.answering.match_rule", lambda query: None)
+    monkeypatch.setattr(
+        "sentieon_assist.answering.collect_source_evidence",
+        lambda directory, issue_type, query, info: [
+            {
+                "name": "/Users/zhuge/Documents/private/license-note.md",
+                "snippet": "contact user@example.com with token=sk-test-12345",
+            }
+        ],
+    )
+
+    seen: dict[str, object] = {}
+
+    def fake_generate(issue_type, query, info, evidence):
+        seen["issue_type"] = issue_type
+        seen["query"] = query
+        seen["info"] = dict(info)
+        seen["evidence"] = [dict(item) for item in evidence]
+        return "MODEL_ANSWER"
+
+    text = answer_query(
+        "install",
+        "Sentieon 202503 install 失败，请查看 /Users/zhuge/Documents/private/license-note.md 并联系 user@example.com",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "token=sk-test-12345 in /Users/zhuge/Documents/private/license-note.md",
+            "error_keywords": "",
+            "step": "install",
+            "data_type": "",
+        },
+        model_fallback=fake_generate,
+        trace_collector=lambda trace: seen.update(
+            {
+                "trust_boundary_summary": trace.trust_boundary_summary,
+                "resolver_path": list(trace.resolver_path),
+            }
+        ),
+    )
+
+    assert "MODEL_ANSWER" in text
+    assert seen["issue_type"] == "install"
+    assert "/Users/zhuge/Documents/private/license-note.md" not in json.dumps(seen["info"], ensure_ascii=False)
+    assert "user@example.com" not in json.dumps(seen["info"], ensure_ascii=False)
+    assert "sk-test-12345" not in json.dumps(seen["info"], ensure_ascii=False)
+    assert "/Users/zhuge/Documents/private/license-note.md" not in json.dumps(seen["evidence"], ensure_ascii=False)
+    assert "user@example.com" not in json.dumps(seen["evidence"], ensure_ascii=False)
+    assert "sk-test-12345" not in json.dumps(seen["evidence"], ensure_ascii=False)
+    assert seen["trust_boundary_summary"] is not None
+    assert seen["trust_boundary_summary"]["policy_name"] == "support-answer-outbound-v1"
+    assert seen["resolver_path"] == ["troubleshooting_model_fallback"]
+
+
+def test_generate_model_fallback_sanitizes_prompt_before_hosted_backend_call(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeBackendRouter:
+        def generate(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return "MODEL_ANSWER"
+
+    monkeypatch.setattr("sentieon_assist.answering.match_rule", lambda query: None)
+    monkeypatch.setattr(
+        "sentieon_assist.answering.collect_source_evidence",
+        lambda directory, issue_type, query, info: [{"name": "notes.md", "snippet": "note"}],
+    )
+    monkeypatch.setattr(
+        "sentieon_assist.answering.build_backend_router",
+        lambda config: FakeBackendRouter(),
+    )
+
+    text = answer_query(
+        "install",
+        "Sentieon 202503 install 失败，请查看 /Users/zhuge/Documents/private/license-note.md 并联系 user@example.com",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "token=sk-test-12345 in /Users/zhuge/Documents/private/license-note.md",
+            "error_keywords": "",
+            "step": "install",
+            "data_type": "",
+        },
+    )
+
+    assert text.endswith("notes.md")
+    assert "user@example.com" not in str(captured["prompt"])
+    assert "sk-test-12345" not in str(captured["prompt"])
+    assert "/Users/zhuge/Documents/private/license-note.md" not in str(captured["prompt"])
+
+
+def test_generate_reference_fallback_sanitizes_prompt_before_hosted_backend_call(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeBackendRouter:
+        def generate(self, prompt: str) -> str:
+            captured["prompt"] = prompt
+            return "MODEL_ANSWER"
+
+    monkeypatch.setattr(
+        "sentieon_assist.answering.build_backend_router",
+        lambda config: FakeBackendRouter(),
+    )
+
+    text = generate_reference_fallback(
+        "请解释 /Users/zhuge/Documents/private/reference.md 并联系 user@example.com",
+        source_context={
+            "primary_release": "202503.03",
+            "primary_reference": "/Users/zhuge/Documents/private/reference.md",
+        },
+        evidence=[
+            {
+                "name": "/Users/zhuge/Documents/private/reference.md",
+                "snippet": "contact user@example.com with token=sk-test-12345",
+            }
+        ],
+    )
+
+    assert text.startswith("MODEL_ANSWER")
+    assert "user@example.com" not in str(captured["prompt"])
+    assert "sk-test-12345" not in str(captured["prompt"])
+    assert "/Users/zhuge/Documents/private/reference.md" not in str(captured["prompt"])
 
 
 def test_answer_query_uses_explicit_source_directory(monkeypatch):

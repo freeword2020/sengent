@@ -9,6 +9,7 @@ from sentieon_assist.external_guides import is_external_reference_query
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_reference_intent_prompt
 from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
+from sentieon_assist.runtime_outbound_trust import build_reference_intent_outbound_trust
 from sentieon_assist.support_contracts import ToolRequirement, normalize_tool_requirement
 
 
@@ -419,7 +420,8 @@ def parse_reference_intent(
         return heuristic
 
     app_config = config or load_config()
-    prompt = build_reference_intent_prompt(query)
+    outbound = build_reference_intent_outbound_trust(query=query)
+    prompt = build_reference_intent_prompt(outbound.query)
     try:
         if model_generate is not None:
             raw = model_generate(prompt)

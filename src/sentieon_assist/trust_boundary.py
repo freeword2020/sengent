@@ -58,6 +58,9 @@ def redact_value(value: Any) -> str:
 def redact_outbound_context_item(item: OutboundContextItem) -> OutboundContextItem:
     disposition = normalize_outbound_context_disposition(item.disposition)
     if disposition == OutboundContextDisposition.REDACTED:
+        sanitized_value = item.provenance.get("sanitized_value") if isinstance(item.provenance, dict) else None
+        if sanitized_value is not None:
+            return replace(item, value=sanitized_value)
         return replace(item, value=redact_value(item.value))
     if disposition == OutboundContextDisposition.LOCAL_ONLY:
         return replace(item, value=redact_value(item.value))
