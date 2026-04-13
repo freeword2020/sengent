@@ -15,7 +15,7 @@ import yaml
 from sentieon_assist.app_paths import default_knowledge_build_root, default_knowledge_inbox_dir, default_runtime_root
 from sentieon_assist.gap_review import build_gap_eval_seed_record, normalize_gap_maintainer_review, validate_gap_maintainer_review
 from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
-from sentieon_assist.vendors import get_vendor_profile
+from sentieon_assist.vendors import default_vendor_profile, get_vendor_profile, resolve_vendor_id
 
 
 TEXT_FILE_TYPES = {
@@ -34,7 +34,6 @@ GATE_COMMANDS: tuple[str, ...] = (
     "python scripts/pilot_readiness_eval.py",
     "python scripts/pilot_closed_loop.py",
 )
-SENTIEON_VENDOR_ID = "sentieon"
 SCAFFOLDABLE_LOGICAL_KINDS: tuple[str, ...] = (
     "vendor-reference",
     "vendor-decision",
@@ -270,10 +269,11 @@ class KnowledgeReviewResult:
     report_text: str
 
 
-def default_inbox_dir(*, repo_root: str | Path | None = None, product: str = "sentieon") -> Path:
+def default_inbox_dir(*, repo_root: str | Path | None = None, product: str | None = None) -> Path:
+    resolved_product = resolve_vendor_id(product)
     if repo_root is not None:
-        return Path(repo_root) / "knowledge-inbox" / product
-    return default_knowledge_inbox_dir(product=product)
+        return Path(repo_root) / "knowledge-inbox" / resolved_product
+    return default_knowledge_inbox_dir(product=resolved_product)
 
 
 def default_build_root(*, runtime_root: str | Path | None = None) -> Path:
@@ -282,8 +282,8 @@ def default_build_root(*, runtime_root: str | Path | None = None) -> Path:
     return default_knowledge_build_root()
 
 
-def _sentieon_profile() -> Any:
-    return get_vendor_profile(SENTIEON_VENDOR_ID)
+def _default_vendor_profile() -> Any:
+    return default_vendor_profile()
 
 
 def _manifest_entry_value(entry: Any, field: str) -> Any:
@@ -294,12 +294,12 @@ def _manifest_entry_value(entry: Any, field: str) -> Any:
     raise AttributeError(f"pack manifest entry does not expose {field}")
 
 
-def _sentieon_pack_manifest() -> dict[str, Any]:
-    return dict(_sentieon_profile().pack_manifest)
+def _default_vendor_pack_manifest() -> dict[str, Any]:
+    return dict(_default_vendor_profile().pack_manifest)
 
 
 def _managed_pack_logical_entries() -> list[tuple[str, Any]]:
-    manifest = _sentieon_pack_manifest()
+    manifest = _default_vendor_pack_manifest()
     entries = [
         (logical_kind, manifest[logical_kind])
         for logical_kind in SCAFFOLDABLE_LOGICAL_KINDS
@@ -309,7 +309,7 @@ def _managed_pack_logical_entries() -> list[tuple[str, Any]]:
 
 
 def _managed_pack_file_names() -> tuple[str, ...]:
-    return ordered_required_pack_file_names(SENTIEON_VENDOR_ID)
+    return ordered_required_pack_file_names(resolve_vendor_id(None))
 
 
 def _pack_entry_types() -> dict[str, str]:
@@ -321,7 +321,7 @@ def _pack_entry_types() -> dict[str, str]:
 
 def _pack_target_for_scaffold_kind(kind: str) -> str:
     logical_kind = SCAFFOLD_KIND_TO_LOGICAL_KIND[kind]
-    return _manifest_entry_value(_sentieon_pack_manifest()[logical_kind], "file_name")
+    return _manifest_entry_value(_default_vendor_pack_manifest()[logical_kind], "file_name")
 
 
 def docling_available() -> bool:
@@ -879,17 +879,19 @@ def _managed_pack_files_from_directory(directory: Path) -> list[str]:
 
 
 def missing_managed_pack_files(directory: Path) -> list[str]:
+    resolved_vendor_id = resolve_vendor_id(None)
     return [
         status.file_name
-        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        for status in required_pack_status(directory, resolved_vendor_id)
         if status.required and not status.exists
     ]
 
 
 def invalid_managed_pack_files(directory: Path) -> list[str]:
+    resolved_vendor_id = resolve_vendor_id(None)
     return [
         status.file_name
-        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        for status in required_pack_status(directory, resolved_vendor_id)
         if status.required and status.exists and not status.valid
     ]
 

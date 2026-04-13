@@ -140,6 +140,27 @@ def test_select_support_route_marks_workflow_guidance_as_task_guidance():
     assert route.support_intent == "task_guidance"
 
 
+def test_select_support_route_uses_resolved_default_vendor(monkeypatch):
+    import sentieon_assist.support_coordinator as support_coordinator
+
+    seen: list[object] = []
+    monkeypatch.setattr(
+        support_coordinator,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.append(vendor_id) or "sentieon",
+        raising=False,
+    )
+
+    route = select_support_route(
+        "Poetry 是什么",
+        classify_query_fn=lambda query: "install",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(),
+    )
+
+    assert route.vendor_id == "sentieon"
+    assert seen == [None]
+
+
 def test_update_support_state_tracks_clarification_rounds_and_caps_at_vendor_policy():
     state = SupportSessionState()
     planned_turn = plan_support_turn(

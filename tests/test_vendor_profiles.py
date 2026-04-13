@@ -1,4 +1,6 @@
-from sentieon_assist.vendors import get_vendor_profile
+import pytest
+
+from sentieon_assist.vendors import DEFAULT_VENDOR_ID, default_vendor_profile, get_vendor_profile, resolve_vendor_id
 
 
 def test_sentieon_profile_exposes_minimum_vendor_contract():
@@ -37,3 +39,15 @@ def test_sentieon_profile_maps_incident_memory_to_runtime_json_pack():
     profile = get_vendor_profile("sentieon")
 
     assert profile.pack_manifest["incident-memory"].file_name == "incident-memory.json"
+
+
+def test_resolve_vendor_id_defaults_to_sentieon():
+    assert DEFAULT_VENDOR_ID == "sentieon"
+    assert resolve_vendor_id(None) == "sentieon"
+    assert resolve_vendor_id(" Sentieon ") == "sentieon"
+    assert default_vendor_profile().vendor_id == "sentieon"
+
+
+def test_resolve_vendor_id_rejects_unknown_vendor():
+    with pytest.raises(KeyError, match="unknown vendor profile"):
+        resolve_vendor_id("unknown-vendor")

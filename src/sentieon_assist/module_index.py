@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from sentieon_assist.kernel import pack_path_for_kind, resolve_pack_entry
+from sentieon_assist.vendors import resolve_vendor_id
 
-SENTIEON_VENDOR_ID = "sentieon"
 MODULE_INDEX_LOGICAL_KIND = "vendor-reference"
 PARAMETER_TOKEN_PATTERN = r"(?<![A-Za-z0-9_])-{1,2}[A-Za-z0-9][A-Za-z0-9_-]*"
 MODULE_OVERVIEW_GROUPS = (
@@ -19,8 +19,9 @@ MODULE_OVERVIEW_GROUPS = (
 )
 
 
-def _module_index_file_name() -> str:
-    return resolve_pack_entry(SENTIEON_VENDOR_ID, MODULE_INDEX_LOGICAL_KIND).file_name
+def _module_index_file_name(vendor_id: str | None = None) -> str:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
+    return resolve_pack_entry(resolved_vendor_id, MODULE_INDEX_LOGICAL_KIND).file_name
 
 
 def _has_parameter_language(normalized: str) -> bool:
@@ -31,12 +32,13 @@ def _has_parameter_language(normalized: str) -> bool:
     return False
 
 
-def module_index_path(source_directory: str | Path) -> Path:
-    return pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, MODULE_INDEX_LOGICAL_KIND)
+def module_index_path(source_directory: str | Path, *, vendor_id: str | None = None) -> Path:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
+    return pack_path_for_kind(source_directory, resolved_vendor_id, MODULE_INDEX_LOGICAL_KIND)
 
 
-def load_module_index(source_directory: str | Path) -> dict[str, Any]:
-    path = module_index_path(source_directory)
+def load_module_index(source_directory: str | Path, *, vendor_id: str | None = None) -> dict[str, Any]:
+    path = module_index_path(source_directory, vendor_id=vendor_id)
     if not path.exists():
         return {"version": "", "entries": []}
     with open(path) as handle:
@@ -49,8 +51,8 @@ def load_module_index(source_directory: str | Path) -> dict[str, Any]:
     return data
 
 
-def list_module_entries(source_directory: str | Path) -> list[dict[str, Any]]:
-    return [entry for entry in load_module_index(source_directory).get("entries", []) if isinstance(entry, dict)]
+def list_module_entries(source_directory: str | Path, *, vendor_id: str | None = None) -> list[dict[str, Any]]:
+    return [entry for entry in load_module_index(source_directory, vendor_id=vendor_id).get("entries", []) if isinstance(entry, dict)]
 
 
 def _is_identifier_char(value: str) -> bool:
@@ -89,11 +91,12 @@ def match_module_entries(
     query: str,
     source_directory: str | Path,
     *,
+    vendor_id: str | None = None,
     max_matches: int = 3,
 ) -> list[dict[str, Any]]:
     normalized_query = re.sub(r"\s+", " ", query.lower()).strip()
     scored: list[tuple[int, dict[str, Any]]] = []
-    for entry in list_module_entries(source_directory):
+    for entry in list_module_entries(source_directory, vendor_id=vendor_id):
         aliases = [str(value).strip() for value in entry.get("aliases", [])]
         aliases.append(str(entry.get("name", "")).strip())
         best_score = -1
@@ -112,10 +115,15 @@ def match_module_entries(
     return [entry for _, entry in scored[:max_matches]]
 
 
-def find_related_module_mentions(module_name: str, source_directory: str | Path) -> list[dict[str, str]]:
+def find_related_module_mentions(
+    module_name: str,
+    source_directory: str | Path,
+    *,
+    vendor_id: str | None = None,
+) -> list[dict[str, str]]:
     normalized_name = module_name.lower().strip()
     mentions: list[dict[str, str]] = []
-    for entry in list_module_entries(source_directory):
+    for entry in list_module_entries(source_directory, vendor_id=vendor_id):
         related_modules = [str(value).strip() for value in entry.get("related_modules", [])]
         if not any(value.lower() == normalized_name for value in related_modules):
             continue
@@ -228,10 +236,11 @@ def match_parameter_entries(
     query: str,
     source_directory: str | Path,
     *,
+    vendor_id: str | None = None,
     max_matches: int = 3,
 ) -> list[dict[str, Any]]:
     scored: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
-    for entry in list_module_entries(source_directory):
+    for entry in list_module_entries(source_directory, vendor_id=vendor_id):
         parameter = match_module_parameter(entry, query)
         if parameter is None:
             continue

@@ -188,6 +188,23 @@ def test_knowledge_build_uses_vendor_profile_managed_pack_contract(tmp_path: Pat
     assert not build_root.exists()
 
 
+def test_default_inbox_dir_uses_resolved_default_vendor(tmp_path: Path, monkeypatch):
+    import sentieon_assist.knowledge_build as knowledge_build
+
+    seen: list[object] = []
+    monkeypatch.setattr(
+        knowledge_build,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.append(vendor_id) or "sentieon",
+        raising=False,
+    )
+
+    inbox_dir = knowledge_build.default_inbox_dir(repo_root=tmp_path)
+
+    assert inbox_dir == tmp_path / "knowledge-inbox" / "sentieon"
+    assert seen == [None]
+
+
 def test_knowledge_build_rejects_invalid_required_runtime_pack(tmp_path: Path):
     inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
     inbox_dir.mkdir(parents=True)

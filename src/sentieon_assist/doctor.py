@@ -10,10 +10,7 @@ from sentieon_assist.ollama_client import probe_ollama
 from sentieon_assist.runtime_guidance import doctor_guidance_lines
 from sentieon_assist.rules import knowledge_dir as default_knowledge_dir
 from sentieon_assist.sources import collect_source_bundle_metadata, list_sources
-from sentieon_assist.vendors import get_vendor_profile
-
-
-SENTIEON_VENDOR_ID = "sentieon"
+from sentieon_assist.vendors import resolve_vendor_id
 
 
 def _manifest_entry_value(entry: Any, field: str) -> Any:
@@ -25,21 +22,23 @@ def _manifest_entry_value(entry: Any, field: str) -> Any:
 
 
 def _managed_pack_file_names() -> tuple[str, ...]:
-    return ordered_required_pack_file_names(SENTIEON_VENDOR_ID)
+    return ordered_required_pack_file_names(resolve_vendor_id(None))
 
 
 def _missing_managed_pack_files(directory: Path) -> list[str]:
+    resolved_vendor_id = resolve_vendor_id(None)
     return [
         status.file_name
-        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        for status in required_pack_status(directory, resolved_vendor_id)
         if status.required and not status.exists
     ]
 
 
 def _invalid_managed_pack_files(directory: Path) -> list[str]:
+    resolved_vendor_id = resolve_vendor_id(None)
     return [
         status.file_name
-        for status in required_pack_status(directory, SENTIEON_VENDOR_ID)
+        for status in required_pack_status(directory, resolved_vendor_id)
         if status.required and status.exists and not status.valid
     ]
 

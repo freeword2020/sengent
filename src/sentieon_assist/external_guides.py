@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from sentieon_assist.kernel import pack_path_for_kind, resolve_pack_entry
+from sentieon_assist.vendors import resolve_vendor_id
 
-SENTIEON_VENDOR_ID = "sentieon"
 EXTERNAL_FORMAT_GUIDE_LOGICAL_KIND = "domain-standard"
 EXTERNAL_TOOL_GUIDE_LOGICAL_KIND = "playbook"
 EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND = "troubleshooting"
@@ -121,26 +121,30 @@ def _external_guide_logical_kinds() -> tuple[str, str]:
     )
 
 
-def _external_guide_paths(source_directory: str | Path) -> tuple[Path, ...]:
+def _external_guide_paths(source_directory: str | Path, *, vendor_id: str | None = None) -> tuple[Path, ...]:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
     return tuple(
-        pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, logical_kind)
+        pack_path_for_kind(source_directory, resolved_vendor_id, logical_kind)
         for logical_kind in _external_guide_logical_kinds()
     )
 
 
-def _external_error_association_path(source_directory: str | Path) -> Path:
-    return pack_path_for_kind(source_directory, SENTIEON_VENDOR_ID, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND)
+def _external_error_association_path(source_directory: str | Path, *, vendor_id: str | None = None) -> Path:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
+    return pack_path_for_kind(source_directory, resolved_vendor_id, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND)
 
 
-def external_guide_file_names() -> tuple[str, ...]:
+def external_guide_file_names(*, vendor_id: str | None = None) -> tuple[str, ...]:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
     return tuple(
-        resolve_pack_entry(SENTIEON_VENDOR_ID, logical_kind).file_name
+        resolve_pack_entry(resolved_vendor_id, logical_kind).file_name
         for logical_kind in _external_guide_logical_kinds()
     )
 
 
-def external_error_association_file_name() -> str:
-    return resolve_pack_entry(SENTIEON_VENDOR_ID, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND).file_name
+def external_error_association_file_name(*, vendor_id: str | None = None) -> str:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
+    return resolve_pack_entry(resolved_vendor_id, EXTERNAL_ERROR_ASSOCIATION_LOGICAL_KIND).file_name
 
 
 def _load_external_guide_file(path: Path) -> list[dict[str, Any]]:
@@ -177,15 +181,15 @@ def _load_external_association_file(path: Path) -> list[dict[str, Any]]:
     return _load_external_guide_file(path)
 
 
-def list_external_guide_entries(source_directory: str | Path) -> list[dict[str, Any]]:
+def list_external_guide_entries(source_directory: str | Path, *, vendor_id: str | None = None) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for path in _external_guide_paths(source_directory):
+    for path in _external_guide_paths(source_directory, vendor_id=vendor_id):
         entries.extend(_load_external_guide_file(path))
     return entries
 
 
-def list_external_error_associations(source_directory: str | Path) -> list[dict[str, Any]]:
-    return _load_external_association_file(_external_error_association_path(source_directory))
+def list_external_error_associations(source_directory: str | Path, *, vendor_id: str | None = None) -> list[dict[str, Any]]:
+    return _load_external_association_file(_external_error_association_path(source_directory, vendor_id=vendor_id))
 
 
 def is_external_reference_query(query: str, info: dict[str, str] | None = None) -> bool:

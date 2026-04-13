@@ -189,6 +189,28 @@ def test_gather_doctor_report_reports_invalid_required_runtime_pack(tmp_path):
     assert report["sources"]["invalid_managed_pack_files"] == ["workflow-guides.json"]
 
 
+def test_missing_managed_pack_files_uses_resolved_default_vendor(tmp_path, monkeypatch):
+    import sentieon_assist.doctor as doctor
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        doctor,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.setdefault("resolved", vendor_id) or "sentieon",
+        raising=False,
+    )
+
+    def fake_required_pack_status(directory, vendor_id):
+        seen["pack_vendor_id"] = vendor_id
+        return ()
+
+    monkeypatch.setattr(doctor, "required_pack_status", fake_required_pack_status)
+
+    assert doctor._missing_managed_pack_files(tmp_path) == []
+    assert seen["resolved"] is None
+    assert seen["pack_vendor_id"] == "sentieon"
+
+
 def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
     text = format_doctor_report(
         {

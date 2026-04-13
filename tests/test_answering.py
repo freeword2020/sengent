@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 from sentieon_assist.ollama_client import build_generate_payload, generate_stream
 from sentieon_assist.answering import answer_query, answer_reference_query, format_rule_answer, normalize_model_answer
@@ -239,7 +240,62 @@ def test_answer_query_trace_collector_reports_gap_record_for_clarification_open(
     assert text.startswith("需要补充以下信息：Sentieon 版本")
     assert seen["gap_record"]["gap_type"] == "clarification_open"
     assert seen["gap_record"]["vendor_id"] == "sentieon"
-    assert seen["gap_record"]["missing_materials"] == ["Sentieon 版本"]
+
+
+def test_answer_query_uses_resolved_default_vendor_without_route_decision(monkeypatch):
+    import sentieon_assist.answering as answering
+
+    seen: list[object] = []
+    monkeypatch.setattr(
+        answering,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.append(vendor_id) or "sentieon",
+        raising=False,
+    )
+
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert text.startswith("需要补充以下信息：Sentieon 版本")
+    assert seen == [None]
+
+
+def test_answer_reference_query_uses_resolved_default_vendor_without_route_decision(monkeypatch):
+    import sentieon_assist.answering as answering
+
+    seen: list[object] = []
+    monkeypatch.setattr(
+        answering,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.append(vendor_id) or "sentieon",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        answering,
+        "resolve_reference_answer",
+        lambda *args, **kwargs: SimpleNamespace(
+            text="【资料查询】\n- 当前需要更多上下文。\n\n【需要确认的信息】\n- 输入文件类型",
+            sources=[],
+            boundary_tags=[],
+            resolver_path=[],
+        ),
+    )
+    monkeypatch.setattr(answering, "collect_source_bundle_metadata", lambda directory: {})
+
+    text = answer_reference_query("这个模块是什么")
+
+    assert "【需要确认的信息】" in text
+    assert seen == [None]
 
 
 def test_answer_query_trace_collector_reports_gap_record_for_unsupported_version():

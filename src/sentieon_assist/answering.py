@@ -19,7 +19,7 @@ from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
 from sentieon_assist.trace_vocab import ResolverPath
-from sentieon_assist.vendors import get_vendor_profile
+from sentieon_assist.vendors import get_vendor_profile, resolve_vendor_id
 
 
 REQUIRED_FIELDS = {
@@ -420,7 +420,7 @@ def answer_query(
     source_directory: str | None = None,
     trace_collector=None,
 ) -> str:
-    vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+    vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
     vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
     support_intent = str(getattr(route_decision, "support_intent", "troubleshooting")).strip() or "troubleshooting"
     known_context = {key: value for key, value in info.items() if str(value).strip()}
@@ -594,7 +594,7 @@ def answer_reference_query(
     trace_collector=None,
 ) -> str:
     if route_decision is not None and str(getattr(route_decision, "fallback_mode", "")).strip() == "unsupported-version":
-        vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+        vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
         vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
         support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
         rendered = format_unsupported_version_boundary(
@@ -640,7 +640,7 @@ def answer_reference_query(
             sources=resolved.sources,
         )
     )
-    vendor_id = str(getattr(route_decision, "vendor_id", "sentieon")).strip() or "sentieon"
+    vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
     vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
     support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
     confirmation_materials = _extract_confirmation_materials(rendered)

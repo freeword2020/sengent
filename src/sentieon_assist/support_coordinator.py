@@ -10,7 +10,7 @@ from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.reference_intents import ReferenceIntent, detect_reference_module_hint, parse_reference_intent
 from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_state import SupportSessionState, SupportTask
-from sentieon_assist.vendors import get_vendor_profile
+from sentieon_assist.vendors import DEFAULT_VENDOR_ID, get_vendor_profile, resolve_vendor_id
 
 FIELD_SLOT_LABELS = {
     "version": "Sentieon 版本",
@@ -206,9 +206,6 @@ DECISION_SUPPORT_CUES = (
     "该走哪条",
     "该用哪个",
 )
-SENTIEON_VENDOR_ID = "sentieon"
-
-
 def _version_family(version: str) -> str:
     match = re.search(r"(20\d{4})", version or "")
     return match.group(1) if match else ""
@@ -223,7 +220,7 @@ class SupportRouteDecision:
     reason: str
     support_intent: str = SupportIntent.CONCEPT_UNDERSTANDING
     fallback_mode: str = FallbackMode.NONE
-    vendor_id: str = SENTIEON_VENDOR_ID
+    vendor_id: str = DEFAULT_VENDOR_ID
     vendor_version: str = ""
     explicit: bool = False
 
@@ -285,7 +282,8 @@ def _build_route_decision(
     query: str,
     explicit: bool,
 ) -> SupportRouteDecision:
-    vendor_version = _resolved_vendor_version(SENTIEON_VENDOR_ID, info)
+    vendor_id = resolve_vendor_id(None)
+    vendor_version = _resolved_vendor_version(vendor_id, info)
     return SupportRouteDecision(
         task=task,
         issue_type=issue_type,
@@ -293,8 +291,8 @@ def _build_route_decision(
         info=info,
         reason=reason,
         support_intent=_support_intent_for_route(task, parsed_intent, query),
-        fallback_mode=_fallback_mode_for_version(SENTIEON_VENDOR_ID, vendor_version),
-        vendor_id=SENTIEON_VENDOR_ID,
+        fallback_mode=_fallback_mode_for_version(vendor_id, vendor_version),
+        vendor_id=vendor_id,
         vendor_version=vendor_version,
         explicit=explicit,
     )

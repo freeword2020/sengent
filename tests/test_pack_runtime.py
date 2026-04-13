@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from sentieon_assist import external_guides, incident_memory, module_index
 from sentieon_assist.kernel.pack_runtime import (
     pack_path_for_kind,
     required_pack_status,
@@ -142,3 +143,59 @@ def test_kernel_public_exports_import_without_vendor_cycle():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_module_index_path_uses_resolved_default_vendor(tmp_path: Path, monkeypatch):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(module_index, "resolve_vendor_id", lambda vendor_id=None: seen.setdefault("resolved", vendor_id) or "sentieon", raising=False)
+
+    def fake_pack_path_for_kind(source_directory, vendor_id, logical_kind):
+        seen["pack_vendor_id"] = vendor_id
+        seen["logical_kind"] = logical_kind
+        return Path(source_directory) / "sentieon-modules.json"
+
+    monkeypatch.setattr(module_index, "pack_path_for_kind", fake_pack_path_for_kind)
+
+    path = module_index.module_index_path(tmp_path)
+
+    assert path == tmp_path / "sentieon-modules.json"
+    assert seen["resolved"] is None
+    assert seen["pack_vendor_id"] == "sentieon"
+    assert seen["logical_kind"] == "vendor-reference"
+
+
+def test_module_index_path_accepts_explicit_vendor_id(tmp_path: Path):
+    assert module_index.module_index_path(tmp_path, vendor_id="sentieon") == tmp_path / "sentieon-modules.json"
+
+
+def test_external_guide_file_names_accept_explicit_vendor_id():
+    assert external_guides.external_guide_file_names(vendor_id="sentieon") == (
+        "external-format-guides.json",
+        "external-tool-guides.json",
+    )
+
+
+def test_incident_memory_path_uses_resolved_default_vendor(tmp_path: Path, monkeypatch):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        incident_memory,
+        "resolve_vendor_id",
+        lambda vendor_id=None: seen.setdefault("resolved", vendor_id) or "sentieon",
+        raising=False,
+    )
+
+    def fake_pack_path_for_kind(source_directory, vendor_id, logical_kind):
+        seen["pack_vendor_id"] = vendor_id
+        seen["logical_kind"] = logical_kind
+        return Path(source_directory) / "incident-memory.json"
+
+    monkeypatch.setattr(incident_memory, "pack_path_for_kind", fake_pack_path_for_kind)
+
+    path = incident_memory.incident_memory_path(tmp_path)
+
+    assert path == tmp_path / "incident-memory.json"
+    assert seen["resolved"] is None
+    assert seen["pack_vendor_id"] == "sentieon"
+    assert seen["logical_kind"] == "incident-memory"
