@@ -53,7 +53,7 @@ from sentieon_assist.knowledge_review import build_maintainer_queue, format_main
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
-from sentieon_assist.runtime_guidance import format_ollama_runtime_error
+from sentieon_assist.runtime_guidance import format_ollama_runtime_error, format_runtime_provider_error
 from sentieon_assist.session_events import (
     SupportSessionRecord,
     SupportTurnView,
@@ -405,7 +405,8 @@ def require_chat_model(
     result = probe(config.ollama_base_url)
     if not result.get("ok"):
         raise RuntimeError(
-            format_ollama_runtime_error(
+            format_runtime_provider_error(
+                provider=config.runtime_llm_provider,
                 error_text=str(result.get("error", "ollama probe failed")).strip(),
                 base_url=config.ollama_base_url,
                 model=config.ollama_model,
@@ -414,7 +415,8 @@ def require_chat_model(
         )
     if not result.get("model_available"):
         raise RuntimeError(
-            format_ollama_runtime_error(
+            format_runtime_provider_error(
+                provider=config.runtime_llm_provider,
                 error_text=f"target model is not available: {config.ollama_model}",
                 base_url=config.ollama_base_url,
                 model=config.ollama_model,
@@ -981,10 +983,11 @@ def _format_cli_runtime_error(error: RuntimeError) -> str:
     message = str(error).strip()
     if message.startswith("【运行时模型不可用】"):
         return message
-    if "ollama" not in message.lower():
-        return message
     config = load_config()
-    return format_ollama_runtime_error(
+    if "ollama" not in message.lower() and config.runtime_llm_provider == "ollama":
+        return message
+    return format_runtime_provider_error(
+        provider=config.runtime_llm_provider,
         error_text=message,
         base_url=config.ollama_base_url,
         model=config.ollama_model,

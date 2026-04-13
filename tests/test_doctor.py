@@ -68,7 +68,8 @@ def test_gather_doctor_report_can_skip_ollama_probe(tmp_path):
 def test_format_doctor_report_includes_key_summary_fields():
     text = format_doctor_report(
         {
-            "ollama": {
+            "runtime_llm": {
+                "provider": "ollama",
                 "base_url": "http://127.0.0.1:11434",
                 "model": "gemma4:e4b",
                 "ok": True,
@@ -94,7 +95,8 @@ def test_format_doctor_report_includes_key_summary_fields():
         }
     )
 
-    assert "【Ollama】" in text
+    assert "【Runtime LLM】" in text
+    assert "provider: ollama" in text
     assert "status: ok" in text
     assert "model: gemma4:e4b" in text
     assert "load_duration_ms: 1250" in text
@@ -255,7 +257,8 @@ def test_format_doctor_report_includes_build_runtime_and_managed_pack_health():
 def test_format_doctor_report_includes_actionable_ollama_guidance_for_error_state():
     text = format_doctor_report(
         {
-            "ollama": {
+            "runtime_llm": {
+                "provider": "ollama",
                 "base_url": "http://127.0.0.1:11434",
                 "model": "gemma4:e4b",
                 "ok": False,
@@ -301,7 +304,8 @@ def test_format_doctor_report_includes_actionable_ollama_guidance_for_error_stat
 def test_format_doctor_report_includes_actionable_ollama_guidance_for_missing_model():
     text = format_doctor_report(
         {
-            "ollama": {
+            "runtime_llm": {
+                "provider": "ollama",
                 "base_url": "http://127.0.0.1:11434",
                 "model": "gemma4:e4b",
                 "ok": True,
@@ -342,3 +346,52 @@ def test_format_doctor_report_includes_actionable_ollama_guidance_for_missing_mo
 
     assert "model_available: no" in text
     assert "ollama pull gemma4:e4b" in text
+
+
+def test_format_doctor_report_includes_hosted_provider_guidance():
+    text = format_doctor_report(
+        {
+            "runtime_llm": {
+                "provider": "openai_compatible",
+                "base_url": "https://api.example.com/v1",
+                "model": "gpt-4.1",
+                "ok": False,
+                "error": "openai-compatible request failed: connection refused",
+            },
+            "build_runtime": {
+                "pyyaml_available": True,
+                "pyyaml_mode": "mandatory-installed",
+                "docling_available": False,
+                "docling_mode": "optional-pdf-parser-missing",
+            },
+            "knowledge": {
+                "directory": "/tmp/knowledge",
+                "exists": True,
+                "file_count": 2,
+                "files": ["install.json", "license.json"],
+            },
+            "sources": {
+                "directory": "/tmp/sources",
+                "exists": True,
+                "file_count": 5,
+                "files": [
+                    "sentieon-modules.json",
+                    "workflow-guides.json",
+                    "external-format-guides.json",
+                    "external-tool-guides.json",
+                    "external-error-associations.json",
+                ],
+                "primary_release": "202503.03",
+                "primary_date": "Mar 30, 2026",
+                "primary_reference": "workflow-guides.json",
+                "managed_pack_complete": True,
+                "missing_managed_pack_files": [],
+            },
+        }
+    )
+
+    assert "provider: openai_compatible" in text
+    assert "https://api.example.com/v1" in text
+    assert "gpt-4.1" in text
+    assert "ollama pull" not in text
+    assert "API key" in text or "api_key" in text

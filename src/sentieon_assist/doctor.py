@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from sentieon_assist.config import load_config
 from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
-from sentieon_assist.ollama_client import probe_ollama
+from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.runtime_guidance import doctor_guidance_lines
 from sentieon_assist.rules import knowledge_dir as default_knowledge_dir
 from sentieon_assist.sources import collect_source_bundle_metadata, list_sources
@@ -65,18 +65,19 @@ def gather_doctor_report(
     effective_knowledge_directory = Path(knowledge_directory) if knowledge_directory else default_knowledge_dir()
     effective_source_directory = Path(source_directory or config.source_dir)
 
-    probe = api_probe or (lambda base_url: probe_ollama(base_url, config.ollama_model))
-    ollama = {
+    probe = api_probe or (lambda base_url: build_backend_router(config).probe_primary())
+    runtime_llm = {
+        "provider": config.runtime_llm_provider,
         "base_url": config.ollama_base_url,
         "model": config.ollama_model,
     }
     if skip_ollama_probe:
-        ollama.update({"ok": False, "skipped": True, "error": "ollama probe skipped"})
+        runtime_llm.update({"ok": False, "skipped": True, "error": "ollama probe skipped"})
     else:
         try:
-            ollama.update(probe(config.ollama_base_url))
+            runtime_llm.update(probe(config.ollama_base_url))
         except RuntimeError as exc:
-            ollama.update({"ok": False, "error": str(exc)})
+            runtime_llm.update({"ok": False, "error": str(exc)})
 
     docling_is_available = importlib.util.find_spec("docling") is not None
     missing_pack_files = _missing_managed_pack_files(effective_source_directory)
@@ -90,7 +91,8 @@ def gather_doctor_report(
     sources["invalid_managed_pack_files"] = invalid_pack_files
 
     return {
-        "ollama": ollama,
+        "runtime_llm": runtime_llm,
+        "ollama": runtime_llm,
         "build_runtime": {
             "pyyaml_available": True,
             "pyyaml_mode": "mandatory-installed",
@@ -98,7 +100,7 @@ def gather_doctor_report(
             "docling_mode": (
                 "optional-pdf-parser-available"
                 if docling_is_available
-                else "optional-pdf-parser-missing"
+            else "optional-pdf-parser-missing"
             ),
         },
         "knowledge": _directory_summary(effective_knowledge_directory),
@@ -111,26 +113,28 @@ def _format_file_list(files: list[str]) -> str:
 
 
 def format_doctor_report(report: dict[str, Any]) -> str:
-    ollama = report["ollama"]
+    runtime_llm = report.get("runtime_llm") or report.get("ollama") or {}
     build_runtime = report.get("build_runtime", {})
     knowledge = report["knowledge"]
     sources = report["sources"]
-    ollama_lines = [
-        "【Ollama】",
-        f"base_url: {ollama['base_url']}",
-        f"model: {ollama['model']}",
-        f"status: {'skipped' if ollama.get('skipped') else ('ok' if ollama.get('ok') else 'error')}",
+    provider = str(runtime_llm.get("provider", "ollama")).strip() or "ollama"
+    runtime_lines = [
+        "【Runtime LLM】",
+        f"provider: {provider}",
+        f"base_url: {runtime_llm['base_url']}",
+        f"model: {runtime_llm['model']}",
+        f"status: {'skipped' if runtime_llm.get('skipped') else ('ok' if runtime_llm.get('ok') else 'error')}",
     ]
-    if ollama.get("ok"):
-        ollama_lines.append(f"version: {ollama.get('version') or '-'}")
-        if "load_duration_ms" in ollama:
-            ollama_lines.append(f"load_duration_ms: {ollama.get('load_duration_ms')}")
-        if "eval_duration_ms" in ollama:
-            ollama_lines.append(f"eval_duration_ms: {ollama.get('eval_duration_ms')}")
-        if "model_available" in ollama:
-            ollama_lines.append(f"model_available: {'yes' if ollama.get('model_available') else 'no'}")
+    if runtime_llm.get("ok"):
+        runtime_lines.append(f"version: {runtime_llm.get('version') or '-'}")
+        if "load_duration_ms" in runtime_llm:
+            runtime_lines.append(f"load_duration_ms: {runtime_llm.get('load_duration_ms')}")
+        if "eval_duration_ms" in runtime_llm:
+            runtime_lines.append(f"eval_duration_ms: {runtime_llm.get('eval_duration_ms')}")
+        if "model_available" in runtime_llm:
+            runtime_lines.append(f"model_available: {'yes' if runtime_llm.get('model_available') else 'no'}")
     else:
-        ollama_lines.append(f"error: {ollama.get('error', '-')}")
+        runtime_lines.append(f"error: {runtime_llm.get('error', '-')}")
 
     build_runtime_lines = [
         "【Build Runtime】",
@@ -139,10 +143,10 @@ def format_doctor_report(report: dict[str, Any]) -> str:
         f"docling_available: {'yes' if build_runtime.get('docling_available') else 'no'}",
         f"docling_mode: {build_runtime.get('docling_mode') or '-'}",
     ]
-    guidance_lines = doctor_guidance_lines(ollama=ollama)
+    guidance_lines = doctor_guidance_lines(runtime_llm=runtime_llm)
 
     return "\n".join(
-        ollama_lines
+        runtime_lines
         + [
             "",
         ]
