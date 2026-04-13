@@ -7,10 +7,13 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from sentieon_assist.config import AppConfig
+from sentieon_assist.llm_capabilities import LLMCapabilityDescriptor, default_capabilities, normalize_provider
 from sentieon_assist.ollama_client import generate, generate_stream, probe_ollama, warmup_model
 
 
 class LLMBackend(Protocol):
+    capabilities: LLMCapabilityDescriptor
+
     def probe(self) -> dict[str, Any]:
         ...
 
@@ -29,6 +32,7 @@ class OllamaBackend:
     base_url: str
     model: str
     keep_alive: str | None = None
+    capabilities: LLMCapabilityDescriptor = default_capabilities("ollama")
 
     def probe(self) -> dict[str, Any]:
         return probe_ollama(self.base_url, self.model)
@@ -59,6 +63,7 @@ class OpenAICompatibleBackend:
     base_url: str
     model: str
     api_key: str = ""
+    capabilities: LLMCapabilityDescriptor = default_capabilities("openai_compatible")
 
     def _request_json(self, url: str, *, body: dict[str, Any] | None = None) -> dict[str, Any]:
         data = None if body is None else json.dumps(body).encode("utf-8")
@@ -169,6 +174,14 @@ class OpenAICompatibleBackend:
 class BackendRouter:
     primary: LLMBackend
     fallback: LLMBackend | None = None
+    primary_capabilities: LLMCapabilityDescriptor | None = None
+    fallback_capabilities: LLMCapabilityDescriptor | None = None
+
+    def __post_init__(self) -> None:
+        if self.primary_capabilities is None:
+            self.primary_capabilities = getattr(self.primary, "capabilities", None)
+        if self.fallback is not None and self.fallback_capabilities is None:
+            self.fallback_capabilities = getattr(self.fallback, "capabilities", None)
 
     def probe_primary(self) -> dict[str, Any]:
         return self.primary.probe()
@@ -193,20 +206,49 @@ class BackendRouter:
             return self.fallback.generate_stream(prompt, on_chunk=on_chunk)
 
 
-def build_backend_router(config: AppConfig) -> BackendRouter:
-    primary = OllamaBackend(
-        base_url=config.ollama_base_url,
-        model=config.ollama_model,
-        keep_alive=config.ollama_keep_alive,
+def _build_capability_descriptor(config: AppConfig) -> LLMCapabilityDescriptor:
+    default_capabilities(config.runtime_llm_provider)
+    return LLMCapabilityDescriptor(
+        provider=normalize_provider(config.runtime_llm_provider),
+        supports_tools=config.runtime_llm_supports_tools,
+        supports_json_schema=config.runtime_llm_supports_json_schema,
+        supports_reasoning_effort=config.runtime_llm_supports_reasoning_effort,
+        supports_streaming=config.runtime_llm_supports_streaming,
+        max_context=config.runtime_llm_max_context,
+        prompt_cache_behavior=config.runtime_llm_prompt_cache_behavior,
     )
+
+
+def build_backend_router(config: AppConfig) -> BackendRouter:
+    primary_capabilities = _build_capability_descriptor(config)
+    provider = normalize_provider(config.runtime_llm_provider)
+    if provider == "ollama":
+        primary = OllamaBackend(
+            base_url=config.runtime_llm_base_url,
+            model=config.runtime_llm_model,
+            keep_alive=config.runtime_llm_keep_alive,
+            capabilities=primary_capabilities,
+        )
+    elif provider == "openai_compatible":
+        primary = OpenAICompatibleBackend(
+            base_url=config.runtime_llm_base_url,
+            model=config.runtime_llm_model,
+            api_key=config.runtime_llm_api_key,
+            capabilities=primary_capabilities,
+        )
+    else:
+        raise ValueError(f"unsupported llm provider: {config.runtime_llm_provider}")
+
     fallback: LLMBackend | None = None
-    if config.llm_fallback_backend == "ollama" and config.llm_fallback_base_url and config.llm_fallback_model:
+    fallback_backend = normalize_provider(config.llm_fallback_backend)
+    if fallback_backend == "ollama" and config.llm_fallback_base_url and config.llm_fallback_model:
         fallback = OllamaBackend(
             base_url=config.llm_fallback_base_url,
             model=config.llm_fallback_model,
+            capabilities=default_capabilities("ollama"),
         )
     elif (
-        config.llm_fallback_backend == "openai_compatible"
+        fallback_backend == "openai_compatible"
         and config.llm_fallback_base_url
         and config.llm_fallback_model
     ):
@@ -214,5 +256,13 @@ def build_backend_router(config: AppConfig) -> BackendRouter:
             base_url=config.llm_fallback_base_url,
             model=config.llm_fallback_model,
             api_key=config.llm_fallback_api_key,
+            capabilities=default_capabilities("openai_compatible"),
         )
-    return BackendRouter(primary=primary, fallback=fallback)
+    elif config.llm_fallback_backend.strip():
+        raise ValueError(f"unsupported llm provider: {config.llm_fallback_backend}")
+    return BackendRouter(
+        primary=primary,
+        fallback=fallback,
+        primary_capabilities=primary_capabilities,
+        fallback_capabilities=getattr(fallback, "capabilities", None) if fallback is not None else None,
+    )

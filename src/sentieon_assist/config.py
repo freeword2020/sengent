@@ -4,13 +4,22 @@ import os
 from dataclasses import dataclass
 
 from sentieon_assist.app_paths import default_source_dir
+from sentieon_assist.llm_capabilities import default_capabilities, normalize_provider
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    ollama_base_url: str
-    ollama_model: str
-    ollama_keep_alive: str
+    runtime_llm_provider: str
+    runtime_llm_base_url: str
+    runtime_llm_model: str
+    runtime_llm_api_key: str
+    runtime_llm_keep_alive: str
+    runtime_llm_supports_tools: bool
+    runtime_llm_supports_json_schema: bool
+    runtime_llm_supports_reasoning_effort: bool
+    runtime_llm_supports_streaming: bool
+    runtime_llm_max_context: int
+    runtime_llm_prompt_cache_behavior: str
     llm_fallback_backend: str
     llm_fallback_base_url: str
     llm_fallback_model: str
@@ -18,12 +27,86 @@ class AppConfig:
     knowledge_dir: str
     source_dir: str
 
+    @property
+    def ollama_base_url(self) -> str:
+        return self.runtime_llm_base_url
+
+    @property
+    def ollama_model(self) -> str:
+        return self.runtime_llm_model
+
+    @property
+    def ollama_keep_alive(self) -> str:
+        return self.runtime_llm_keep_alive
+
+
+def _parse_strict_bool(value: str, *, env_name: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{env_name} must be one of 1/true/yes/on or 0/false/no/off: {value!r}")
+
+
+def _parse_non_negative_int(value: str, *, env_name: str) -> int:
+    try:
+        parsed = int(value.strip())
+    except ValueError as exc:
+        raise ValueError(f"{env_name} must be a non-negative integer: {value!r}") from exc
+    if parsed < 0:
+        raise ValueError(f"{env_name} must be a non-negative integer: {value!r}")
+    return parsed
+
+
+def _read_env(name: str, *, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
 
 def load_config() -> AppConfig:
+    runtime_provider_raw = _read_env("SENGENT_RUNTIME_LLM_PROVIDER")
+    runtime_provider = normalize_provider(runtime_provider_raw or "ollama")
+    provider_defaults = default_capabilities(runtime_provider)
+
+    runtime_base_url = _read_env("SENGENT_RUNTIME_LLM_BASE_URL") or _read_env("OLLAMA_BASE_URL", default="http://127.0.0.1:11434")
+    runtime_model = _read_env("SENGENT_RUNTIME_LLM_MODEL") or _read_env("OLLAMA_MODEL", default="gemma4:e4b")
+    runtime_api_key = _read_env("SENGENT_RUNTIME_LLM_API_KEY")
+    runtime_keep_alive = _read_env("SENGENT_RUNTIME_LLM_KEEP_ALIVE") or _read_env("OLLAMA_KEEP_ALIVE", default="30m")
+
+    supports_tools_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS")
+    supports_json_schema_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_JSON_SCHEMA")
+    supports_reasoning_effort_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_REASONING_EFFORT")
+    supports_streaming_raw = _read_env("SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING")
+    max_context_raw = _read_env("SENGENT_RUNTIME_LLM_MAX_CONTEXT")
+    prompt_cache_behavior = _read_env("SENGENT_RUNTIME_LLM_PROMPT_CACHE_BEHAVIOR") or provider_defaults.prompt_cache_behavior
     return AppConfig(
-        ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-        ollama_model=os.getenv("OLLAMA_MODEL", "gemma4:e4b"),
-        ollama_keep_alive=os.getenv("OLLAMA_KEEP_ALIVE", "30m"),
+        runtime_llm_provider=runtime_provider,
+        runtime_llm_base_url=runtime_base_url,
+        runtime_llm_model=runtime_model,
+        runtime_llm_api_key=runtime_api_key,
+        runtime_llm_keep_alive=runtime_keep_alive,
+        runtime_llm_supports_tools=_parse_strict_bool(supports_tools_raw, env_name="SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS")
+        if supports_tools_raw
+        else provider_defaults.supports_tools,
+        runtime_llm_supports_json_schema=_parse_strict_bool(
+            supports_json_schema_raw, env_name="SENGENT_RUNTIME_LLM_SUPPORTS_JSON_SCHEMA"
+        )
+        if supports_json_schema_raw
+        else provider_defaults.supports_json_schema,
+        runtime_llm_supports_reasoning_effort=_parse_strict_bool(
+            supports_reasoning_effort_raw, env_name="SENGENT_RUNTIME_LLM_SUPPORTS_REASONING_EFFORT"
+        )
+        if supports_reasoning_effort_raw
+        else provider_defaults.supports_reasoning_effort,
+        runtime_llm_supports_streaming=_parse_strict_bool(
+            supports_streaming_raw, env_name="SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING"
+        )
+        if supports_streaming_raw
+        else provider_defaults.supports_streaming,
+        runtime_llm_max_context=_parse_non_negative_int(max_context_raw, env_name="SENGENT_RUNTIME_LLM_MAX_CONTEXT")
+        if max_context_raw
+        else provider_defaults.max_context,
+        runtime_llm_prompt_cache_behavior=prompt_cache_behavior,
         llm_fallback_backend=os.getenv("SENGENT_LLM_FALLBACK_BACKEND", "").strip(),
         llm_fallback_base_url=os.getenv("SENGENT_LLM_FALLBACK_BASE_URL", "").strip(),
         llm_fallback_model=os.getenv("SENGENT_LLM_FALLBACK_MODEL", "").strip(),
