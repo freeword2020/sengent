@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
+from sentieon_assist.config import AppConfig, load_config
 from sentieon_assist.eval_trace_plane import project_factory_eval_trace
+from sentieon_assist.factory_backends import build_factory_backend
+from sentieon_assist.factory_outbound_trust import build_factory_hosted_outbound_request
 from sentieon_assist.runtime_invariants import PromotionState, normalize_promotion_state
 from sentieon_assist.trust_boundary import (
     OutboundContextDisposition,
@@ -224,6 +227,8 @@ def run_factory_draft(
     vendor_id: str = DEFAULT_VENDOR_ID,
     instruction: str | None = None,
     adapter: str = DEFAULT_FACTORY_ADAPTER,
+    adapter_impl: FactoryModelAdapter | None = None,
+    config: AppConfig | None = None,
 ) -> FactoryDraftResult:
     normalized_task = normalize_factory_task_kind(task_kind)
     normalized_vendor_id = str(vendor_id).strip() or DEFAULT_VENDOR_ID
@@ -237,12 +242,25 @@ def run_factory_draft(
         instruction=instruction,
         source_references=normalized_sources,
     )
-    adapter_impl = _build_adapter(adapter)
+    adapter_impl = adapter_impl or _build_adapter(adapter, config=config)
+    outbound_prompt = prompt_provenance["rendered_prompt"]
+    outbound_source_references: list[dict[str, Any]] = normalized_sources
+    trust_boundary_provenance = _build_factory_trust_boundary_provenance(normalized_sources)
+    if _is_hosted_adapter(adapter_impl):
+        outbound_request = build_factory_hosted_outbound_request(
+            task_kind=normalized_task,
+            vendor_id=normalized_vendor_id,
+            instruction=instruction,
+            source_references=normalized_sources,
+        )
+        outbound_prompt = outbound_request.prompt
+        outbound_source_references = [dict(item) for item in outbound_request.source_references]
+        trust_boundary_provenance = dict(outbound_request.trust_boundary_result.summary)
     draft_payload = adapter_impl.draft(
         task_kind=normalized_task,
         vendor_id=normalized_vendor_id,
-        prompt=prompt_provenance["rendered_prompt"],
-        source_references=normalized_sources,
+        prompt=outbound_prompt,
+        source_references=outbound_source_references,
     )
 
     created_at = datetime.now(timezone.utc).isoformat()
@@ -254,7 +272,6 @@ def run_factory_draft(
         draft_id=draft_id,
     )
     resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
-    trust_boundary_provenance = _build_factory_trust_boundary_provenance(normalized_sources)
     review_guidance = _build_review_guidance(
         build_id=attached_build_dir.name if attached_build_dir else None,
         draft_id=draft_id,
@@ -465,11 +482,20 @@ def _build_source_preview(path: Path) -> str:
     return collapsed[:280]
 
 
-def _build_adapter(adapter: str) -> FactoryModelAdapter:
+def _build_adapter(adapter: str, *, config: AppConfig | None = None) -> FactoryModelAdapter:
     normalized_adapter = str(adapter).strip().lower() or DEFAULT_FACTORY_ADAPTER
     if normalized_adapter == DEFAULT_FACTORY_ADAPTER:
         return StubFactoryAdapter()
+    if normalized_adapter in {"hosted", "openai_compatible"}:
+        backend = build_factory_backend(config or load_config())
+        if backend.adapter_id == DEFAULT_FACTORY_ADAPTER:
+            raise ValueError("factory hosted adapter requires SENGENT_FACTORY_HOSTED_PROVIDER configuration")
+        return backend
     raise ValueError(f"unsupported factory draft adapter: {adapter}")
+
+
+def _is_hosted_adapter(adapter: FactoryModelAdapter) -> bool:
+    return str(getattr(adapter, "provider", "")).strip() == "openai_compatible"
 
 
 def _resolve_factory_build_dir(build_root: str | Path | None, build_id: str | None) -> Path:

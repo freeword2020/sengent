@@ -65,6 +65,31 @@ def test_gather_doctor_report_can_skip_ollama_probe(tmp_path):
     assert report["ollama"]["error"] == "ollama probe skipped"
 
 
+def test_gather_doctor_report_surfaces_factory_hosted_status(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_BASE_URL", "https://factory.example/v1")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_MODEL", "factory-gpt")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_API_KEY", "factory-secret-token")
+
+    report = gather_doctor_report(
+        knowledge_directory=str(tmp_path / "knowledge"),
+        source_directory=str(tmp_path / "sources"),
+        api_probe=lambda base_url: {"ok": False, "error": "connection refused"},
+        factory_api_probe=lambda base_url: {
+            "ok": True,
+            "version": "0.20.0",
+            "model_available": True,
+        },
+    )
+
+    assert report["factory_hosted"]["provider"] == "openai_compatible"
+    assert report["factory_hosted"]["base_url"] == "https://factory.example/v1"
+    assert report["factory_hosted"]["model"] == "factory-gpt"
+    assert report["factory_hosted"]["review_only"] is True
+    assert report["factory_hosted"]["ok"] is True
+    assert report["factory_hosted"]["model_available"] is True
+
+
 def test_format_doctor_report_includes_key_summary_fields():
     text = format_doctor_report(
         {
@@ -76,6 +101,17 @@ def test_format_doctor_report_includes_key_summary_fields():
                 "version": "0.20.0",
                 "load_duration_ms": 1250,
                 "eval_duration_ms": 340,
+            },
+            "factory_hosted": {
+                "provider": "openai_compatible",
+                "base_url": "https://factory.example/v1",
+                "model": "factory-gpt",
+                "enabled": True,
+                "ok": True,
+                "status": "ok",
+                "review_only": True,
+                "version": "0.20.0",
+                "model_available": True,
             },
             "knowledge": {
                 "directory": "/tmp/knowledge",
@@ -96,11 +132,15 @@ def test_format_doctor_report_includes_key_summary_fields():
     )
 
     assert "【Runtime LLM】" in text
+    assert "【Factory Hosted】" in text
+    assert "provider: openai_compatible" in text
+    assert "model: factory-gpt" in text
     assert "provider: ollama" in text
     assert "status: ok" in text
     assert "model: gemma4:e4b" in text
     assert "load_duration_ms: 1250" in text
     assert "eval_duration_ms: 340" in text
+    assert "mode: factory review-only" in text
     assert "【Knowledge】" in text
     assert "file_count: 2" in text
     assert "install.json, license.json" in text

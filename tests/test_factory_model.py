@@ -5,7 +5,67 @@ from pathlib import Path
 
 import pytest
 
+from sentieon_assist.config import AppConfig
+from sentieon_assist.factory_backends import OpenAICompatibleFactoryBackend, StubFactoryBackend, build_factory_backend
 from sentieon_assist.factory_model import normalize_factory_task_kind, review_factory_drafts, run_factory_draft
+
+
+class FakeHostedFactoryAdapter:
+    adapter_id = "hosted"
+    provider = "openai_compatible"
+    model_name = "factory-gpt"
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def draft(
+        self,
+        *,
+        task_kind: str,
+        vendor_id: str,
+        prompt: str,
+        source_references: list[dict[str, object]],
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "task_kind": task_kind,
+                "vendor_id": vendor_id,
+                "prompt": prompt,
+                "source_references": source_references,
+            }
+        )
+        return {
+            "summary": "hosted draft summary",
+            "draft_items": [],
+            "review_hints": ["keep review required"],
+            "adapter_notes": {"execution_mode": "hosted-review-only"},
+        }
+
+
+def _factory_config(**overrides: str) -> AppConfig:
+    return AppConfig(
+        runtime_llm_provider="ollama",
+        runtime_llm_base_url="http://127.0.0.1:11434",
+        runtime_llm_model="gemma4:e4b",
+        runtime_llm_api_key="",
+        runtime_llm_keep_alive="30m",
+        runtime_llm_supports_tools=False,
+        runtime_llm_supports_json_schema=False,
+        runtime_llm_supports_reasoning_effort=False,
+        runtime_llm_supports_streaming=True,
+        runtime_llm_max_context=0,
+        runtime_llm_prompt_cache_behavior="provider_managed",
+        llm_fallback_backend="",
+        llm_fallback_base_url="",
+        llm_fallback_model="",
+        llm_fallback_api_key="",
+        knowledge_dir="",
+        source_dir="/tmp/sentieon-sources",
+        factory_hosted_provider=overrides.get("factory_hosted_provider", ""),
+        factory_hosted_base_url=overrides.get("factory_hosted_base_url", ""),
+        factory_hosted_model=overrides.get("factory_hosted_model", ""),
+        factory_hosted_api_key=overrides.get("factory_hosted_api_key", ""),
+    )
 
 
 def test_normalize_factory_task_kind_accepts_hyphenated_aliases():
@@ -18,6 +78,25 @@ def test_normalize_factory_task_kind_accepts_hyphenated_aliases():
 def test_normalize_factory_task_kind_rejects_unknown_task():
     with pytest.raises(ValueError, match="unsupported factory draft task"):
         normalize_factory_task_kind("runtime_answering")
+
+
+def test_build_factory_backend_uses_stub_when_hosted_factory_is_disabled():
+    backend = build_factory_backend(_factory_config())
+
+    assert isinstance(backend, StubFactoryBackend)
+
+
+def test_build_factory_backend_uses_hosted_provider_when_enabled():
+    backend = build_factory_backend(
+        _factory_config(
+            factory_hosted_provider="openai_compatible",
+            factory_hosted_base_url="https://factory.example/v1",
+            factory_hosted_model="factory-gpt",
+            factory_hosted_api_key="factory-secret",
+        )
+    )
+
+    assert isinstance(backend, OpenAICompatibleFactoryBackend)
 
 
 def test_run_factory_draft_writes_review_needed_artifact_with_prompt_and_source_provenance(tmp_path: Path):
@@ -58,6 +137,52 @@ def test_run_factory_draft_writes_review_needed_artifact_with_prompt_and_source_
     assert payload["draft_payload"]["summary"]
     assert payload["draft_payload"]["draft_items"]
     assert payload["draft_payload"]["review_hints"]
+
+
+def test_run_factory_draft_uses_hosted_adapter_with_factory_trust_boundary_preflight(tmp_path: Path):
+    source_path = tmp_path / "vendor-note.md"
+    source_path.write_text(
+        "# FastDedup\n\nUse /Users/zhuge/Documents/private/path.txt alice@example.com token=super-secret\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "drafts" / "candidate-draft.json"
+    adapter = FakeHostedFactoryAdapter()
+
+    result = run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[source_path],
+        output_path=output_path,
+        vendor_id="sentieon",
+        instruction="Draft candidate review notes from this source.",
+        adapter="hosted",
+        adapter_impl=adapter,
+    )
+
+    assert result.review_status == "needs_review"
+    assert result.adapter_id == "hosted"
+    assert len(adapter.calls) == 1
+    call = adapter.calls[0]
+    assert str(source_path.resolve()) not in str(call["prompt"])
+    assert source_path.name in str(call["prompt"])
+    assert "alice@example.com" not in str(call["prompt"])
+    assert "super-secret" not in str(call["prompt"])
+    hosted_source = call["source_references"][0]
+    assert hosted_source["label"] == source_path.name
+    assert hosted_source["file_type"] == "markdown"
+    assert "path" not in hosted_source
+    assert "alice@example.com" not in str(hosted_source["preview"])
+    assert "super-secret" not in str(hosted_source["preview"])
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["review_status"] == "needs_review"
+    assert payload["review_required"] is True
+    assert payload["lifecycle_state"] == "review_needed"
+    assert payload["activation_eligibility"]["eligible"] is False
+    assert payload["adapter"]["provider"] == "openai_compatible"
+    assert payload["draft_payload"]["adapter_notes"]["execution_mode"] == "hosted-review-only"
+    assert payload["trust_boundary_provenance"]["policy_name"] == "factory-hosted-draft-outbound-v1"
+    assert payload["trust_boundary_provenance"]["local_only_count"] == 1
+    assert payload["trust_boundary_provenance"]["redacted_count"] == 1
+    assert payload["source_references"][0]["path"] == str(source_path.resolve())
 
 
 def test_run_factory_draft_can_attach_artifact_to_build_review_flow(tmp_path: Path):

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from sentieon_assist.config import load_config
+from sentieon_assist.factory_backends import build_factory_backend
 from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.runtime_guidance import doctor_guidance_lines
@@ -60,6 +61,7 @@ def gather_doctor_report(
     source_directory: str | None = None,
     skip_ollama_probe: bool = False,
     api_probe: Callable[[str], dict[str, Any]] | None = None,
+    factory_api_probe: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = load_config()
     effective_knowledge_directory = Path(knowledge_directory) if knowledge_directory else default_knowledge_dir()
@@ -78,6 +80,31 @@ def gather_doctor_report(
             runtime_llm.update(probe(config.ollama_base_url))
         except RuntimeError as exc:
             runtime_llm.update({"ok": False, "error": str(exc)})
+
+    factory_hosted = {
+        "provider": config.factory_hosted_provider,
+        "base_url": config.factory_hosted_base_url,
+        "model": config.factory_hosted_model,
+        "enabled": bool(config.factory_hosted_provider),
+        "review_only": True,
+    }
+    if not factory_hosted["enabled"]:
+        factory_hosted.update({"ok": False, "status": "disabled", "reason": "factory hosted provider disabled"})
+    elif not config.factory_hosted_base_url or not config.factory_hosted_model:
+        factory_hosted.update(
+            {
+                "ok": False,
+                "status": "misconfigured",
+                "reason": "factory hosted provider requires base_url and model",
+            }
+        )
+    else:
+        hosted_probe = factory_api_probe or (lambda _base_url: build_factory_backend(config).probe())
+        try:
+            factory_hosted.update(hosted_probe(config.factory_hosted_base_url))
+            factory_hosted.setdefault("status", "ok" if factory_hosted.get("ok") else "error")
+        except RuntimeError as exc:
+            factory_hosted.update({"ok": False, "status": "error", "error": str(exc)})
 
     docling_is_available = importlib.util.find_spec("docling") is not None
     missing_pack_files = _missing_managed_pack_files(effective_source_directory)
@@ -103,6 +130,7 @@ def gather_doctor_report(
             else "optional-pdf-parser-missing"
             ),
         },
+        "factory_hosted": factory_hosted,
         "knowledge": _directory_summary(effective_knowledge_directory),
         "sources": sources,
     }
@@ -114,6 +142,7 @@ def _format_file_list(files: list[str]) -> str:
 
 def format_doctor_report(report: dict[str, Any]) -> str:
     runtime_llm = report.get("runtime_llm") or report.get("ollama") or {}
+    factory_hosted = report.get("factory_hosted") or {}
     build_runtime = report.get("build_runtime", {})
     knowledge = report["knowledge"]
     sources = report["sources"]
@@ -143,7 +172,29 @@ def format_doctor_report(report: dict[str, Any]) -> str:
         f"docling_available: {'yes' if build_runtime.get('docling_available') else 'no'}",
         f"docling_mode: {build_runtime.get('docling_mode') or '-'}",
     ]
+    factory_lines = [
+        "【Factory Hosted】",
+        f"provider: {factory_hosted.get('provider') or '-'}",
+        f"base_url: {factory_hosted.get('base_url') or '-'}",
+        f"model: {factory_hosted.get('model') or '-'}",
+        f"status: {factory_hosted.get('status') or ('ok' if factory_hosted.get('ok') else 'disabled')}",
+        f"review_only: {'yes' if factory_hosted.get('review_only', True) else 'no'}",
+        "mode: factory review-only",
+    ]
+    if factory_hosted.get("ok"):
+        if "version" in factory_hosted:
+            factory_lines.append(f"version: {factory_hosted.get('version') or '-'}")
+        if "model_available" in factory_hosted:
+            factory_lines.append(f"model_available: {'yes' if factory_hosted.get('model_available') else 'no'}")
+    elif factory_hosted.get("reason"):
+        factory_lines.append(f"reason: {factory_hosted.get('reason')}")
+    elif factory_hosted.get("error"):
+        factory_lines.append(f"error: {factory_hosted.get('error')}")
     guidance_lines = doctor_guidance_lines(runtime_llm=runtime_llm)
+    if not factory_hosted.get("enabled"):
+        guidance_lines = guidance_lines + [
+            "Factory hosted provider is disabled; configure `SENGENT_FACTORY_HOSTED_PROVIDER`, `SENGENT_FACTORY_HOSTED_BASE_URL`, and `SENGENT_FACTORY_HOSTED_MODEL` to enable hosted factory drafting.",
+        ]
 
     return "\n".join(
         runtime_lines
@@ -151,6 +202,10 @@ def format_doctor_report(report: dict[str, Any]) -> str:
             "",
         ]
         + build_runtime_lines
+        + [
+            "",
+        ]
+        + factory_lines
         + [
             "",
             "【Knowledge】",

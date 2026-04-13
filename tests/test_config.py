@@ -22,6 +22,10 @@ def test_load_config_uses_defaults(monkeypatch):
     monkeypatch.delenv("SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING", raising=False)
     monkeypatch.delenv("SENGENT_RUNTIME_LLM_MAX_CONTEXT", raising=False)
     monkeypatch.delenv("SENGENT_RUNTIME_LLM_PROMPT_CACHE_BEHAVIOR", raising=False)
+    monkeypatch.delenv("SENGENT_FACTORY_HOSTED_PROVIDER", raising=False)
+    monkeypatch.delenv("SENGENT_FACTORY_HOSTED_BASE_URL", raising=False)
+    monkeypatch.delenv("SENGENT_FACTORY_HOSTED_MODEL", raising=False)
+    monkeypatch.delenv("SENGENT_FACTORY_HOSTED_API_KEY", raising=False)
     config = load_config()
     assert config.runtime_llm_provider == "ollama"
     assert config.runtime_llm_base_url == "http://127.0.0.1:11434"
@@ -38,6 +42,10 @@ def test_load_config_uses_defaults(monkeypatch):
     assert config.runtime_llm_supports_streaming is True
     assert config.runtime_llm_max_context == 0
     assert config.runtime_llm_prompt_cache_behavior == "provider_managed"
+    assert config.factory_hosted_provider == ""
+    assert config.factory_hosted_base_url == ""
+    assert config.factory_hosted_model == ""
+    assert config.factory_hosted_api_key == ""
 
 
 def test_load_config_reads_environment(monkeypatch):
@@ -56,6 +64,10 @@ def test_load_config_reads_environment(monkeypatch):
     monkeypatch.setenv("SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING", "0")
     monkeypatch.setenv("SENGENT_RUNTIME_LLM_MAX_CONTEXT", "8192")
     monkeypatch.setenv("SENGENT_RUNTIME_LLM_PROMPT_CACHE_BEHAVIOR", "provider_managed")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_PROVIDER", "openai_compatible")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_BASE_URL", "https://factory.example/v1")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_MODEL", "factory-gpt")
+    monkeypatch.setenv("SENGENT_FACTORY_HOSTED_API_KEY", "factory-secret")
     monkeypatch.setenv("SENTIEON_ASSIST_KNOWLEDGE_DIR", "/tmp/sentieon-knowledge")
     monkeypatch.setenv("SENTIEON_ASSIST_SOURCE_DIR", "/tmp/sentieon-sources")
     config = load_config()
@@ -74,6 +86,10 @@ def test_load_config_reads_environment(monkeypatch):
     assert config.runtime_llm_supports_streaming is False
     assert config.runtime_llm_max_context == 8192
     assert config.runtime_llm_prompt_cache_behavior == "provider_managed"
+    assert config.factory_hosted_provider == "openai_compatible"
+    assert config.factory_hosted_base_url == "https://factory.example/v1"
+    assert config.factory_hosted_model == "factory-gpt"
+    assert config.factory_hosted_api_key == "factory-secret"
     assert config.knowledge_dir == "/tmp/sentieon-knowledge"
     assert config.source_dir == "/tmp/sentieon-sources"
 

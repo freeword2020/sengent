@@ -26,6 +26,10 @@ class AppConfig:
     llm_fallback_api_key: str
     knowledge_dir: str
     source_dir: str
+    factory_hosted_provider: str = ""
+    factory_hosted_base_url: str = ""
+    factory_hosted_model: str = ""
+    factory_hosted_api_key: str = ""
 
     @property
     def ollama_base_url(self) -> str:
@@ -66,6 +70,8 @@ def _read_env(name: str, *, default: str = "") -> str:
 def load_config() -> AppConfig:
     runtime_provider_raw = _read_env("SENGENT_RUNTIME_LLM_PROVIDER")
     runtime_provider = normalize_provider(runtime_provider_raw or "ollama")
+    factory_provider_raw = _read_env("SENGENT_FACTORY_HOSTED_PROVIDER")
+    factory_provider = normalize_provider(factory_provider_raw) if factory_provider_raw else ""
     provider_defaults = default_capabilities(runtime_provider)
 
     runtime_base_url = _read_env("SENGENT_RUNTIME_LLM_BASE_URL")
@@ -117,4 +123,8 @@ def load_config() -> AppConfig:
         llm_fallback_api_key=os.getenv("SENGENT_LLM_FALLBACK_API_KEY", "").strip(),
         knowledge_dir=os.getenv("SENTIEON_ASSIST_KNOWLEDGE_DIR", ""),
         source_dir=os.getenv("SENTIEON_ASSIST_SOURCE_DIR", str(default_source_dir())),
+        factory_hosted_provider=factory_provider,
+        factory_hosted_base_url=_read_env("SENGENT_FACTORY_HOSTED_BASE_URL"),
+        factory_hosted_model=_read_env("SENGENT_FACTORY_HOSTED_MODEL"),
+        factory_hosted_api_key=_read_env("SENGENT_FACTORY_HOSTED_API_KEY"),
     )
