@@ -955,21 +955,33 @@ def test_knowledge_build_emits_gap_eval_seed_records_for_triaged_gap_entries(tmp
         for line in (build_dir / "gap_eval_seed.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert seed_records == [
-        {
-            "record_id": seed_records[0]["record_id"],
-            "source": "gap-intake-review",
-            "scope": "last",
-            "session_id": "session-gap-001",
-            "selected_turn_ids": ["turn-gap-001"],
+    assert len(seed_records) == 1
+    assert seed_records[0] == {
+        "record_id": seed_records[0]["record_id"],
+        "source": "gap-intake-review",
+        "scope": "last",
+        "session_id": "session-gap-001",
+        "selected_turn_ids": ["turn-gap-001"],
+        "expected_mode": "boundary",
+        "expected_task": "troubleshooting",
+        "scorable": True,
+        "entry_id": "license-gap-001",
+        "gap_type": "clarification_open",
+        "build_id": review_records[0]["build_id"],
+        "eval_alignment": {
+            "entry_id": "license-gap-001",
+            "review_status": "triaged",
+            "review_decision": "seed_eval",
+            "review_scope": "last",
             "expected_mode": "boundary",
             "expected_task": "troubleshooting",
-            "scorable": True,
-            "entry_id": "license-gap-001",
-            "gap_type": "clarification_open",
-            "build_id": review_records[0]["build_id"],
-        }
-    ]
+            "expected_mode_matches": True,
+            "expected_task_matches": True,
+            "alignment_state": "aligned",
+            "boundary_adherence": "boundary",
+            "evidence_fidelity": "review_expected",
+        },
+    }
 
     report = (build_dir / "report.md").read_text(encoding="utf-8")
     assert "Pending gap triage: 0" in report

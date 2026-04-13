@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from sentieon_assist.app_paths import default_runtime_root as default_runtime_root_path
+from sentieon_assist.eval_trace_plane import project_runtime_eval_trace
 from sentieon_assist.support_contracts import normalize_fallback_mode, normalize_support_intent
 from sentieon_assist.trace_vocab import ResponseMode, normalize_resolver_path, normalize_response_mode
 from sentieon_assist.trust_boundary import TrustBoundaryResult, sanitize_trust_boundary_summary
@@ -136,6 +137,7 @@ class SupportTurnEvent:
     state_before: dict[str, Any]
     state_after: dict[str, Any]
     trust_boundary_summary: dict[str, Any] | None = None
+    eval_trace: dict[str, Any] | None = None
     event_type: str = "turn_resolved"
 
     def to_dict(self) -> dict[str, Any]:
@@ -150,6 +152,7 @@ class SupportTurnEvent:
             "state_before": self.state_before,
             "state_after": self.state_after,
             "trust_boundary_summary": self.trust_boundary_summary,
+            "eval_trace": self.eval_trace,
         }
 
 
@@ -185,15 +188,16 @@ class SupportTurnView:
     task: str
     issue_type: str
     route_reason: str
-    support_intent: str
-    fallback_mode: str
-    vendor_id: str
-    vendor_version: str
-    parsed_intent_intent: str
-    parsed_intent_module: str
-    response_mode: str
+    support_intent: str = ""
+    fallback_mode: str = ""
+    vendor_id: str = ""
+    vendor_version: str = ""
+    parsed_intent_intent: str = ""
+    parsed_intent_module: str = ""
+    response_mode: str = ""
     gap_record: dict[str, Any] | None = None
     trust_boundary_summary: dict[str, Any] | None = None
+    eval_trace: dict[str, Any] | None = None
 
 
 def build_turn_event(
@@ -223,39 +227,50 @@ def build_turn_event(
     trust_boundary_result: TrustBoundaryResult | dict[str, Any] | None = None,
 ) -> SupportTurnEvent:
     trust_boundary_summary = _normalize_trust_boundary_summary(trust_boundary_result)
+    planner = {
+        "raw_query": raw_query,
+        "effective_query": effective_query,
+        "reused_anchor": reused_anchor,
+        "task": task,
+        "issue_type": issue_type,
+        "route_reason": route_reason,
+        "support_intent": normalize_support_intent(support_intent),
+        "fallback_mode": normalize_fallback_mode(fallback_mode),
+        "vendor_id": vendor_id,
+        "vendor_version": vendor_version,
+        "parsed_intent": {
+            "intent": parsed_intent_intent,
+            "module": parsed_intent_module,
+        },
+    }
+    answer = {
+        "response_mode": normalize_response_mode(response_mode),
+        "response_text": response_text,
+        "sources": list(sources or []),
+        "boundary_tags": list(boundary_tags or []),
+        "resolver_path": normalize_resolver_path(resolver_path),
+        "gap_record": dict(gap_record or {}) if gap_record else None,
+        "trust_boundary_summary": trust_boundary_summary,
+    }
+    eval_trace = project_runtime_eval_trace(
+        {
+            "planner": planner,
+            "answer": answer,
+            "trust_boundary_summary": trust_boundary_summary,
+        }
+    )
+    answer["eval_trace"] = dict(eval_trace)
     return SupportTurnEvent(
         session_id=session_id,
         turn_id=uuid4().hex,
         turn_index=turn_index,
         timestamp=_now_iso(),
-        planner={
-            "raw_query": raw_query,
-            "effective_query": effective_query,
-            "reused_anchor": reused_anchor,
-            "task": task,
-            "issue_type": issue_type,
-            "route_reason": route_reason,
-            "support_intent": normalize_support_intent(support_intent),
-            "fallback_mode": normalize_fallback_mode(fallback_mode),
-            "vendor_id": vendor_id,
-            "vendor_version": vendor_version,
-            "parsed_intent": {
-                "intent": parsed_intent_intent,
-                "module": parsed_intent_module,
-            },
-        },
-        answer={
-            "response_mode": normalize_response_mode(response_mode),
-            "response_text": response_text,
-            "sources": list(sources or []),
-            "boundary_tags": list(boundary_tags or []),
-            "resolver_path": normalize_resolver_path(resolver_path),
-            "gap_record": dict(gap_record or {}) if gap_record else None,
-            "trust_boundary_summary": trust_boundary_summary,
-        },
+        planner=planner,
+        answer=answer,
         state_before=state_before,
         state_after=state_after,
         trust_boundary_summary=trust_boundary_summary,
+        eval_trace=eval_trace,
     )
 
 
@@ -307,6 +322,9 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
     planner = payload.get("planner", {})
     answer = payload.get("answer", {})
     parsed_intent = planner.get("parsed_intent", {})
+    eval_trace = answer.get("eval_trace") if isinstance(answer.get("eval_trace"), dict) else payload.get("eval_trace")
+    if not isinstance(eval_trace, dict):
+        eval_trace = project_runtime_eval_trace(payload)
     return SupportTurnView(
         session_id=str(payload.get("session_id", "")),
         turn_id=str(payload.get("turn_id", "")),
@@ -330,6 +348,7 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
         dict(answer.get("trust_boundary_summary", {}))
         if isinstance(answer.get("trust_boundary_summary"), dict)
         else None,
+        eval_trace=dict(eval_trace),
     )
 
 

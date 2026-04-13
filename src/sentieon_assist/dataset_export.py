@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from sentieon_assist.eval_trace_plane import aggregate_runtime_eval_traces, project_runtime_eval_trace
 from sentieon_assist.knowledge_build import review_knowledge_build
 from sentieon_assist.session_events import default_runtime_root, load_session_events, session_log_path
 
@@ -157,6 +158,10 @@ def _build_reviewed_gap_sample(
             ]
         ),
     }
+    sample["support_trace"]["eval_trace_summary"] = aggregate_runtime_eval_traces(
+        [turn.get("eval_trace", {}) for turn in sample["support_trace"]["turns"]]
+    )
+    sample["eval_trace"] = dict(sample["support_trace"]["eval_trace_summary"])
     return sample
 
 
@@ -221,6 +226,7 @@ def _load_selected_turn_events(
 def _trace_turn_payload(event: dict[str, Any]) -> dict[str, Any]:
     planner = event.get("planner", {}) if isinstance(event.get("planner"), dict) else {}
     answer = event.get("answer", {}) if isinstance(event.get("answer"), dict) else {}
+    eval_trace = answer.get("eval_trace") if isinstance(answer.get("eval_trace"), dict) else project_runtime_eval_trace(event)
     return {
         "turn_id": str(event.get("turn_id", "")).strip(),
         "turn_index": int(event.get("turn_index", 0) or 0),
@@ -239,6 +245,7 @@ def _trace_turn_payload(event: dict[str, Any]) -> dict[str, Any]:
         "boundary_tags": _list_value(answer.get("boundary_tags")),
         "resolver_path": _list_value(answer.get("resolver_path")),
         "gap_record": answer.get("gap_record") if isinstance(answer.get("gap_record"), dict) else None,
+        "eval_trace": dict(eval_trace),
     }
 
 

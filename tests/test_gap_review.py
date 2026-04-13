@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from sentieon_assist.eval_trace_plane import project_runtime_eval_trace
 from sentieon_assist.gap_review import normalize_gap_maintainer_review
+from sentieon_assist.gap_review import aggregate_gap_review_eval_alignments
+from sentieon_assist.gap_review import project_gap_review_eval_alignment
 from sentieon_assist.gap_review import update_gap_review_metadata
 
 
@@ -92,3 +95,81 @@ def test_update_gap_review_metadata_rejects_seed_eval_without_expectations(tmp_p
             scope="last",
             note="missing expected mode",
         )
+
+
+def test_project_gap_review_eval_alignment_marks_expected_review_and_eval_contract_as_aligned():
+    review = {
+        "entry_id": "gap-license-001",
+        "review_status": "triaged",
+        "review_decision": "seed_eval",
+        "review_scope": "last",
+        "expected_mode": "boundary",
+        "expected_task": "troubleshooting",
+    }
+    eval_projection = project_runtime_eval_trace(
+        {
+            "planner": {
+                "support_intent": "troubleshooting",
+                "fallback_mode": "clarification_open",
+                "vendor_id": "sentieon",
+                "vendor_version": "202503.03",
+            },
+            "answer": {
+                "response_mode": "boundary",
+                "sources": ["Sentieon202503.03.pdf"],
+                "boundary_tags": [],
+                "resolver_path": ["troubleshooting_knowledge_gap"],
+                "gap_record": {"gap_type": "clarification_open"},
+            },
+        }
+    )
+
+    alignment = project_gap_review_eval_alignment(review, eval_projection)
+
+    assert alignment["entry_id"] == "gap-license-001"
+    assert alignment["alignment_state"] == "aligned"
+    assert alignment["expected_mode_matches"] is True
+    assert alignment["expected_task_matches"] is True
+    assert alignment["boundary_adherence"] == "clarify"
+    assert alignment["evidence_fidelity"] == "source_grounded"
+
+
+def test_aggregate_gap_review_eval_alignments_counts_mixed_alignment_states():
+    aligned = project_gap_review_eval_alignment(
+        {
+            "entry_id": "gap-license-001",
+            "review_status": "triaged",
+            "review_decision": "seed_eval",
+            "review_scope": "last",
+            "expected_mode": "boundary",
+            "expected_task": "troubleshooting",
+        },
+        {
+            "response_mode": "boundary",
+            "support_intent": "troubleshooting",
+            "boundary_adherence": "boundary",
+            "evidence_fidelity": "source_grounded",
+        },
+    )
+    mismatched = project_gap_review_eval_alignment(
+        {
+            "entry_id": "gap-license-002",
+            "review_status": "triaged",
+            "review_decision": "seed_eval",
+            "review_scope": "last",
+            "expected_mode": "clarify",
+            "expected_task": "troubleshooting",
+        },
+        {
+            "response_mode": "boundary",
+            "support_intent": "reference_lookup",
+            "boundary_adherence": "must_tool",
+            "evidence_fidelity": "contract_only",
+        },
+    )
+
+    summary = aggregate_gap_review_eval_alignments([aligned, mismatched])
+
+    assert summary["alignment_state"] == "mixed"
+    assert summary["aligned_count"] == 1
+    assert summary["mismatched_count"] == 1

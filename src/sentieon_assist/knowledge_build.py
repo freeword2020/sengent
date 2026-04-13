@@ -190,6 +190,7 @@ class GapEvalSeedRecord:
     entry_id: str
     gap_type: str
     build_id: str
+    eval_alignment: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

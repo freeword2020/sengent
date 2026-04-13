@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sentieon_assist.factory_model import normalize_factory_task_kind, run_factory_draft
+from sentieon_assist.factory_model import normalize_factory_task_kind, review_factory_drafts, run_factory_draft
 
 
 def test_normalize_factory_task_kind_accepts_hyphenated_aliases():
@@ -45,6 +45,8 @@ def test_run_factory_draft_writes_review_needed_artifact_with_prompt_and_source_
     assert payload["review_status"] == "needs_review"
     assert payload["review_required"] is True
     assert payload["lifecycle_state"] == "review_needed"
+    assert payload["eval_trace"]["lifecycle_state"] == "review_needed"
+    assert payload["eval_trace"]["evidence_fidelity"] == "draft_only"
     assert payload["trust_boundary_provenance"]["policy_name"] == "factory-draft-local-only"
     assert payload["prompt_provenance"]["template_id"] == "factory.candidate_draft.v1"
     assert payload["prompt_provenance"]["template_version"] == "v1"
@@ -80,3 +82,25 @@ def test_run_factory_draft_can_attach_artifact_to_build_review_flow(tmp_path: Pa
     assert payload["review_guidance"]["recommended_command"].startswith(
         "sengent knowledge review-factory-draft"
     )
+
+
+def test_review_factory_drafts_exposes_eval_trace_for_lifecycle_review(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-build1234"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    source_path = tmp_path / "vendor-note.md"
+    source_path.write_text("# FastDedup\n\nUse FastDedup before alignment.\n", encoding="utf-8")
+
+    result = run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[source_path],
+        build_root=build_root,
+        build_id=build_dir.name,
+    )
+
+    review = review_factory_drafts(build_root=build_root, build_id=build_dir.name)
+
+    assert review.drafts[0].artifact_path == result.output_path
+    assert review.drafts[0].eval_trace["lifecycle_state"] == "review_needed"
+    assert review.drafts[0].eval_trace["trust_boundary_policy_name"] == "factory-draft-local-only"

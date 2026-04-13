@@ -251,6 +251,9 @@ def test_session_event_round_trip_preserves_trust_boundary_summary_without_raw_s
     assert view.trust_boundary_summary["allowed_count"] == 1
     assert view.trust_boundary_summary["local_only_count"] == 1
     assert "super-secret" not in json.dumps(view.trust_boundary_summary, ensure_ascii=False)
+    assert view.eval_trace is not None
+    assert view.eval_trace["trust_boundary_policy_name"] == "hosted-llm"
+    assert view.eval_trace["evidence_fidelity"] == "contract_only"
 
 
 def test_session_event_sanitizes_trust_boundary_summary_dict_input(tmp_path: Path):
@@ -294,6 +297,31 @@ def test_session_event_sanitizes_trust_boundary_summary_dict_input(tmp_path: Pat
     assert view.trust_boundary_summary["allowed_count"] == 1
     assert "leaked_value" not in view.trust_boundary_summary
     assert "super-secret" not in json.dumps(view.trust_boundary_summary, ensure_ascii=False)
+
+
+def test_build_turn_event_persists_eval_trace_projection():
+    turn_event = build_turn_event(
+        session_id="session-1",
+        turn_index=1,
+        raw_query="VCF 报 contig not found",
+        effective_query="VCF 报 contig not found",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="other",
+        route_reason="reference_other",
+        parsed_intent_intent="reference_other",
+        parsed_intent_module="",
+        response_text="【资料边界】\n- 文件结构一致性问题需要先跑确定性检查。",
+        response_mode="boundary",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "reference_lookup"},
+        support_intent="concept_understanding",
+        boundary_tags=["must-tool"],
+        resolver_path=["arbitration_must_tool"],
+    )
+
+    assert turn_event.answer["eval_trace"]["boundary_adherence"] == "must_tool"
+    assert turn_event.answer["eval_trace"]["tool_required"] is True
 
 
 def test_turn_view_from_event_normalizes_legacy_blank_response_mode():

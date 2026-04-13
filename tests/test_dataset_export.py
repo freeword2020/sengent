@@ -191,6 +191,10 @@ def test_export_reviewed_gap_dataset_writes_audited_gap_support_sample(tmp_path:
         "expected_mode": "boundary",
         "expected_task": "troubleshooting",
     }
+    assert sample["eval_trace"]["boundary_adherence"] == "clarify"
+    assert sample["eval_trace"]["evidence_fidelity"] == "source_grounded"
+    assert sample["support_trace"]["eval_trace_summary"]["turn_count"] == 1
+    assert sample["support_trace"]["turns"][0]["eval_trace"]["boundary_adherence"] == "clarify"
     assert sample["incident"]["entry_id"] == "license-gap-001"
     assert sample["incident"]["origin"] == "runtime-gap-capture"
     assert sample["support_trace"]["session_id"] == session_id
@@ -217,4 +221,3 @@ def test_export_reviewed_gap_dataset_skips_seed_when_selected_trace_is_missing(t
     assert result.exported_count == 0
     assert result.skipped_count == 1
     assert output_path.read_text(encoding="utf-8") == ""
-

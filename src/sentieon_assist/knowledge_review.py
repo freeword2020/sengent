@@ -19,6 +19,7 @@ class MaintainerQueueBucket:
     recommended_command: str
     artifact_path: str
     samples: tuple[str, ...]
+    eval_trace: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ def build_maintainer_queue(
                 ),
                 artifact_path=str(build_dir / FACTORY_DRAFT_DIRECTORY_NAME),
                 samples=tuple(f"{draft.draft_id} ({draft.task_kind})" for draft in attached_factory_drafts[:3]),
+                eval_trace=dict(first_draft.eval_trace),
             )
         )
 
@@ -201,6 +203,16 @@ def format_maintainer_queue(result: MaintainerQueueResult) -> str:
         if bucket.samples:
             lines.append("Samples:")
             lines.extend(f"- {sample}" for sample in bucket.samples)
+        if isinstance(bucket.eval_trace, dict) and bucket.eval_trace:
+            lifecycle_state = str(bucket.eval_trace.get("lifecycle_state", "")).strip()
+            evidence_fidelity = str(bucket.eval_trace.get("evidence_fidelity", "")).strip()
+            trust_boundary_policy = str(bucket.eval_trace.get("trust_boundary_policy_name", "")).strip()
+            if lifecycle_state:
+                lines.append(f"Lifecycle state: {lifecycle_state}")
+            if evidence_fidelity:
+                lines.append(f"Evidence fidelity: {evidence_fidelity}")
+            if trust_boundary_policy:
+                lines.append(f"Trust boundary policy: {trust_boundary_policy}")
     return "\n".join(lines)
 
 

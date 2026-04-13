@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from sentieon_assist.trace_vocab import normalize_response_mode
+
 
 REVIEW_STATUS_PENDING = "pending"
 REVIEW_STATUS_TRIAGED = "triaged"
@@ -107,6 +109,69 @@ def build_gap_eval_seed_record(
         "entry_id": entry_id,
         "gap_type": gap_type,
         "build_id": build_id,
+        "eval_alignment": project_gap_review_eval_alignment(
+            {
+                "entry_id": entry_id,
+                "review_status": normalized["status"],
+                "review_decision": normalized["decision"],
+                "review_scope": normalized["scope"],
+                "expected_mode": normalized["expected_mode"],
+                "expected_task": normalized["expected_task"],
+            },
+            {
+                "response_mode": normalized["expected_mode"],
+                "task": normalized["expected_task"],
+                "support_intent": normalized["expected_task"],
+                "boundary_adherence": normalized["expected_mode"],
+                "evidence_fidelity": "review_expected",
+            },
+        ),
+    }
+
+
+def project_gap_review_eval_alignment(
+    review_record: dict[str, Any],
+    eval_projection: dict[str, Any] | None,
+) -> dict[str, Any]:
+    projection = eval_projection if isinstance(eval_projection, dict) else {}
+    expected_mode = _string_value(review_record.get("expected_mode"))
+    expected_task = _string_value(review_record.get("expected_task"))
+    actual_mode = _string_value(projection.get("response_mode"))
+    actual_task = _string_value(projection.get("task")) or _string_value(projection.get("support_intent"))
+    expected_mode_matches = not expected_mode or normalize_response_mode(actual_mode) == normalize_response_mode(expected_mode)
+    expected_task_matches = not expected_task or actual_task == expected_task
+    return {
+        "entry_id": _string_value(review_record.get("entry_id")),
+        "review_status": _string_value(review_record.get("review_status")) or _string_value(review_record.get("status")),
+        "review_decision": _string_value(review_record.get("review_decision")) or _string_value(review_record.get("decision")),
+        "review_scope": _string_value(review_record.get("review_scope")) or _string_value(review_record.get("scope")),
+        "expected_mode": expected_mode,
+        "expected_task": expected_task,
+        "expected_mode_matches": expected_mode_matches,
+        "expected_task_matches": expected_task_matches,
+        "alignment_state": "aligned" if expected_mode_matches and expected_task_matches else "mismatched",
+        "boundary_adherence": _string_value(projection.get("boundary_adherence")),
+        "evidence_fidelity": _string_value(projection.get("evidence_fidelity")),
+    }
+
+
+def aggregate_gap_review_eval_alignments(alignments: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized = [item for item in alignments if isinstance(item, dict)]
+    aligned_count = sum(1 for item in normalized if _string_value(item.get("alignment_state")) == "aligned")
+    mismatched_count = sum(1 for item in normalized if _string_value(item.get("alignment_state")) == "mismatched")
+    if aligned_count and mismatched_count:
+        alignment_state = "mixed"
+    elif mismatched_count:
+        alignment_state = "mismatched"
+    elif aligned_count:
+        alignment_state = "aligned"
+    else:
+        alignment_state = "unknown"
+    return {
+        "alignment_state": alignment_state,
+        "aligned_count": aligned_count,
+        "mismatched_count": mismatched_count,
+        "total_count": len(normalized),
     }
 
 

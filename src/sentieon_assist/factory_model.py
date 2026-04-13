@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
+from sentieon_assist.eval_trace_plane import project_factory_eval_trace
 from sentieon_assist.runtime_invariants import PromotionState, normalize_promotion_state
 from sentieon_assist.trust_boundary import (
     OutboundContextDisposition,
@@ -137,6 +138,7 @@ class FactoryDraftArtifact:
     recommended_command: str
     summary: str
     trust_boundary_provenance: dict[str, Any]
+    eval_trace: dict[str, Any]
     source_references: tuple[dict[str, Any], ...]
     draft_items: tuple[dict[str, Any], ...]
     review_hints: tuple[str, ...]
@@ -286,6 +288,7 @@ def run_factory_draft(
             "reason": "Factory model outputs are draft-only and require maintainer review.",
         },
     }
+    artifact["eval_trace"] = project_factory_eval_trace(artifact)
     resolved_output_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return FactoryDraftResult(
         output_path=resolved_output_path,
@@ -378,6 +381,8 @@ def format_factory_draft_review(result: FactoryDraftReviewResult) -> str:
                 f"Recommended command: {draft.recommended_command}",
                 f"Artifact: {draft.artifact_path}",
                 f"Draft summary: {draft.summary}",
+                f"Lifecycle: {draft.eval_trace.get('lifecycle_state', draft.lifecycle_state)}",
+                f"Evidence fidelity: {draft.eval_trace.get('evidence_fidelity', 'draft_only')}",
             ]
         )
         if draft.source_references:
@@ -563,6 +568,16 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
         trust_boundary_provenance = _build_factory_trust_boundary_provenance(
             source_references if isinstance(source_references, list) else []
         )
+    eval_trace = payload.get("eval_trace")
+    if not isinstance(eval_trace, dict):
+        eval_trace = project_factory_eval_trace(
+            {
+                "lifecycle_state": lifecycle_state,
+                "review_status": review_status,
+                "review_required": bool(payload.get("review_required", False)),
+                "trust_boundary_provenance": trust_boundary_provenance,
+            }
+        )
     draft_items = draft_payload.get("draft_items")
     review_hints = draft_payload.get("review_hints")
     return FactoryDraftArtifact(
@@ -578,6 +593,7 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
         recommended_command=str(review_guidance.get("recommended_command", "")).strip(),
         summary=str(draft_payload.get("summary", "")).strip(),
         trust_boundary_provenance=dict(trust_boundary_provenance),
+        eval_trace=dict(eval_trace),
         source_references=tuple(item for item in source_references if isinstance(item, dict))
         if isinstance(source_references, list)
         else (),

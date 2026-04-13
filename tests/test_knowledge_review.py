@@ -228,6 +228,11 @@ def test_build_maintainer_queue_includes_attached_factory_draft_bucket(tmp_path:
     assert bucket.artifact_path.endswith("factory-drafts")
     assert bucket.samples == ("factory-draft.dataset.001 (incident_normalization)",)
     assert bucket.recommended_command.startswith("sengent knowledge review-factory-draft")
+    assert bucket.eval_trace is not None
+    assert bucket.eval_trace["lifecycle_state"] == "review_needed"
+    assert bucket.eval_trace["review_status"] == "needs_review"
+    assert bucket.eval_trace["evidence_fidelity"] == "draft_only"
+    assert bucket.eval_trace["trust_boundary_policy_name"] == "factory-draft-local-only"
 
 
 def test_format_maintainer_queue_includes_factory_draft_review_section(tmp_path: Path):
@@ -239,3 +244,5 @@ def test_format_maintainer_queue_includes_factory_draft_review_section(tmp_path:
 
     assert "Pending Factory Draft Review" in text
     assert "review-factory-draft" in text
+    assert "Lifecycle state: review_needed" in text
+    assert "Evidence fidelity: draft_only" in text
