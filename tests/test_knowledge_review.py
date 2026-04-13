@@ -5,6 +5,28 @@ from pathlib import Path
 
 from sentieon_assist.knowledge_review import build_maintainer_queue
 from sentieon_assist.knowledge_review import format_maintainer_queue
+from sentieon_assist.factory_model import run_factory_draft
+
+
+class FakeHostedFactoryAdapter:
+    adapter_id = "hosted"
+    provider = "openai_compatible"
+    model_name = "factory-gpt"
+
+    def draft(
+        self,
+        *,
+        task_kind: str,
+        vendor_id: str,
+        prompt: str,
+        source_references: list[dict[str, object]],
+    ) -> dict[str, object]:
+        return {
+            "summary": f"hosted draft summary for {task_kind}",
+            "draft_items": [],
+            "review_hints": ["keep review required"],
+            "adapter_notes": {"execution_mode": "hosted-review-only"},
+        }
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
@@ -112,6 +134,9 @@ def _write_attached_factory_draft(
     *,
     draft_id: str = "factory-draft.dataset.001",
     task_kind: str = "dataset_draft",
+    adapter_id: str = "stub",
+    provider: str = "local-stub",
+    model_name: str = "stub-factory-v1",
     eval_trace: dict[str, object] | None = None,
 ) -> Path:
     draft_dir = build_dir / "factory-drafts"
@@ -127,6 +152,21 @@ def _write_attached_factory_draft(
                 "created_at": "2026-04-13T01:02:03+00:00",
                 "review_status": "needs_review",
                 "review_required": True,
+                "adapter": {
+                    "adapter_id": adapter_id,
+                    "provider": provider,
+                    "model_name": model_name,
+                    "interface_version": "factory-model-interface-v1",
+                },
+                "learning_pilot": {
+                    "track": "hosted_learning" if provider == "openai_compatible" else "stub_draft",
+                    "task_kind": task_kind,
+                    "adapter_id": adapter_id,
+                    "adapter_provider": provider,
+                    "adapter_model_name": model_name,
+                    "review_only": True,
+                    "status": "review_needed",
+                },
                 "review_guidance": {
                     "queue_bucket_id": "pending-factory-draft-review",
                     "why": "Offline factory drafts still need maintainer evidence review.",
@@ -231,7 +271,7 @@ def test_build_maintainer_queue_includes_attached_factory_draft_bucket(tmp_path:
     bucket = next(bucket for bucket in result.buckets if bucket.bucket_id == "pending-factory-draft-review")
     assert bucket.count == 1
     assert bucket.artifact_path.endswith("factory-drafts")
-    assert bucket.samples == ("factory-draft.dataset.001 (incident_normalization)",)
+    assert bucket.samples == ("factory-draft.dataset.001 (incident_normalization, stub_draft, local-stub)",)
     assert bucket.recommended_command.startswith("sengent knowledge review-factory-draft")
     assert bucket.eval_trace is not None
     assert bucket.eval_trace["lifecycle_state"] == "review_needed"
@@ -251,6 +291,45 @@ def test_format_maintainer_queue_includes_factory_draft_review_section(tmp_path:
     assert "review-factory-draft" in text
     assert "Lifecycle state: review_needed" in text
     assert "Evidence fidelity: draft_only" in text
+
+
+def test_format_maintainer_queue_distinguishes_hosted_learning_and_stub_factory_drafts(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_queue_build(build_root)
+    stub_source = tmp_path / "stub-source.md"
+    stub_source.write_text("# Stub\n\nReview this draft.\n", encoding="utf-8")
+    hosted_source = tmp_path / "hosted-source.md"
+    hosted_source.write_text("# Hosted\n\nReview this hosted draft.\n", encoding="utf-8")
+
+    run_factory_draft(
+        task_kind="dataset_draft",
+        source_refs=[stub_source],
+        build_root=build_root,
+        build_id=build_dir.name,
+        instruction="Draft stub review notes.",
+    )
+    run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[hosted_source],
+        build_root=build_root,
+        build_id=build_dir.name,
+        instruction="Draft hosted-learning review notes.",
+        adapter="hosted",
+        adapter_impl=FakeHostedFactoryAdapter(),
+    )
+
+    result = build_maintainer_queue(build_root=build_root, build_id=build_dir.name)
+    text = format_maintainer_queue(result)
+    bucket = next(bucket for bucket in result.buckets if bucket.bucket_id == "pending-factory-draft-review")
+
+    assert "hosted_learning" in text
+    assert "stub_draft" in text
+    assert "openai_compatible" in text
+    assert "local-stub" in text
+    assert "Learning track: mixed" in text
+    assert "Adapter provenance: mixed / mixed / mixed" in text
+    assert any("hosted_learning" in sample for sample in bucket.samples)
+    assert any("stub_draft" in sample for sample in bucket.samples)
 
 
 def test_format_maintainer_queue_surfaces_trust_boundary_audit_posture_without_raw_values(tmp_path: Path):

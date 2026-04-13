@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from sentieon_assist.eval_trace_plane import aggregate_runtime_eval_traces, project_runtime_eval_trace
+from sentieon_assist.factory_model import list_attached_factory_drafts, summarize_learning_pilot_provenance
 from sentieon_assist.knowledge_build import review_knowledge_build
 from sentieon_assist.session_events import (
     _normalize_trust_boundary_audit,
@@ -38,6 +39,7 @@ def export_reviewed_gap_dataset(
     build_dir = review.build_dir
     resolved_output_path = Path(output_path)
     resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+    hosted_learning_provenance = _hosted_learning_provenance(build_root=build_root, build_id=review.build_id)
 
     gap_reviews = _read_jsonl(build_dir / "gap_intake_review.jsonl")
     gap_eval_seeds = _read_jsonl(build_dir / "gap_eval_seed.jsonl")
@@ -58,6 +60,7 @@ def export_reviewed_gap_dataset(
             incidents=incidents,
             build_dir=build_dir,
             runtime_root=resolved_runtime_root,
+            hosted_learning_provenance=hosted_learning_provenance,
         )
         if record is None:
             skipped_count += 1
@@ -102,6 +105,7 @@ def _build_reviewed_gap_sample(
     incidents: dict[str, dict[str, Any]],
     build_dir: Path,
     runtime_root: Path,
+    hosted_learning_provenance: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     if not isinstance(review_record, dict):
         return None
@@ -161,12 +165,28 @@ def _build_reviewed_gap_sample(
                 metadata_path_text,
                 str(session_log_path(session_id, runtime_root=runtime_root)),
             ]
+            + (
+                [str(hosted_learning_provenance.get("artifact_path", ""))]
+                if isinstance(hosted_learning_provenance, dict) and str(hosted_learning_provenance.get("artifact_path", "")).strip()
+                else []
+            )
+            + (
+                [
+                    str(item).strip()
+                    for item in hosted_learning_provenance.get("artifact_paths", [])
+                    if str(item).strip()
+                ]
+                if isinstance(hosted_learning_provenance, dict) and isinstance(hosted_learning_provenance.get("artifact_paths"), list)
+                else []
+            )
         ),
     }
     sample["support_trace"]["eval_trace_summary"] = aggregate_runtime_eval_traces(
         [turn.get("eval_trace", {}) for turn in sample["support_trace"]["turns"]]
     )
     sample["eval_trace"] = dict(sample["support_trace"]["eval_trace_summary"])
+    if isinstance(hosted_learning_provenance, dict) and hosted_learning_provenance:
+        sample["hosted_learning_provenance"] = dict(hosted_learning_provenance)
     return sample
 
 
@@ -355,3 +375,8 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(text)
         items.append(text)
     return items
+
+
+def _hosted_learning_provenance(*, build_root: str | Path, build_id: str) -> dict[str, Any] | None:
+    attached_factory_drafts = list_attached_factory_drafts(build_root=build_root, build_id=build_id)
+    return summarize_learning_pilot_provenance(attached_factory_drafts, track="hosted_learning")

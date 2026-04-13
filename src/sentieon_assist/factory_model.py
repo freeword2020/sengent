@@ -140,6 +140,8 @@ class FactoryDraftArtifact:
     next_action: str
     recommended_command: str
     summary: str
+    adapter: dict[str, Any]
+    learning_pilot: dict[str, Any]
     trust_boundary_provenance: dict[str, Any]
     eval_trace: dict[str, Any]
     source_references: tuple[dict[str, Any], ...]
@@ -262,6 +264,12 @@ def run_factory_draft(
         prompt=outbound_prompt,
         source_references=outbound_source_references,
     )
+    learning_pilot = _build_learning_pilot(
+        task_kind=normalized_task,
+        adapter_id=adapter_impl.adapter_id,
+        provider=adapter_impl.provider,
+        model_name=adapter_impl.model_name,
+    )
 
     created_at = datetime.now(timezone.utc).isoformat()
     draft_id = f"factory-draft.{normalized_task}.{uuid4().hex[:12]}"
@@ -295,6 +303,7 @@ def run_factory_draft(
             "model_name": adapter_impl.model_name,
             "interface_version": FACTORY_MODEL_INTERFACE_VERSION,
         },
+        "learning_pilot": learning_pilot,
         "prompt_provenance": prompt_provenance,
         "trust_boundary_provenance": trust_boundary_provenance,
         "source_references": normalized_sources,
@@ -372,6 +381,84 @@ def review_factory_drafts(
     )
 
 
+def summarize_learning_pilot_provenance(
+    drafts: Iterable[FactoryDraftArtifact],
+    *,
+    track: str | None = None,
+) -> dict[str, Any] | None:
+    selected = [
+        draft
+        for draft in drafts
+        if track is None or str(draft.learning_pilot.get("track", "")).strip() == str(track).strip()
+    ]
+    if not selected:
+        return None
+    draft_ids = [draft.draft_id for draft in selected if draft.draft_id]
+    task_kinds = _unique_texts(draft.task_kind for draft in selected)
+    learning_tracks = _unique_texts(draft.learning_pilot.get("track", "") for draft in selected)
+    adapter_ids = _unique_texts(draft.adapter.get("adapter_id", "") for draft in selected)
+    adapter_providers = _unique_texts(draft.adapter.get("provider", "") for draft in selected)
+    adapter_model_names = _unique_texts(draft.adapter.get("model_name", "") for draft in selected)
+    review_statuses = _unique_texts(draft.review_status for draft in selected)
+    build_ids = _unique_texts(draft.build_id or "" for draft in selected)
+    artifact_paths = [str(draft.artifact_path) for draft in selected if str(draft.artifact_path).strip()]
+    trust_boundary_policy_names = _unique_texts(
+        draft.eval_trace.get("trust_boundary_policy_name", "") for draft in selected
+    )
+    summary: dict[str, Any] = {
+        "artifact_class": "factory_model_draft",
+        "draft_count": len(selected),
+        "draft_ids": draft_ids,
+        "task_kinds": task_kinds,
+        "learning_tracks": learning_tracks,
+        "adapter_ids": adapter_ids,
+        "adapter_providers": adapter_providers,
+        "adapter_model_names": adapter_model_names,
+        "review_statuses": review_statuses,
+        "artifact_paths": artifact_paths,
+        "build_ids": build_ids,
+        "trust_boundary_policy_names": trust_boundary_policy_names,
+    }
+    if len(selected) == 1:
+        draft = selected[0]
+        summary.update(
+            {
+                "draft_id": draft.draft_id,
+                "task_kind": draft.task_kind,
+                "learning_track": str(draft.learning_pilot.get("track", "")).strip(),
+                "adapter_id": str(draft.adapter.get("adapter_id", "")).strip(),
+                "adapter_provider": str(draft.adapter.get("provider", "")).strip(),
+                "adapter_model_name": str(draft.adapter.get("model_name", "")).strip(),
+                "review_status": draft.review_status,
+                "artifact_path": str(draft.artifact_path),
+                "build_id": draft.build_id or "",
+                "trust_boundary_policy_name": str(
+                    draft.eval_trace.get("trust_boundary_policy_name", "")
+                ).strip(),
+                "why": draft.why,
+                "next_action": draft.next_action,
+            }
+        )
+        return summary
+    summary.update(
+        {
+            "draft_id": "",
+            "task_kind": _mixed_or_only(task_kinds),
+            "learning_track": _mixed_or_only(learning_tracks),
+            "adapter_id": _mixed_or_only(adapter_ids),
+            "adapter_provider": _mixed_or_only(adapter_providers),
+            "adapter_model_name": _mixed_or_only(adapter_model_names),
+            "review_status": _mixed_or_only(review_statuses),
+            "artifact_path": "",
+            "build_id": _mixed_or_only(build_ids),
+            "trust_boundary_policy_name": _mixed_or_only(trust_boundary_policy_names),
+            "why": "Multiple factory drafts are attached; inspect each draft before using hosted-learning provenance.",
+            "next_action": "Review the attached hosted-learning drafts individually before treating them as evaluation context.",
+        }
+    )
+    return summary
+
+
 def format_factory_draft_review(result: FactoryDraftReviewResult) -> str:
     lines = [
         f"Factory draft review: {result.build_dir}",
@@ -393,6 +480,8 @@ def format_factory_draft_review(result: FactoryDraftReviewResult) -> str:
                 f"Task: {draft.task_kind}",
                 f"Created at: {draft.created_at}",
                 f"Review status: {draft.review_status}",
+                f"Adapter: {draft.adapter.get('adapter_id', '')} ({draft.adapter.get('provider', '')}/{draft.adapter.get('model_name', '')})",
+                f"Learning track: {draft.learning_pilot.get('track', '')}",
                 f"Why: {draft.why}",
                 f"Next action: {draft.next_action}",
                 f"Recommended command: {draft.recommended_command}",
@@ -585,6 +674,14 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
     review_guidance = payload.get("review_guidance")
     if not isinstance(review_guidance, dict):
         review_guidance = _build_review_guidance(build_id=build_id or None, draft_id=draft_id)
+    adapter = payload.get("adapter")
+    if not isinstance(adapter, dict):
+        adapter = {
+            "adapter_id": "",
+            "provider": "",
+            "model_name": "",
+            "interface_version": FACTORY_MODEL_INTERFACE_VERSION,
+        }
     draft_payload = payload.get("draft_payload")
     if not isinstance(draft_payload, dict):
         draft_payload = {}
@@ -604,6 +701,14 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
                 "trust_boundary_provenance": trust_boundary_provenance,
             }
         )
+    learning_pilot = payload.get("learning_pilot")
+    if not isinstance(learning_pilot, dict):
+        learning_pilot = _build_learning_pilot(
+            task_kind=task_kind,
+            adapter_id=str(adapter.get("adapter_id", "")).strip(),
+            provider=str(adapter.get("provider", "")).strip(),
+            model_name=str(adapter.get("model_name", "")).strip(),
+        )
     draft_items = draft_payload.get("draft_items")
     review_hints = draft_payload.get("review_hints")
     return FactoryDraftArtifact(
@@ -618,6 +723,8 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
         next_action=str(review_guidance.get("next_action", "")).strip(),
         recommended_command=str(review_guidance.get("recommended_command", "")).strip(),
         summary=str(draft_payload.get("summary", "")).strip(),
+        adapter=dict(adapter),
+        learning_pilot=dict(learning_pilot),
         trust_boundary_provenance=dict(trust_boundary_provenance),
         eval_trace=dict(eval_trace),
         source_references=tuple(item for item in source_references if isinstance(item, dict))
@@ -678,3 +785,43 @@ def _build_factory_trust_boundary_provenance(source_references: list[dict[str, A
         ),
     )
     return build_trust_boundary_result(decision).summary
+
+
+def _build_learning_pilot(
+    *,
+    task_kind: str,
+    adapter_id: str,
+    provider: str,
+    model_name: str,
+) -> dict[str, Any]:
+    normalized_provider = str(provider).strip()
+    track = "hosted_learning" if normalized_provider == "openai_compatible" else "stub_draft"
+    return {
+        "track": track,
+        "task_kind": task_kind,
+        "adapter_id": str(adapter_id).strip(),
+        "adapter_provider": normalized_provider,
+        "adapter_model_name": str(model_name).strip(),
+        "review_only": True,
+        "status": "review_needed",
+    }
+
+
+def _unique_texts(values: Iterable[Any]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def _mixed_or_only(values: list[str]) -> str:
+    if not values:
+        return ""
+    if len(values) == 1:
+        return values[0]
+    return "mixed"

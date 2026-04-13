@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from sentieon_assist.eval_trace_plane import project_runtime_eval_trace
+from sentieon_assist.gap_review import build_gap_eval_seed_record
 from sentieon_assist.gap_review import normalize_gap_maintainer_review
 from sentieon_assist.gap_review import aggregate_gap_review_eval_alignments
 from sentieon_assist.gap_review import project_gap_review_eval_alignment
@@ -53,6 +54,29 @@ def test_normalize_gap_maintainer_review_defaults_to_pending_state():
     }
 
 
+def test_normalize_gap_maintainer_review_preserves_hosted_learning_provenance():
+    review = normalize_gap_maintainer_review(
+        {
+            "status": "triaged",
+            "decision": "seed_eval",
+            "scope": "last",
+            "expected_mode": "boundary",
+            "expected_task": "troubleshooting",
+            "hosted_learning_provenance": {
+                "draft_id": "factory-draft.dataset.001",
+                "task_kind": "dataset_draft",
+                "learning_track": "hosted_learning",
+                "adapter_id": "hosted",
+                "adapter_provider": "openai_compatible",
+                "adapter_model_name": "factory-gpt",
+            },
+        }
+    )
+
+    assert review["hosted_learning_provenance"]["draft_id"] == "factory-draft.dataset.001"
+    assert review["hosted_learning_provenance"]["adapter_provider"] == "openai_compatible"
+
+
 def test_update_gap_review_metadata_writes_seed_eval_review_block_without_touching_gap_fields(tmp_path: Path):
     metadata_path = tmp_path / "gap-license.meta.yaml"
     _write_gap_metadata(metadata_path)
@@ -95,6 +119,45 @@ def test_update_gap_review_metadata_rejects_seed_eval_without_expectations(tmp_p
             scope="last",
             note="missing expected mode",
         )
+
+
+def test_update_gap_review_metadata_preserves_existing_hosted_learning_provenance(tmp_path: Path):
+    metadata_path = tmp_path / "gap-license.meta.yaml"
+    _write_gap_metadata(metadata_path)
+    payload = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    payload["maintainer_review"] = {
+        "status": "triaged",
+        "decision": "seed_eval",
+        "scope": "last",
+        "expected_mode": "boundary",
+        "expected_task": "troubleshooting",
+        "notes": "Existing review context.",
+        "hosted_learning_provenance": {
+            "draft_id": "factory-draft.dataset.001",
+            "task_kind": "dataset_draft",
+            "learning_track": "hosted_learning",
+            "adapter_id": "hosted",
+            "adapter_provider": "openai_compatible",
+            "adapter_model_name": "factory-gpt",
+        },
+    }
+    metadata_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+    updated = update_gap_review_metadata(
+        metadata_path,
+        status="triaged",
+        decision="seed_eval",
+        expected_mode="boundary",
+        expected_task="troubleshooting",
+        scope="last",
+        note="Need a boundary regression case before gate.",
+    )
+
+    assert updated["maintainer_review"]["hosted_learning_provenance"]["draft_id"] == "factory-draft.dataset.001"
+    assert updated["maintainer_review"]["hosted_learning_provenance"]["adapter_provider"] == "openai_compatible"
 
 
 def test_project_gap_review_eval_alignment_marks_expected_review_and_eval_contract_as_aligned():
@@ -189,3 +252,38 @@ def test_aggregate_gap_review_eval_alignments_counts_mixed_alignment_states():
     assert summary["alignment_state"] == "mixed"
     assert summary["aligned_count"] == 1
     assert summary["mismatched_count"] == 1
+
+
+def test_build_gap_eval_seed_record_carries_hosted_learning_provenance_into_eval_alignment():
+    review = normalize_gap_maintainer_review(
+        {
+            "status": "triaged",
+            "decision": "seed_eval",
+            "scope": "last",
+            "expected_mode": "boundary",
+            "expected_task": "troubleshooting",
+            "hosted_learning_provenance": {
+                "draft_id": "factory-draft.dataset.001",
+                "task_kind": "dataset_draft",
+                "learning_track": "hosted_learning",
+                "adapter_id": "hosted",
+                "adapter_provider": "openai_compatible",
+                "adapter_model_name": "factory-gpt",
+            },
+        }
+    )
+
+    seed = build_gap_eval_seed_record(
+        build_id="build-001",
+        entry_id="gap-license-001",
+        gap_type="clarification_open",
+        session_id="session-001",
+        turn_id="turn-001",
+        review=review,
+    )
+
+    assert seed is not None
+    assert seed["eval_alignment"]["hosted_learning_provenance_present"] is True
+    assert seed["eval_alignment"]["hosted_learning_provenance"]["learning_track"] == "hosted_learning"
+    assert seed["eval_alignment"]["hosted_learning_provenance"]["task_kind"] == "dataset_draft"
+    assert seed["eval_alignment"]["hosted_learning_provenance"]["adapter_provider"] == "openai_compatible"

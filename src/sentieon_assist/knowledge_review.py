@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sentieon_assist.factory_model import FACTORY_DRAFT_DIRECTORY_NAME, list_attached_factory_drafts
+from sentieon_assist.factory_model import (
+    FACTORY_DRAFT_DIRECTORY_NAME,
+    list_attached_factory_drafts,
+    summarize_learning_pilot_provenance,
+)
 from sentieon_assist.knowledge_build import PILOT_CLOSED_LOOP_REPORT_NAME, review_knowledge_build
 
 
@@ -89,6 +93,13 @@ def build_maintainer_queue(
 
     if attached_factory_drafts:
         first_draft = attached_factory_drafts[0]
+        learning_summary = summarize_learning_pilot_provenance(attached_factory_drafts) or {}
+        eval_trace = dict(first_draft.eval_trace)
+        eval_trace["adapter_id"] = str(learning_summary.get("adapter_id", "")).strip()
+        eval_trace["adapter_provider"] = str(learning_summary.get("adapter_provider", "")).strip()
+        eval_trace["adapter_model_name"] = str(learning_summary.get("adapter_model_name", "")).strip()
+        eval_trace["learning_track"] = str(learning_summary.get("learning_track", "")).strip()
+        eval_trace["attached_draft_count"] = int(learning_summary.get("draft_count", len(attached_factory_drafts)) or 0)
         buckets.append(
             MaintainerQueueBucket(
                 bucket_id="pending-factory-draft-review",
@@ -108,8 +119,14 @@ def build_maintainer_queue(
                     or f"sengent knowledge review-factory-draft --build-id {review.build_id} --build-root {Path(build_root)}"
                 ),
                 artifact_path=str(build_dir / FACTORY_DRAFT_DIRECTORY_NAME),
-                samples=tuple(f"{draft.draft_id} ({draft.task_kind})" for draft in attached_factory_drafts[:3]),
-                eval_trace=dict(first_draft.eval_trace),
+                samples=tuple(
+                    (
+                        f"{draft.draft_id} ({draft.task_kind}, "
+                        f"{draft.learning_pilot.get('track', '')}, {draft.adapter.get('provider', '')})"
+                    )
+                    for draft in attached_factory_drafts[:3]
+                ),
+                eval_trace=eval_trace,
             )
         )
 
@@ -209,10 +226,21 @@ def format_maintainer_queue(result: MaintainerQueueResult) -> str:
             trust_boundary_policy = str(bucket.eval_trace.get("trust_boundary_policy_name", "")).strip()
             trust_boundary_audit_present = bool(bucket.eval_trace.get("trust_boundary_audit_present", False))
             trust_boundary_audit_posture = str(bucket.eval_trace.get("trust_boundary_audit_posture", "")).strip()
+            learning_track = str(bucket.eval_trace.get("learning_track", "")).strip()
+            adapter_id = str(bucket.eval_trace.get("adapter_id", "")).strip()
+            adapter_provider = str(bucket.eval_trace.get("adapter_provider", "")).strip()
+            adapter_model_name = str(bucket.eval_trace.get("adapter_model_name", "")).strip()
             if lifecycle_state:
                 lines.append(f"Lifecycle state: {lifecycle_state}")
             if evidence_fidelity:
                 lines.append(f"Evidence fidelity: {evidence_fidelity}")
+            if learning_track:
+                lines.append(f"Learning track: {learning_track}")
+            if adapter_id or adapter_provider or adapter_model_name:
+                lines.append(
+                    "Adapter provenance: "
+                    f"{adapter_id or '-'} / {adapter_provider or '-'} / {adapter_model_name or '-'}"
+                )
             if trust_boundary_policy:
                 lines.append(f"Trust boundary policy: {trust_boundary_policy}")
             if trust_boundary_audit_present:

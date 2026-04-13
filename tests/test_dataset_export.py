@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from sentieon_assist.dataset_export import export_reviewed_gap_dataset
+from sentieon_assist.factory_model import run_factory_draft
 from sentieon_assist.session_events import (
     SupportSessionRecord,
     append_session_record,
@@ -19,6 +20,27 @@ from sentieon_assist.trust_boundary import (
     TrustBoundaryDecision,
     build_trust_boundary_result,
 )
+
+
+class FakeHostedFactoryAdapter:
+    adapter_id = "hosted"
+    provider = "openai_compatible"
+    model_name = "factory-gpt"
+
+    def draft(
+        self,
+        *,
+        task_kind: str,
+        vendor_id: str,
+        prompt: str,
+        source_references: list[dict[str, object]],
+    ) -> dict[str, object]:
+        return {
+            "summary": f"hosted draft summary for {task_kind}",
+            "draft_items": [],
+            "review_hints": ["keep review required"],
+            "adapter_notes": {"execution_mode": "hosted-review-only"},
+        }
 
 
 def _write_reviewed_gap_fixture(tmp_path: Path, *, include_trace: bool = True) -> tuple[Path, str, Path, Path, str, str]:
@@ -247,6 +269,81 @@ def test_export_reviewed_gap_dataset_writes_audited_gap_support_sample(tmp_path:
     assert "super-secret" not in json.dumps(sample["support_trace"], ensure_ascii=False)
     assert "/Users/zhuge/Documents/codex/harness/private.txt" not in json.dumps(sample["support_trace"], ensure_ascii=False)
     assert str(metadata_path) in sample["source_artifacts"]
+
+
+def test_export_reviewed_gap_dataset_includes_hosted_learning_provenance_from_attached_factory_draft(tmp_path: Path):
+    build_root, build_id, runtime_root, metadata_path, session_id, turn_id = _write_reviewed_gap_fixture(tmp_path)
+    source_path = tmp_path / "factory-learning-source.md"
+    source_path.write_text("# Draft\n\nUse this for hosted-learning provenance.\n", encoding="utf-8")
+    draft_result = run_factory_draft(
+        task_kind="dataset_draft",
+        source_refs=[source_path],
+        build_root=build_root,
+        build_id=build_id,
+        adapter="hosted",
+        adapter_impl=FakeHostedFactoryAdapter(),
+    )
+    output_path = tmp_path / "exports" / "reviewed-gap-dataset.jsonl"
+
+    result = export_reviewed_gap_dataset(
+        build_root=build_root,
+        build_id=build_id,
+        runtime_root=runtime_root,
+        output_path=output_path,
+    )
+
+    assert result.exported_count == 1
+    sample = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
+    assert sample["hosted_learning_provenance"]["learning_track"] == "hosted_learning"
+    assert sample["hosted_learning_provenance"]["task_kind"] == "dataset_draft"
+    assert sample["hosted_learning_provenance"]["adapter_provider"] == "openai_compatible"
+    assert sample["hosted_learning_provenance"]["adapter_id"] == "hosted"
+    assert sample["hosted_learning_provenance"]["review_status"] == "needs_review"
+    assert draft_result.output_path.as_posix() in sample["source_artifacts"]
+    assert sample["incident"]["entry_id"] == "license-gap-001"
+
+
+def test_export_reviewed_gap_dataset_aggregates_multiple_hosted_learning_drafts(tmp_path: Path):
+    build_root, build_id, runtime_root, _metadata_path, _session_id, _turn_id = _write_reviewed_gap_fixture(tmp_path)
+    first_source = tmp_path / "factory-learning-source-1.md"
+    second_source = tmp_path / "factory-learning-source-2.md"
+    first_source.write_text("# Draft\n\nHosted learning 1.\n", encoding="utf-8")
+    second_source.write_text("# Draft\n\nHosted learning 2.\n", encoding="utf-8")
+    first_result = run_factory_draft(
+        task_kind="dataset_draft",
+        source_refs=[first_source],
+        build_root=build_root,
+        build_id=build_id,
+        adapter="hosted",
+        adapter_impl=FakeHostedFactoryAdapter(),
+    )
+    second_result = run_factory_draft(
+        task_kind="candidate_draft",
+        source_refs=[second_source],
+        build_root=build_root,
+        build_id=build_id,
+        adapter="hosted",
+        adapter_impl=FakeHostedFactoryAdapter(),
+    )
+    output_path = tmp_path / "exports" / "reviewed-gap-dataset.jsonl"
+
+    result = export_reviewed_gap_dataset(
+        build_root=build_root,
+        build_id=build_id,
+        runtime_root=runtime_root,
+        output_path=output_path,
+    )
+
+    assert result.exported_count == 1
+    sample = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
+    provenance = sample["hosted_learning_provenance"]
+    assert provenance["draft_count"] == 2
+    assert sorted(provenance["task_kinds"]) == ["candidate_draft", "dataset_draft"]
+    assert provenance["learning_track"] == "hosted_learning"
+    assert provenance["adapter_provider"] == "openai_compatible"
+    assert len(provenance["artifact_paths"]) == 2
+    assert first_result.output_path.as_posix() in sample["source_artifacts"]
+    assert second_result.output_path.as_posix() in sample["source_artifacts"]
 
 
 def test_export_reviewed_gap_dataset_resanitizes_legacy_audit_provenance(tmp_path: Path):

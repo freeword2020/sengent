@@ -50,7 +50,7 @@ class GapReviewUpdateResult:
     review: dict[str, str]
 
 
-def normalize_gap_maintainer_review(value: Any) -> dict[str, str]:
+def normalize_gap_maintainer_review(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return dict(DEFAULT_GAP_MAINTAINER_REVIEW)
     review = dict(DEFAULT_GAP_MAINTAINER_REVIEW)
@@ -60,10 +60,13 @@ def normalize_gap_maintainer_review(value: Any) -> dict[str, str]:
     review["expected_mode"] = _string_value(value.get("expected_mode"))
     review["expected_task"] = _string_value(value.get("expected_task"))
     review["notes"] = _string_value(value.get("notes"))
+    hosted_learning_provenance = _hosted_learning_provenance({"hosted_learning_provenance": value.get("hosted_learning_provenance")})
+    if hosted_learning_provenance is not None:
+        review["hosted_learning_provenance"] = hosted_learning_provenance
     return review
 
 
-def validate_gap_maintainer_review(review: dict[str, Any]) -> dict[str, str]:
+def validate_gap_maintainer_review(review: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_gap_maintainer_review(review)
     status = normalized["status"]
     decision = normalized["decision"]
@@ -117,6 +120,7 @@ def build_gap_eval_seed_record(
                 "review_scope": normalized["scope"],
                 "expected_mode": normalized["expected_mode"],
                 "expected_task": normalized["expected_task"],
+                "hosted_learning_provenance": review.get("hosted_learning_provenance"),
             },
             {
                 "response_mode": normalized["expected_mode"],
@@ -124,6 +128,7 @@ def build_gap_eval_seed_record(
                 "support_intent": normalized["expected_task"],
                 "boundary_adherence": normalized["expected_mode"],
                 "evidence_fidelity": "review_expected",
+                "hosted_learning_provenance": review.get("hosted_learning_provenance"),
             },
         ),
     }
@@ -159,6 +164,10 @@ def project_gap_review_eval_alignment(
         result["trust_boundary_audit_provenance_only"] = bool(projection.get("trust_boundary_audit_provenance_only"))
     if _string_value(projection.get("trust_boundary_audit_posture")):
         result["trust_boundary_audit_posture"] = _string_value(projection.get("trust_boundary_audit_posture"))
+    hosted_learning_provenance = _hosted_learning_provenance(review_record, projection)
+    if hosted_learning_provenance is not None:
+        result["hosted_learning_provenance_present"] = True
+        result["hosted_learning_provenance"] = hosted_learning_provenance
     return result
 
 
@@ -198,6 +207,7 @@ def update_gap_review_metadata(
     payload = yaml.safe_load(resolved_metadata_path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
         raise ValueError(f"gap review metadata must be a mapping: {resolved_metadata_path}")
+    existing_review = payload.get("maintainer_review") if isinstance(payload.get("maintainer_review"), dict) else {}
     payload["maintainer_review"] = validate_gap_maintainer_review(
         {
             "status": status,
@@ -206,6 +216,7 @@ def update_gap_review_metadata(
             "expected_task": expected_task,
             "scope": scope,
             "notes": note,
+            "hosted_learning_provenance": existing_review.get("hosted_learning_provenance"),
         }
     )
     resolved_metadata_path.write_text(
@@ -267,3 +278,55 @@ def apply_gap_review_decision(
 
 def _string_value(value: Any) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _hosted_learning_provenance(*values: dict[str, Any] | None) -> dict[str, Any] | None:
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        provenance = value.get("hosted_learning_provenance")
+        if not isinstance(provenance, dict):
+            continue
+        normalized = {
+            "draft_id": _string_value(provenance.get("draft_id")),
+            "task_kind": _string_value(provenance.get("task_kind")),
+            "learning_track": _string_value(provenance.get("learning_track")) or "hosted_learning",
+            "adapter_id": _string_value(provenance.get("adapter_id")),
+            "adapter_provider": _string_value(provenance.get("adapter_provider")),
+            "adapter_model_name": _string_value(provenance.get("adapter_model_name")),
+            "artifact_class": _string_value(provenance.get("artifact_class")) or "factory_model_draft",
+            "review_status": _string_value(provenance.get("review_status")),
+            "artifact_path": _string_value(provenance.get("artifact_path")),
+            "build_id": _string_value(provenance.get("build_id")),
+            "draft_count": max(0, int(provenance.get("draft_count") or 0)) if str(provenance.get("draft_count", "")).strip() else 0,
+            "draft_ids": [text for text in (_string_value(item) for item in provenance.get("draft_ids", [])) if text]
+            if isinstance(provenance.get("draft_ids"), list)
+            else [],
+            "task_kinds": [text for text in (_string_value(item) for item in provenance.get("task_kinds", [])) if text]
+            if isinstance(provenance.get("task_kinds"), list)
+            else [],
+            "learning_tracks": [text for text in (_string_value(item) for item in provenance.get("learning_tracks", [])) if text]
+            if isinstance(provenance.get("learning_tracks"), list)
+            else [],
+            "adapter_ids": [text for text in (_string_value(item) for item in provenance.get("adapter_ids", [])) if text]
+            if isinstance(provenance.get("adapter_ids"), list)
+            else [],
+            "adapter_providers": [text for text in (_string_value(item) for item in provenance.get("adapter_providers", [])) if text]
+            if isinstance(provenance.get("adapter_providers"), list)
+            else [],
+            "adapter_model_names": [text for text in (_string_value(item) for item in provenance.get("adapter_model_names", [])) if text]
+            if isinstance(provenance.get("adapter_model_names"), list)
+            else [],
+            "artifact_paths": [text for text in (_string_value(item) for item in provenance.get("artifact_paths", [])) if text]
+            if isinstance(provenance.get("artifact_paths"), list)
+            else [],
+        }
+        if (
+            normalized["draft_id"]
+            or normalized["task_kind"]
+            or normalized["adapter_provider"]
+            or normalized["draft_ids"]
+            or normalized["adapter_providers"]
+        ):
+            return normalized
+    return None

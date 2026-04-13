@@ -185,6 +185,56 @@ def test_run_factory_draft_uses_hosted_adapter_with_factory_trust_boundary_prefl
     assert payload["source_references"][0]["path"] == str(source_path.resolve())
 
 
+def test_run_factory_draft_marks_hosted_learning_pilot_artifact_without_changing_artifact_class(tmp_path: Path):
+    source_path = tmp_path / "hosted-learning-source.md"
+    source_path.write_text("# Incident\n\nDraft hosted-learning review notes.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "hosted-learning.json"
+    adapter = FakeHostedFactoryAdapter()
+
+    result = run_factory_draft(
+        task_kind="incident_normalization",
+        source_refs=[source_path],
+        output_path=output_path,
+        vendor_id="sentieon",
+        instruction="Draft hosted-learning review notes from this source.",
+        adapter="hosted",
+        adapter_impl=adapter,
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.review_status == "needs_review"
+    assert payload["artifact_class"] == "factory_model_draft"
+    assert payload["learning_pilot"]["track"] == "hosted_learning"
+    assert payload["learning_pilot"]["task_kind"] == "incident_normalization"
+    assert payload["learning_pilot"]["adapter_id"] == "hosted"
+    assert payload["learning_pilot"]["adapter_provider"] == "openai_compatible"
+    assert payload["learning_pilot"]["review_only"] is True
+    assert payload["learning_pilot"]["status"] == "review_needed"
+
+
+def test_run_factory_draft_marks_stub_drafts_as_stub_draft_pilot(tmp_path: Path):
+    source_path = tmp_path / "stub-source.md"
+    source_path.write_text("# Dataset\n\nDraft stub review notes.\n", encoding="utf-8")
+    output_path = tmp_path / "drafts" / "stub-learning.json"
+
+    result = run_factory_draft(
+        task_kind="dataset_draft",
+        source_refs=[source_path],
+        output_path=output_path,
+        vendor_id="sentieon",
+        instruction="Draft stub review notes from this source.",
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.review_status == "needs_review"
+    assert payload["artifact_class"] == "factory_model_draft"
+    assert payload["learning_pilot"]["track"] == "stub_draft"
+    assert payload["learning_pilot"]["task_kind"] == "dataset_draft"
+    assert payload["learning_pilot"]["adapter_provider"] == "local-stub"
+    assert payload["learning_pilot"]["adapter_id"] == "stub"
+    assert payload["learning_pilot"]["review_only"] is True
+
+
 def test_run_factory_draft_can_attach_artifact_to_build_review_flow(tmp_path: Path):
     build_root = tmp_path / "runtime" / "knowledge-build"
     build_dir = build_root / "20260413T010203Z-build1234"
