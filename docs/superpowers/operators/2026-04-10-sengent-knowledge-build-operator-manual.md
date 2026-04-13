@@ -134,6 +134,7 @@ sengent knowledge review
 
 - 哪些 gap 还没 triage
 - 哪些 source intake 还没 review
+- 哪些 attached factory drafts 还待 review
 - 哪些 parameter suggestions 还待审核
 - 是否有 eval seeds 还没进入 gate
 - candidate pack 本次改了哪些 ids
@@ -149,6 +150,18 @@ sengent knowledge review
 ```bash
 sengent knowledge queue --build-id <build_id>
 sengent knowledge review --build-id <build_id>
+```
+
+如果 queue 里出现 `Pending Factory Draft Review`，再跑：
+
+```bash
+sengent knowledge review-factory-draft --build-id <build_id>
+```
+
+如果只想看某一个 draft：
+
+```bash
+sengent knowledge review-factory-draft --build-id <build_id> --draft-id <draft_id>
 ```
 
 重点只看三类东西：
@@ -168,10 +181,23 @@ sengent knowledge review --build-id <build_id>
 
 ```bash
 sengent knowledge factory-draft \
+  --build-id <build_id> \
   --task candidate-draft \
-  --source-ref <path> \
-  --output <path>
+  --source-ref <path>
 ```
+
+如果提供了 `--build-id`，artifact 会自动写到：
+
+```text
+<build-root>/<build_id>/factory-drafts/
+```
+
+这样它就会进入：
+
+- `sengent knowledge queue`
+- `sengent knowledge review-factory-draft`
+
+如果你想生成 standalone draft，就只传 `--output`、不要传 `--build-id`；但 standalone draft 不会自动进入 maintainer queue。
 
 这个命令只会产出 `needs_review` 的 draft artifact，里面会保留 prompt/template provenance、source references、adapter 信息和 review-required 状态。
 
@@ -181,6 +207,16 @@ sengent knowledge factory-draft \
 - 改 active packs
 - 绕过 `build -> review -> gate -> activate`
 - 自动激活任何 candidate
+
+维护者 review factory draft 的推荐顺序：
+
+1. `sengent knowledge factory-draft --build-id <build_id> ...`
+2. `sengent knowledge queue --build-id <build_id>`
+3. `sengent knowledge review-factory-draft --build-id <build_id>`
+4. 手工把确认后的内容写回 inbox / sidecar metadata
+5. 重新 `sengent knowledge build`
+
+注意：factory draft 只是 review acceleration，不是 candidate pack，也不是可 activate 知识。
 
 ## Gate
 

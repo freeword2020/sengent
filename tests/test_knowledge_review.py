@@ -107,6 +107,64 @@ def _write_queue_build(build_root: Path, build_id: str = "20260413T010203Z-queue
     return build_dir
 
 
+def _write_attached_factory_draft(
+    build_dir: Path,
+    *,
+    draft_id: str = "factory-draft.dataset.001",
+    task_kind: str = "dataset_draft",
+) -> Path:
+    draft_dir = build_dir / "factory-drafts"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = draft_dir / f"{draft_id}.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "draft_id": draft_id,
+                "artifact_class": "factory_model_draft",
+                "task_kind": task_kind,
+                "build_id": build_dir.name,
+                "created_at": "2026-04-13T01:02:03+00:00",
+                "review_status": "needs_review",
+                "review_required": True,
+                "review_guidance": {
+                    "queue_bucket_id": "pending-factory-draft-review",
+                    "why": "Offline factory drafts still need maintainer evidence review.",
+                    "next_action": "Inspect the draft and decide whether to turn it into inbox material.",
+                    "recommended_command": (
+                        f"sengent knowledge review-factory-draft --build-id {build_dir.name}"
+                    ),
+                },
+                "source_references": [
+                    {
+                        "path": str((build_dir / "incident-gap.md").resolve()),
+                        "label": "incident-gap.md",
+                        "file_type": "markdown",
+                        "preview": "Incident summary preview",
+                    }
+                ],
+                "draft_payload": {
+                    "summary": "Draft a reviewed incident normalization candidate.",
+                    "draft_items": [
+                        {
+                            "item_id": "incident-1",
+                            "title": "Normalize incident summary",
+                            "proposed_action": "Turn the reviewed content into inbox material.",
+                        }
+                    ],
+                    "review_hints": [
+                        "Draft only.",
+                        "Needs maintainer confirmation.",
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return artifact_path
+
+
 def test_build_maintainer_queue_aggregates_pending_buckets(tmp_path: Path):
     build_root = tmp_path / "runtime" / "knowledge-build"
     build_dir = _write_queue_build(build_root)
@@ -156,3 +214,28 @@ def test_build_maintainer_queue_uses_latest_build_and_ignores_activation_backups
     result = build_maintainer_queue(build_root=build_root)
 
     assert result.build_id == latest_dir.name
+
+
+def test_build_maintainer_queue_includes_attached_factory_draft_bucket(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_queue_build(build_root)
+    _write_attached_factory_draft(build_dir, task_kind="incident_normalization")
+
+    result = build_maintainer_queue(build_root=build_root, build_id=build_dir.name)
+
+    bucket = next(bucket for bucket in result.buckets if bucket.bucket_id == "pending-factory-draft-review")
+    assert bucket.count == 1
+    assert bucket.artifact_path.endswith("factory-drafts")
+    assert bucket.samples == ("factory-draft.dataset.001 (incident_normalization)",)
+    assert bucket.recommended_command.startswith("sengent knowledge review-factory-draft")
+
+
+def test_format_maintainer_queue_includes_factory_draft_review_section(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_queue_build(build_root)
+    _write_attached_factory_draft(build_dir)
+
+    text = format_maintainer_queue(build_maintainer_queue(build_root=build_root, build_id=build_dir.name))
+
+    assert "Pending Factory Draft Review" in text
+    assert "review-factory-draft" in text

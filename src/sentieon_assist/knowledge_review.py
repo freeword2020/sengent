@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sentieon_assist.factory_model import FACTORY_DRAFT_DIRECTORY_NAME, list_attached_factory_drafts
 from sentieon_assist.knowledge_build import PILOT_CLOSED_LOOP_REPORT_NAME, review_knowledge_build
 
 
@@ -41,6 +42,7 @@ def build_maintainer_queue(
     gap_reviews = _read_jsonl(build_dir / "gap_intake_review.jsonl")
     gap_eval_seeds = _read_jsonl(build_dir / "gap_eval_seed.jsonl")
     closed_loop_report = _read_json_object(build_dir / PILOT_CLOSED_LOOP_REPORT_NAME)
+    attached_factory_drafts = list_attached_factory_drafts(build_root=build_root, build_id=review.build_id)
 
     buckets: list[MaintainerQueueBucket] = []
 
@@ -81,6 +83,31 @@ def build_maintainer_queue(
                 recommended_command="sengent knowledge build --inbox-dir <dir> --build-root <dir>",
                 artifact_path=str(manifest_path),
                 samples=tuple(str(item.get("relative_path", "")) for item in source_review_items[:3]),
+            )
+        )
+
+    if attached_factory_drafts:
+        first_draft = attached_factory_drafts[0]
+        buckets.append(
+            MaintainerQueueBucket(
+                bucket_id="pending-factory-draft-review",
+                title="Pending Factory Draft Review",
+                count=len(attached_factory_drafts),
+                why=(
+                    "Offline factory workers already drafted candidate review material for this build, but "
+                    "maintainers still need to validate the cited evidence before any of it can re-enter the "
+                    "formal inbox/build flow."
+                ),
+                next_action=(
+                    "Inspect each attached factory draft, confirm the evidence and draft items, then manually "
+                    "convert the accepted content into inbox or metadata changes."
+                ),
+                recommended_command=(
+                    first_draft.recommended_command
+                    or f"sengent knowledge review-factory-draft --build-id {review.build_id} --build-root {Path(build_root)}"
+                ),
+                artifact_path=str(build_dir / FACTORY_DRAFT_DIRECTORY_NAME),
+                samples=tuple(f"{draft.draft_id} ({draft.task_kind})" for draft in attached_factory_drafts[:3]),
             )
         )
 

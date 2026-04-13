@@ -54,3 +54,27 @@ def test_run_factory_draft_writes_review_needed_artifact_with_prompt_and_source_
     assert payload["draft_payload"]["summary"]
     assert payload["draft_payload"]["draft_items"]
     assert payload["draft_payload"]["review_hints"]
+
+
+def test_run_factory_draft_can_attach_artifact_to_build_review_flow(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-build1234"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    source_path = tmp_path / "incident-note.md"
+    source_path.write_text("# Incident\n\nNormalize this incident for review.\n", encoding="utf-8")
+
+    result = run_factory_draft(
+        task_kind="incident_normalization",
+        source_refs=[source_path],
+        build_root=build_root,
+        build_id=build_dir.name,
+    )
+
+    assert result.output_path.parent == build_dir / "factory-drafts"
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["build_id"] == build_dir.name
+    assert payload["review_guidance"]["queue_bucket_id"] == "pending-factory-draft-review"
+    assert payload["review_guidance"]["recommended_command"].startswith(
+        "sengent knowledge review-factory-draft"
+    )

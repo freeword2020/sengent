@@ -139,6 +139,64 @@ def _write_source_text(path: Path, text: str = "# Release Notes\n\nDNAscope upda
     return path
 
 
+def _write_attached_factory_draft(
+    build_dir: Path,
+    *,
+    draft_id: str = "factory-draft.dataset.001",
+    task_kind: str = "dataset_draft",
+) -> Path:
+    draft_dir = build_dir / "factory-drafts"
+    draft_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = draft_dir / f"{draft_id}.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "draft_id": draft_id,
+                "artifact_class": "factory_model_draft",
+                "task_kind": task_kind,
+                "build_id": build_dir.name,
+                "created_at": "2026-04-13T01:02:03+00:00",
+                "review_status": "needs_review",
+                "review_required": True,
+                "review_guidance": {
+                    "queue_bucket_id": "pending-factory-draft-review",
+                    "why": "Offline factory drafts still need maintainer evidence review.",
+                    "next_action": "Inspect the draft and decide whether to convert it into inbox material.",
+                    "recommended_command": (
+                        f"sengent knowledge review-factory-draft --build-id {build_dir.name}"
+                    ),
+                },
+                "source_references": [
+                    {
+                        "path": str((build_dir / "vendor-doc.md").resolve()),
+                        "label": "vendor-doc.md",
+                        "file_type": "markdown",
+                        "preview": "FastDedup source preview",
+                    }
+                ],
+                "draft_payload": {
+                    "summary": "Draft a reviewed dataset note.",
+                    "draft_items": [
+                        {
+                            "item_id": "dataset-1",
+                            "title": "Review dataset export fields",
+                            "proposed_action": "Turn reviewed notes into a maintained export input.",
+                        }
+                    ],
+                    "review_hints": [
+                        "Draft only.",
+                        "Needs maintainer confirmation.",
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return artifact_path
+
+
 def test_cli_requires_query(capsys):
     code = main([])
     out = capsys.readouterr().out
@@ -916,6 +974,7 @@ def test_cli_knowledge_queue_prints_actionable_bucket_summary(tmp_path: Path):
         + "\n",
         encoding="utf-8",
     )
+    _write_attached_factory_draft(build_dir)
     outputs: list[str] = []
 
     code = main(
@@ -936,6 +995,7 @@ def test_cli_knowledge_queue_prints_actionable_bucket_summary(tmp_path: Path):
     assert "Pending Parameter Review" in combined
     assert "Pending Gate Input" in combined
     assert "Candidate Pack Change" in combined
+    assert "Pending Factory Draft Review" in combined
 
 
 def test_cli_knowledge_triage_gap_updates_gap_review_metadata(tmp_path: Path):
@@ -1571,6 +1631,106 @@ def test_knowledge_factory_draft_writes_review_needed_artifact(tmp_path: Path):
     assert "Adapter: stub" in summary
     assert "Review status: needs_review" in summary
     assert "Source references: 2" in summary
+
+
+def test_knowledge_factory_draft_can_attach_to_existing_build(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-build1234"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    source_path = tmp_path / "vendor-doc.md"
+    source_path.write_text("# FastDedup\n\nUse FastDedup before alignment.\n", encoding="utf-8")
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "factory-draft",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+            "--task",
+            "candidate-draft",
+            "--source-ref",
+            str(source_path),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    artifacts = sorted((build_dir / "factory-drafts").glob("*.json"))
+    assert len(artifacts) == 1
+    payload = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert payload["build_id"] == build_dir.name
+    assert payload["review_guidance"]["queue_bucket_id"] == "pending-factory-draft-review"
+    summary = "\n".join(outputs)
+    assert f"Attached build: {build_dir.name}" in summary
+
+
+def test_knowledge_factory_draft_build_attachment_uses_canonical_directory_even_with_output(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-build1234"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    source_path = tmp_path / "vendor-doc.md"
+    source_path.write_text("# FastDedup\n\nUse FastDedup before alignment.\n", encoding="utf-8")
+    standalone_output = tmp_path / "drafts" / "standalone.json"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "factory-draft",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+            "--output",
+            str(standalone_output),
+            "--task",
+            "candidate-draft",
+            "--source-ref",
+            str(source_path),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    artifacts = sorted((build_dir / "factory-drafts").glob("*.json"))
+    assert len(artifacts) == 1
+    assert not standalone_output.exists()
+    summary = "\n".join(outputs)
+    assert f"Factory draft artifact: {artifacts[0]}" in summary
+    assert f"Attached build: {build_dir.name}" in summary
+
+
+def test_cli_knowledge_review_factory_draft_prints_build_summary(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-build1234"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    _write_attached_factory_draft(build_dir, task_kind="incident_normalization")
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "review-factory-draft",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    combined = "\n".join(outputs)
+    assert f"Factory draft review: {build_dir}" in combined
+    assert "factory-draft.dataset.001" in combined
+    assert "incident_normalization" in combined
+    assert "Next action:" in combined
 
 
 def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path, monkeypatch):
