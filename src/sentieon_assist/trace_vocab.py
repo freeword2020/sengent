@@ -17,6 +17,10 @@ class ResponseMode(StrEnum):
 
 
 class ResolverPath(StrEnum):
+    ARBITRATION_MUST_CLARIFY = "arbitration_must_clarify"
+    ARBITRATION_MUST_TOOL = "arbitration_must_tool"
+    ARBITRATION_MUST_REFUSE = "arbitration_must_refuse"
+    ARBITRATION_MUST_ESCALATE = "arbitration_must_escalate"
     CAPABILITY_EXPLANATION = "capability_explanation"
     TROUBLESHOOTING_MISSING_INFO = "troubleshooting_missing_info"
     TROUBLESHOOTING_KNOWLEDGE_GAP = "troubleshooting_knowledge_gap"

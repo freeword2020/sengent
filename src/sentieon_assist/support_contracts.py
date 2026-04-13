@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from sentieon_assist.runtime_invariants import (
+    ToolRequirement,
+    normalize_tool_requirement as normalize_invariant_tool_requirement,
+)
+
 
 class SupportIntent(StrEnum):
     CAPABILITY_EXPLANATION = "capability_explanation"
@@ -32,6 +37,14 @@ class GapType(StrEnum):
     UNSUPPORTED_VERSION = "unsupported_version"
 
 
+class BoundaryOutcome(StrEnum):
+    SHOULD_ANSWER = "should_answer"
+    MUST_CLARIFY = "must_clarify"
+    MUST_TOOL = "must_tool"
+    MUST_REFUSE = "must_refuse"
+    MUST_ESCALATE = "must_escalate"
+
+
 def normalize_support_intent(value: str | SupportIntent | None) -> str:
     candidate = str(value or "").strip()
     if not candidate:
@@ -52,10 +65,63 @@ def normalize_fallback_mode(value: str | FallbackMode | None) -> str:
         return candidate
 
 
+def normalize_tool_requirement(value: str | ToolRequirement | None) -> str:
+    candidate = str(value or "").strip().lower()
+    if not candidate:
+        return ToolRequirement.NONE
+    aliases = {
+        "must_tool": ToolRequirement.REQUIRED,
+        "required": ToolRequirement.REQUIRED,
+        "tool_required": ToolRequirement.REQUIRED,
+        "tool-required": ToolRequirement.REQUIRED,
+        "model_only": ToolRequirement.NONE,
+        "none": ToolRequirement.NONE,
+    }
+    if candidate in aliases:
+        return normalize_invariant_tool_requirement(aliases[candidate])
+    return normalize_invariant_tool_requirement(candidate)
+
+
+def normalize_boundary_outcome(value: str | BoundaryOutcome | None) -> str:
+    candidate = str(value or "").strip().lower()
+    if not candidate:
+        return BoundaryOutcome.SHOULD_ANSWER
+    aliases = {
+        "answer": BoundaryOutcome.SHOULD_ANSWER,
+        "should_answer": BoundaryOutcome.SHOULD_ANSWER,
+        "clarify": BoundaryOutcome.MUST_CLARIFY,
+        "must_clarify": BoundaryOutcome.MUST_CLARIFY,
+        "tool": BoundaryOutcome.MUST_TOOL,
+        "must_tool": BoundaryOutcome.MUST_TOOL,
+        "refuse": BoundaryOutcome.MUST_REFUSE,
+        "must_refuse": BoundaryOutcome.MUST_REFUSE,
+        "escalate": BoundaryOutcome.MUST_ESCALATE,
+        "must_escalate": BoundaryOutcome.MUST_ESCALATE,
+    }
+    if candidate in aliases:
+        return aliases[candidate]
+    try:
+        return BoundaryOutcome(candidate)
+    except ValueError:
+        return candidate
+
+
+def tool_requirement_for_support_intent(value: str | SupportIntent | None) -> str:
+    intent = normalize_support_intent(value)
+    if intent == SupportIntent.VALIDATION_NEXT_STEP:
+        return ToolRequirement.REQUIRED
+    return ToolRequirement.NONE
+
+
 __all__ = [
+    "BoundaryOutcome",
     "FallbackMode",
     "GapType",
     "SupportIntent",
+    "ToolRequirement",
     "normalize_fallback_mode",
+    "normalize_boundary_outcome",
     "normalize_support_intent",
+    "normalize_tool_requirement",
+    "tool_requirement_for_support_intent",
 ]

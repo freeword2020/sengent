@@ -164,6 +164,21 @@ def test_select_support_route_uses_resolved_default_vendor(monkeypatch):
     assert seen == [None]
 
 
+def test_select_support_route_exposes_must_tool_arbitration_for_contig_error():
+    route = select_support_route(
+        "VCF 报 contig not found 是什么情况",
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(
+            intent="reference_other",
+            confidence=0.55,
+            tool_requirement="required",
+        ),
+    )
+
+    assert route.arbitration_action == "must_tool"
+    assert route.tool_requirement == "required"
+    assert route.boundary_reason
+
+
 def test_update_support_state_tracks_clarification_rounds_and_caps_at_vendor_policy():
     state = SupportSessionState()
     planned_turn = plan_support_turn(

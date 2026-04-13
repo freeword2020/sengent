@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from sentieon_assist.answer_contracts import format_boundary_contract
+from sentieon_assist.boundary_pack import default_boundary_pack
 from sentieon_assist.external_guides import (
     format_external_error_association,
     format_external_guide_answer,
@@ -26,6 +27,8 @@ from sentieon_assist.module_index import (
 from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
 from sentieon_assist.reference_intents import ReferenceIntent
 from sentieon_assist.reference_retrieval import collect_reference_fallback_evidence, retrieve_reference_candidates
+from sentieon_assist.support_contracts import BoundaryOutcome
+from sentieon_assist.tool_arbitration import arbitrate_support_action
 from sentieon_assist.trace_vocab import ResolverPath
 from sentieon_assist.workflow_index import (
     format_workflow_guidance_answer,
@@ -93,6 +96,41 @@ def format_reference_boundary_answer(query: str, tags: list[str]) -> str:
         needed_materials=[
             "对应版本的 app note / release note / benchmark 文档 / 官方链接",
             "更具体的模块、参数、输入输出或 workflow 场景",
+        ],
+    )
+
+
+def format_reference_tool_required_answer(reason: str) -> str:
+    resolved_reason = str(reason).strip() or "这个问题属于文件结构或一致性检查。"
+    return format_boundary_contract(
+        summary_lines=[
+            resolved_reason,
+            "这类问题必须先跑确定性检查，再解释结果，不能只靠模型推断。",
+        ],
+        next_steps=[
+            "先运行对应的 header / 索引 / contig / 排序一致性检查工具。",
+            "拿到检查结果后，再基于工具输出继续定位。",
+        ],
+        needed_materials=[
+            "相关输入文件类型和路径",
+            "完整报错或检查输出",
+            "实际执行步骤",
+        ],
+    )
+
+
+def format_reference_refusal_answer(reason: str) -> str:
+    resolved_reason = str(reason).strip() or "该请求超出当前软件支持边界。"
+    return format_boundary_contract(
+        summary_lines=[
+            resolved_reason,
+            "当前不能在没有证据约束的前提下直接给出确定性结论。",
+        ],
+        next_steps=[
+            "请改为当前软件支持边界内的问题，或补充正式证据材料。",
+        ],
+        needed_materials=[
+            "对应版本的官方材料或结构化证据",
         ],
     )
 
@@ -258,12 +296,43 @@ def resolve_reference_answer(
     source_directory: str,
     resolved_intent: ReferenceIntent,
 ) -> ResolvedReferenceAnswer:
+    boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
+    arbitration = arbitrate_support_action(
+        query,
+        issue_type="other",
+        support_intent="concept_understanding",
+        info={},
+        parsed_intent=resolved_intent,
+        boundary_pack=default_boundary_pack(),
+        boundary_tags=boundary_tags,
+    )
+    if arbitration.action == BoundaryOutcome.MUST_TOOL:
+        return _resolved(
+            format_reference_tool_required_answer(arbitration.reason),
+            [],
+            boundary_tags=["must-tool"],
+            resolver_path=[ResolverPath.ARBITRATION_MUST_TOOL],
+        )
+    if arbitration.action == BoundaryOutcome.MUST_REFUSE:
+        return _resolved(
+            format_reference_refusal_answer(arbitration.reason),
+            [],
+            boundary_tags=["must-refuse"],
+            resolver_path=[ResolverPath.ARBITRATION_MUST_REFUSE],
+        )
+    if arbitration.action == BoundaryOutcome.MUST_ESCALATE:
+        return _resolved(
+            format_reference_refusal_answer(arbitration.reason),
+            [],
+            boundary_tags=["must-escalate"],
+            resolver_path=[ResolverPath.ARBITRATION_MUST_ESCALATE],
+        )
+
     doc_answer = format_doc_reference_answer(query)
     if doc_answer is not None:
         doc_text, doc_sources = doc_answer
         return _resolved(doc_text, doc_sources, resolver_path=[ResolverPath.DOC_REFERENCE])
 
-    boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
     if boundary_tags:
         return _resolved(
             format_reference_boundary_answer(query, boundary_tags),

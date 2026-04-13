@@ -249,6 +249,109 @@ def test_answer_query_trace_collector_reports_gap_record_for_clarification_open(
     assert seen["gap_record"]["vendor_id"] == "sentieon"
 
 
+def test_answer_query_must_tool_still_clarifies_when_required_fields_missing():
+    text = answer_query(
+        "license",
+        "VCF 报 contig not found",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "",
+            "error_keywords": "contig",
+            "step": "",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "",
+                "input_type": "",
+                "error": "",
+                "error_keywords": "contig",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+            arbitration_action="must_tool",
+            tool_requirement="required",
+            boundary_reason="文件结构一致性问题需要先跑确定性检查。",
+        ),
+    )
+
+    assert text.startswith("需要补充以下信息：")
+
+
+def test_answer_query_must_tool_blocks_model_only_fallback():
+    text = answer_query(
+        "license",
+        "VCF 报 contig not found",
+        {
+            "version": "202503.03",
+            "input_type": "VCF",
+            "error": "contig not found",
+            "error_keywords": "contig",
+            "step": "joint call",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "202503.03",
+                "input_type": "VCF",
+                "error": "contig not found",
+                "error_keywords": "contig",
+                "step": "joint call",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+            arbitration_action="must_tool",
+            tool_requirement="required",
+            boundary_reason="文件结构一致性问题需要先跑确定性检查。",
+        ),
+        model_fallback=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not call model")),
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+
+
+def test_answer_reference_query_honors_must_refuse_arbitration():
+    text = answer_reference_query(
+        "给我一个没有证据约束的结论",
+        route_decision=SupportRouteDecision(
+            task="reference_lookup",
+            issue_type="other",
+            parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.51),
+            info={},
+            reason="reference_other",
+            support_intent=SupportIntent.CONCEPT_UNDERSTANDING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+            arbitration_action="must_refuse",
+            boundary_reason="该请求超出当前软件支持边界。",
+        ),
+    )
+
+    assert text.startswith("【资料边界】")
+    assert "超出当前软件支持边界" in text
+
+
 def test_answer_query_uses_resolved_default_vendor_without_route_decision(monkeypatch):
     import sentieon_assist.answering as answering
 
@@ -2388,10 +2491,9 @@ def test_checked_in_source_directory_exposes_vcf_index_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "bgzip/tabix" in text
-    assert "普通 gzip" in text
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "索引" in text
 
 
 def test_checked_in_source_directory_exposes_shell_error_association():
@@ -2420,10 +2522,9 @@ def test_checked_in_source_directory_exposes_read_group_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "Read Group" in text
-    assert "@RG" in text
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "完整报错或检查输出" in text
 
 
 def test_checked_in_source_directory_exposes_cram_reference_error_association():
@@ -2438,10 +2539,9 @@ def test_checked_in_source_directory_exposes_cram_reference_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "FASTA/FAI" in text
-    assert "CRAM" in text
-    assert "【关联资料】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "完整报错或检查输出" in text
 
 
 def test_checked_in_source_directory_exposes_contig_naming_error_association():
@@ -2456,10 +2556,9 @@ def test_checked_in_source_directory_exposes_contig_naming_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
     assert "contig" in text.lower()
-    assert "命名" in text or "dictionary" in text.lower()
-    assert "【优先检查】" in text
 
 
 def test_checked_in_source_directory_exposes_sequence_dictionary_error_association():
@@ -2474,9 +2573,9 @@ def test_checked_in_source_directory_exposes_sequence_dictionary_error_associati
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "dictionary" in text.lower()
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "完整报错或检查输出" in text
 
 
 def test_checked_in_source_directory_exposes_bed_coordinate_error_association():
@@ -2491,10 +2590,9 @@ def test_checked_in_source_directory_exposes_bed_coordinate_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "BED" in text
-    assert "坐标" in text
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "相关输入文件类型和路径" in text
 
 
 def test_checked_in_source_directory_exposes_reference_companion_file_error_association():
@@ -2509,10 +2607,9 @@ def test_checked_in_source_directory_exposes_reference_companion_file_error_asso
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "FASTA/FAI" in text
-    assert "dict" in text.lower()
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "完整报错或检查输出" in text
 
 
 def test_checked_in_source_directory_exposes_cram_crai_random_access_error_association():
@@ -2527,11 +2624,9 @@ def test_checked_in_source_directory_exposes_cram_crai_random_access_error_assoc
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "CRAM" in text
-    assert "crai" in text.lower()
-    assert "随机访问" in text
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "相关输入文件类型和路径" in text
 
 
 def test_checked_in_source_directory_exposes_bam_sort_index_error_association():
@@ -2546,11 +2641,9 @@ def test_checked_in_source_directory_exposes_bam_sort_index_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert "【关联判断】" in text
-    assert "BAM" in text
-    assert "排序" in text
-    assert "索引" in text
-    assert "【优先检查】" in text
+    assert text.startswith("【资料边界】")
+    assert "确定性检查" in text
+    assert "实际执行步骤" in text
 
 
 def test_checked_in_source_directory_keeps_bam_format_explanation_on_external_guide_path():

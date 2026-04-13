@@ -104,6 +104,25 @@ def test_parse_reference_intent_marks_contig_error_question_as_reference_other()
     assert result.confidence > 0.0
 
 
+def test_parse_reference_intent_marks_contig_error_question_as_must_tool():
+    result = parse_reference_intent(
+        "VCF 报 contig not found 是什么情况",
+        model_generate=lambda prompt: '{"intent":"not_reference","confidence":0.12}',
+    )
+
+    assert result.tool_requirement == "required"
+
+
+def test_parse_reference_intent_ignores_invalid_tool_requirement_value():
+    result = parse_reference_intent(
+        "LICCLNT 是什么",
+        model_generate=lambda prompt: '{"intent":"reference_other","confidence":0.44,"tool_requirement":"tool-maybe"}',
+    )
+
+    assert result.intent == "reference_other"
+    assert result.tool_requirement == "none"
+
+
 def test_parse_reference_intent_short_circuits_generic_wgs_script_request_to_workflow_guidance():
     result = parse_reference_intent(
         "我要做wgs分析，能给个示例脚本吗",

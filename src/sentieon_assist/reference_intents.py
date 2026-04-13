@@ -9,6 +9,7 @@ from sentieon_assist.external_guides import is_external_reference_query
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_reference_intent_prompt
 from sentieon_assist.reference_boundaries import detect_reference_boundary_tags
+from sentieon_assist.support_contracts import ToolRequirement, normalize_tool_requirement
 
 
 VALID_REFERENCE_INTENTS = {
@@ -77,10 +78,47 @@ class ReferenceIntent:
     intent: str = "not_reference"
     module: str = ""
     confidence: float = 0.0
+    tool_requirement: str = ToolRequirement.NONE
 
     @property
     def is_reference(self) -> bool:
         return self.intent != "not_reference"
+
+
+TOOL_REQUIRED_FILE_TERMS = (
+    "vcf",
+    "bam",
+    "cram",
+    "bed",
+    "fasta",
+    "fastq",
+    "contig",
+    "header",
+    "index",
+    "dictionary",
+    "dict",
+    "fai",
+    "crai",
+    "tabix",
+)
+TOOL_REQUIRED_DIAGNOSTIC_TERMS = (
+    "报错",
+    "错误",
+    "not found",
+    "missing",
+    "mismatch",
+    "inconsistent",
+    "不一致",
+    "sort",
+    "排序",
+    "header",
+    "contig",
+    "index",
+    "read group",
+    "随机访问",
+    "差一位",
+    "对不上",
+)
 
 
 def _normalize_intent(value: str) -> str:
@@ -97,6 +135,28 @@ def _normalize_confidence(value: object) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, min(1.0, confidence))
+
+
+def _merge_tool_requirement(primary: str | None, secondary: str | None) -> str:
+    if _safe_tool_requirement(primary) == ToolRequirement.REQUIRED:
+        return ToolRequirement.REQUIRED
+    return _safe_tool_requirement(secondary)
+
+
+def _safe_tool_requirement(value: object) -> str:
+    try:
+        return normalize_tool_requirement(value)
+    except ValueError:
+        return ToolRequirement.NONE
+
+
+def _detect_tool_requirement(query: str) -> str:
+    normalized = query.lower()
+    if any(term in normalized for term in TOOL_REQUIRED_FILE_TERMS) and any(
+        term in normalized for term in TOOL_REQUIRED_DIAGNOSTIC_TERMS
+    ):
+        return ToolRequirement.REQUIRED
+    return ToolRequirement.NONE
 
 
 def _extract_first_json_object(text: str) -> str:
@@ -178,6 +238,7 @@ def _has_parameter_language(normalized: str) -> bool:
 def _heuristic_reference_intent(query: str) -> ReferenceIntent:
     normalized = query.lower()
     module = detect_reference_module_hint(query)
+    tool_requirement = _detect_tool_requirement(query)
     has_parameter_cue = bool(PARAMETER_TOKEN_PATTERN.search(query)) or _has_parameter_language(normalized)
     strong_script_cues = ("脚本", "示例脚本", "参考脚本", "示例命令", "参考命令", "命令骨架", "skeleton")
     hybrid_followup_terms = (
@@ -262,54 +323,62 @@ def _heuristic_reference_intent(query: str) -> ReferenceIntent:
     has_hybrid_followup_term = any(term in normalized for term in hybrid_followup_terms)
     has_hybrid_parent_context = any(term in normalized for term in hybrid_parent_context_terms)
     if has_hybrid_followup_term and has_hybrid_parent_context:
-        return ReferenceIntent(intent="workflow_guidance", module=module, confidence=0.47)
+        return ReferenceIntent(intent="workflow_guidance", module=module, confidence=0.47, tool_requirement=tool_requirement)
     has_workflow_domain = any(term in normalized for term in workflow_guidance_domains)
     has_workflow_guidance_cue = any(cue in normalized for cue in workflow_guidance_cues)
     if has_workflow_domain and not module:
         if has_workflow_guidance_cue or has_strong_script_cue:
-            return ReferenceIntent(intent="workflow_guidance", confidence=0.45)
+            return ReferenceIntent(intent="workflow_guidance", confidence=0.45, tool_requirement=tool_requirement)
     if _looks_like_license_doc_reference(query) or _looks_like_operational_doc_reference(query):
-        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41)
+        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41, tool_requirement=tool_requirement)
     boundary_tags = detect_reference_boundary_tags(query)
     if boundary_tags:
         if module and has_parameter_cue:
-            return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.42)
-        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41)
+            return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.42, tool_requirement=tool_requirement)
+        return ReferenceIntent(intent="reference_other", module=module, confidence=0.41, tool_requirement=tool_requirement)
     if any(cue in query for cue in ("脚本", "示例", "命令", "workflow", "pipeline")):
         if module in SCRIPT_HEURISTIC_MODULES:
-            return ReferenceIntent(intent="script_example", module=module, confidence=0.4)
+            return ReferenceIntent(intent="script_example", module=module, confidence=0.4, tool_requirement=tool_requirement)
     if has_parameter_cue:
         if module or PARAMETER_TOKEN_PATTERN.search(query):
-            return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.38)
+            return ReferenceIntent(intent="parameter_lookup", module=module, confidence=0.38, tool_requirement=tool_requirement)
     if not module and is_external_reference_query(query):
-        return ReferenceIntent(intent="reference_other", confidence=0.33)
+        return ReferenceIntent(intent="reference_other", confidence=0.33, tool_requirement=tool_requirement)
     if "模块" in query and any(cue in query for cue in ("哪些", "有什么", "总览", "主要", "分类")):
         if "sentieon" in normalized or "sengent" in normalized or "模块" in query:
-            return ReferenceIntent(intent="module_overview", confidence=0.35)
-    return ReferenceIntent()
+            return ReferenceIntent(intent="module_overview", confidence=0.35, tool_requirement=tool_requirement)
+    return ReferenceIntent(tool_requirement=tool_requirement)
 
 
 def _merge_with_heuristic(query: str, parsed: ReferenceIntent) -> ReferenceIntent:
     heuristic = _heuristic_reference_intent(query)
     if heuristic.intent == "not_reference":
-        return parsed
+        return ReferenceIntent(
+            intent=parsed.intent,
+            module=parsed.module,
+            confidence=parsed.confidence,
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
+        )
     if heuristic.intent == parsed.intent:
         return ReferenceIntent(
             intent=parsed.intent,
             module=parsed.module or heuristic.module,
             confidence=max(parsed.confidence, heuristic.confidence),
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
         )
     if heuristic.intent == "parameter_lookup" and parsed.intent in {"module_intro", "reference_other", "not_reference"}:
         return ReferenceIntent(
             intent="parameter_lookup",
             module=parsed.module or heuristic.module,
             confidence=max(parsed.confidence, heuristic.confidence),
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
         )
     if heuristic.intent == "script_example" and parsed.intent in {"module_intro", "reference_other", "not_reference"}:
         return ReferenceIntent(
             intent="script_example",
             module=parsed.module or heuristic.module,
             confidence=max(parsed.confidence, heuristic.confidence),
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
         )
     if heuristic.intent == "workflow_guidance" and parsed.intent in {
         "module_intro",
@@ -320,14 +389,21 @@ def _merge_with_heuristic(query: str, parsed: ReferenceIntent) -> ReferenceInten
             intent="workflow_guidance",
             module=parsed.module or heuristic.module,
             confidence=max(parsed.confidence, heuristic.confidence),
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
         )
     if heuristic.intent == "module_overview" and parsed.intent in {"module_intro", "reference_other", "not_reference"}:
         return ReferenceIntent(
             intent="module_overview",
             module=parsed.module or heuristic.module,
             confidence=max(parsed.confidence, heuristic.confidence),
+            tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
         )
-    return parsed
+    return ReferenceIntent(
+        intent=parsed.intent,
+        module=parsed.module,
+        confidence=parsed.confidence,
+        tool_requirement=_merge_tool_requirement(parsed.tool_requirement, heuristic.tool_requirement),
+    )
 
 
 def parse_reference_intent(
@@ -365,5 +441,6 @@ def parse_reference_intent(
         intent=_normalize_intent(parsed.get("intent", "")),
         module=str(parsed.get("module", "")).strip(),
         confidence=_normalize_confidence(parsed.get("confidence", 0.0)),
+        tool_requirement=_safe_tool_requirement(parsed.get("tool_requirement", ToolRequirement.NONE)),
     )
     return _merge_with_heuristic(query, parsed_intent)

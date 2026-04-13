@@ -53,3 +53,18 @@ def test_resolve_reference_answer_uses_boundary_contract_for_svsolver_break_end_
     assert "【需要补充的材料】" in resolved.text
     assert resolved.resolver_path == ["boundary_reference"]
     assert "deep_mechanism" in resolved.boundary_tags
+
+
+def test_resolve_reference_answer_honors_must_tool_reference_intent():
+    source_directory = Path(__file__).resolve().parent.parent / "sentieon-note"
+
+    resolved = resolve_reference_answer(
+        "VCF 报 contig not found 是什么情况",
+        source_directory=str(source_directory),
+        resolved_intent=ReferenceIntent(intent="reference_other", confidence=0.41, tool_requirement="required"),
+    )
+
+    assert resolved is not None
+    assert resolved.text.startswith("【资料边界】")
+    assert "确定性检查" in resolved.text
+    assert resolved.resolver_path == ["arbitration_must_tool"]

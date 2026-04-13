@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
+from sentieon_assist.boundary_pack import default_boundary_pack
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.external_guides import is_external_error_query, is_external_reference_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.reference_intents import ReferenceIntent, detect_reference_module_hint, parse_reference_intent
-from sentieon_assist.support_contracts import FallbackMode, SupportIntent
+from sentieon_assist.support_contracts import BoundaryOutcome, FallbackMode, SupportIntent
 from sentieon_assist.support_state import SupportSessionState, SupportTask
+from sentieon_assist.tool_arbitration import arbitrate_support_action
 from sentieon_assist.vendors import DEFAULT_VENDOR_ID, get_vendor_profile, resolve_vendor_id
 
 CAPABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -216,6 +218,10 @@ class SupportRouteDecision:
     vendor_id: str = DEFAULT_VENDOR_ID
     vendor_version: str = ""
     explicit: bool = False
+    arbitration_action: str = BoundaryOutcome.SHOULD_ANSWER
+    tool_requirement: str = "none"
+    boundary_rule_id: str = ""
+    boundary_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -277,7 +283,7 @@ def _build_route_decision(
 ) -> SupportRouteDecision:
     vendor_id = resolve_vendor_id(None)
     vendor_version = _resolved_vendor_version(vendor_id, info)
-    return SupportRouteDecision(
+    route = SupportRouteDecision(
         task=task,
         issue_type=issue_type,
         parsed_intent=parsed_intent,
@@ -288,6 +294,23 @@ def _build_route_decision(
         vendor_id=vendor_id,
         vendor_version=vendor_version,
         explicit=explicit,
+    )
+    arbitration = arbitrate_support_action(
+        query,
+        issue_type=route.issue_type,
+        support_intent=route.support_intent,
+        info=route.info,
+        vendor_version=route.vendor_version,
+        parsed_intent=route.parsed_intent,
+        fallback_mode=route.fallback_mode,
+        boundary_pack=default_boundary_pack(),
+    )
+    return replace(
+        route,
+        arbitration_action=arbitration.action,
+        tool_requirement=arbitration.tool_requirement,
+        boundary_rule_id=arbitration.rule_id,
+        boundary_reason=arbitration.reason,
     )
 
 

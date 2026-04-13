@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sentieon_assist.answer_contracts import (
+    format_boundary_contract,
     format_knowledge_gap_answer,
     format_no_answer_boundary,
     format_unsupported_version_boundary,
@@ -18,6 +19,7 @@ from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_i
 from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
+from sentieon_assist.support_contracts import BoundaryOutcome
 from sentieon_assist.trace_vocab import ResolverPath
 from sentieon_assist.vendors import get_vendor_profile, resolve_vendor_id
 
@@ -406,6 +408,65 @@ def _trace_gap_record(
     )
 
 
+def _format_arbitration_boundary(
+    *,
+    action: str,
+    vendor_id: str,
+    vendor_version: str,
+    reason: str,
+    info: dict[str, str],
+) -> str:
+    resolved_reason = str(reason).strip()
+    if action == BoundaryOutcome.MUST_TOOL:
+        return format_boundary_contract(
+            summary_lines=[
+                resolved_reason or "这个问题属于文件结构或一致性检查。",
+                "必须先跑确定性检查，再解释结果，不能只靠模型推断。",
+            ],
+            next_steps=[
+                "先运行对应的 header / 索引 / contig / 排序一致性检查。",
+                "拿到工具输出后，再继续定位。",
+            ],
+            needed_materials=[
+                info.get("input_type", "").strip() or "相关输入文件类型",
+                info.get("error", "").strip() or "完整报错或检查输出",
+                info.get("step", "").strip() or "实际执行步骤",
+            ],
+        )
+    if action == BoundaryOutcome.MUST_REFUSE:
+        return format_boundary_contract(
+            summary_lines=[
+                resolved_reason or "该请求超出当前软件支持边界。",
+                "当前不能在没有证据约束的前提下直接给出确定性结论。",
+            ],
+            next_steps=[
+                "请改为当前软件支持边界内的问题，或补充正式证据材料。",
+            ],
+            needed_materials=[
+                _official_material_request(vendor_id, version_hint=vendor_version or "目标版本"),
+            ],
+        )
+    if action == BoundaryOutcome.MUST_ESCALATE:
+        return format_boundary_contract(
+            summary_lines=[
+                resolved_reason or "该问题需要升级处理。",
+                "当前不应在本地直接给出最终结论。",
+            ],
+            next_steps=[
+                "请转给维护者或原厂支持链路，并附上当前已知证据。",
+            ],
+            needed_materials=[
+                _official_material_request(vendor_id, version_hint=vendor_version or "目标版本"),
+                info.get("error", "").strip() or "完整报错或现场证据",
+            ],
+        )
+    return format_knowledge_gap_answer(
+        [resolved_reason or "还需要先明确关键上下文"],
+        vendor_id=vendor_id,
+        vendor_version=vendor_version,
+    )
+
+
 def call_model_fallback(model_fallback, issue_type: str, query: str, info: dict[str, str], evidence: list[dict[str, str]]) -> str:
     parameters = inspect.signature(model_fallback).parameters.values()
     positional_params = [
@@ -508,6 +569,37 @@ def answer_query(
             )
         return text
 
+    arbitration_action = str(getattr(route_decision, "arbitration_action", "")).strip()
+    if arbitration_action in {
+        BoundaryOutcome.MUST_CLARIFY,
+        BoundaryOutcome.MUST_TOOL,
+        BoundaryOutcome.MUST_REFUSE,
+        BoundaryOutcome.MUST_ESCALATE,
+    }:
+        text = _format_arbitration_boundary(
+            action=arbitration_action,
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            reason=str(getattr(route_decision, "boundary_reason", "")).strip(),
+            info=info,
+        )
+        resolver_path = {
+            BoundaryOutcome.MUST_CLARIFY: ResolverPath.ARBITRATION_MUST_CLARIFY,
+            BoundaryOutcome.MUST_TOOL: ResolverPath.ARBITRATION_MUST_TOOL,
+            BoundaryOutcome.MUST_REFUSE: ResolverPath.ARBITRATION_MUST_REFUSE,
+            BoundaryOutcome.MUST_ESCALATE: ResolverPath.ARBITRATION_MUST_ESCALATE,
+        }[arbitration_action]
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=text,
+                    sources=[],
+                    boundary_tags=[arbitration_action.replace("_", "-")],
+                    resolver_path=[resolver_path],
+                )
+            )
+        return text
+
     app_config = load_config()
     effective_source_directory = source_directory or app_config.source_dir
     source_context = collect_source_bundle_metadata(effective_source_directory)
@@ -604,9 +696,9 @@ def answer_reference_query(
     parsed_intent: ReferenceIntent | None = None,
     trace_collector=None,
 ) -> str:
+    vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
+    vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
     if route_decision is not None and str(getattr(route_decision, "fallback_mode", "")).strip() == "unsupported-version":
-        vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
-        vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
         support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
         rendered = format_unsupported_version_boundary(
             vendor_id=vendor_id,
@@ -639,6 +731,36 @@ def answer_reference_query(
     resolved_intent = parsed_intent or ReferenceIntent()
     if resolved_intent.intent == "not_reference":
         resolved_intent = parse_reference_intent(query, config=app_config)
+    arbitration_action = str(getattr(route_decision, "arbitration_action", "")).strip()
+    if arbitration_action in {
+        BoundaryOutcome.MUST_CLARIFY,
+        BoundaryOutcome.MUST_TOOL,
+        BoundaryOutcome.MUST_REFUSE,
+        BoundaryOutcome.MUST_ESCALATE,
+    }:
+        rendered = _format_arbitration_boundary(
+            action=arbitration_action,
+            vendor_id=vendor_id,
+            vendor_version=vendor_version,
+            reason=str(getattr(route_decision, "boundary_reason", "")).strip(),
+            info=getattr(route_decision, "info", {}) or {},
+        )
+        resolver_path = {
+            BoundaryOutcome.MUST_CLARIFY: ResolverPath.ARBITRATION_MUST_CLARIFY,
+            BoundaryOutcome.MUST_TOOL: ResolverPath.ARBITRATION_MUST_TOOL,
+            BoundaryOutcome.MUST_REFUSE: ResolverPath.ARBITRATION_MUST_REFUSE,
+            BoundaryOutcome.MUST_ESCALATE: ResolverPath.ARBITRATION_MUST_ESCALATE,
+        }[arbitration_action]
+        if trace_collector is not None:
+            trace_collector(
+                SupportAnswerTrace(
+                    text=rendered,
+                    sources=[],
+                    boundary_tags=[arbitration_action.replace("_", "-")],
+                    resolver_path=[resolver_path],
+                )
+            )
+        return rendered
     resolved = resolve_reference_answer(
         query,
         source_directory=effective_source_directory,
@@ -651,8 +773,6 @@ def answer_reference_query(
             sources=resolved.sources,
         )
     )
-    vendor_id = resolve_vendor_id(getattr(route_decision, "vendor_id", None))
-    vendor_version = str(getattr(route_decision, "vendor_version", "")).strip()
     support_intent = str(getattr(route_decision, "support_intent", "concept_understanding")).strip() or "concept_understanding"
     confirmation_materials = _extract_confirmation_materials(rendered)
     gap_record = None
