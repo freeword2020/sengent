@@ -2619,6 +2619,109 @@ def test_render_chat_response_keeps_mvp_boundary_message_stable_without_polish()
     assert streamed_calls == []
 
 
+def test_render_chat_response_sanitizes_chat_polish_prompt_before_hosted_backend_call():
+    captured: dict[str, object] = {}
+    trace: dict[str, object] = {}
+
+    def fake_generate(prompt: str, **kwargs) -> str:
+        captured["prompt"] = prompt
+        return "MODEL_ANSWER"
+
+    rendered, streamed = render_chat_response(
+        "请帮我整理 /Users/zhuge/Documents/private/run.log 里的 install 问题，并联系 user@example.com",
+        "这是原始回复：token=sk-test-12345，日志在 /Users/zhuge/Documents/private/run.log",
+        model_generate=fake_generate,
+        trace_collector=lambda payload: trace.update(payload),
+    )
+
+    assert rendered == "MODEL_ANSWER"
+    assert streamed is False
+    assert "user@example.com" not in str(captured["prompt"])
+    assert "sk-test-12345" not in str(captured["prompt"])
+    assert "/Users/zhuge/Documents/private/run.log" not in str(captured["prompt"])
+    assert "[EMAIL]" in str(captured["prompt"])
+    assert "[REDACTED]" in str(captured["prompt"])
+    assert "[PATH]" in str(captured["prompt"])
+    assert trace["trust_boundary_summary"]["policy_name"] == "chat-polish-outbound-v1"
+
+
+def test_render_chat_response_sanitizes_missing_info_polish_prompt_before_hosted_backend_call():
+    captured: dict[str, object] = {}
+    trace: dict[str, object] = {}
+
+    def fake_generate(prompt: str, **kwargs) -> str:
+        captured["prompt"] = prompt
+        return "MODEL_ANSWER"
+
+    rendered, streamed = render_chat_response(
+        "客户说日志在 /Users/zhuge/Documents/private/run.log，请联系 user@example.com",
+        "需要补充以下信息：请提供 token=sk-test-12345 对应的配置文件。",
+        model_generate=fake_generate,
+        trace_collector=lambda payload: trace.update(payload),
+    )
+
+    assert rendered == "MODEL_ANSWER"
+    assert streamed is False
+    assert "user@example.com" not in str(captured["prompt"])
+    assert "sk-test-12345" not in str(captured["prompt"])
+    assert "/Users/zhuge/Documents/private/run.log" not in str(captured["prompt"])
+    assert "[EMAIL]" in str(captured["prompt"])
+    assert "[REDACTED]" in str(captured["prompt"])
+    assert "[PATH]" in str(captured["prompt"])
+    assert trace["trust_boundary_summary"]["policy_name"] == "chat-polish-outbound-v1"
+
+
+def test_chat_loop_threads_chat_polish_trust_boundary_summary_into_session_log(tmp_path, monkeypatch):
+    runtime_directory = tmp_path / "runtime"
+    prompts = iter(
+        [
+            "install 日志怎么理解",
+            "/quit",
+        ]
+    )
+    outputs: list[str] = []
+    captured: dict[str, str] = {}
+
+    def fake_input(_prompt: str) -> str:
+        return next(prompts)
+
+    def fake_run_query(query: str, **kwargs) -> str:
+        return (
+            "这是原始回复：请查看 /Users/zhuge/Documents/private/run.log，"
+            "联系 user@example.com，token=sk-test-12345"
+        )
+
+    def fake_generate(prompt: str, **kwargs) -> str:
+        captured["prompt"] = prompt
+        return "POLISHED_ANSWER"
+
+    monkeypatch.setattr("sentieon_assist.cli.run_query", fake_run_query)
+
+    code = main(
+        ["chat"],
+        input_fn=fake_input,
+        output_fn=outputs.append,
+        runtime_directory=str(runtime_directory),
+        api_probe=lambda base_url: {"ok": True, "model_available": True, "version": "0.20.0"},
+        model_generate=fake_generate,
+    )
+
+    assert code == 0
+    assert "user@example.com" not in captured["prompt"]
+    assert "sk-test-12345" not in captured["prompt"]
+    assert "/Users/zhuge/Documents/private/run.log" not in captured["prompt"]
+
+    session_logs = sorted((runtime_directory / "sessions").glob("*.jsonl"))
+    session_logs = [path for path in session_logs if path.name != "index.jsonl"]
+    assert len(session_logs) == 1
+    events = [json.loads(line) for line in session_logs[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+    turn_events = [event for event in events if event.get("event_type") == "turn_resolved"]
+    assert len(turn_events) == 1
+    answer = turn_events[0]["answer"]
+    assert answer["trust_boundary_summary"]["policy_name"] == "chat-polish-outbound-v1"
+    assert "leaked_value" not in answer["trust_boundary_summary"]
+
+
 def test_chat_loop_streams_model_output_chunks(monkeypatch):
     prompts = iter(["license 报错", "/quit"])
     outputs: list[str] = []

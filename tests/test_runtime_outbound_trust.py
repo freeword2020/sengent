@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sentieon_assist.runtime_outbound_trust import (
+    build_chat_polish_outbound_trust,
     build_reference_answer_outbound_trust,
     build_reference_intent_outbound_trust,
     build_support_answer_outbound_trust,
@@ -97,3 +98,22 @@ def test_build_reference_intent_outbound_trust_scrubs_query_only():
     assert result.trust_boundary_result.decision.policy_name == "reference-intent-outbound-v1"
     assert result.trust_boundary_result.summary["item_count"] >= 1
     assert result.trust_boundary_result.summary["redacted_count"] >= 1
+
+
+def test_build_chat_polish_outbound_trust_scrubs_query_and_raw_response():
+    result = build_chat_polish_outbound_trust(
+        query="请整理 /Users/alice/project/run.log 并联系 alice@example.com",
+        raw_response="原始回复含有 token=secret-token-123 和 /private/tmp/result.txt",
+    )
+
+    assert result.policy_name == "chat-polish-outbound-v1"
+    assert "[PATH]" in result.query
+    assert "[EMAIL]" in result.query
+    assert "[REDACTED]" in result.raw_response
+    assert "[PATH]" in result.raw_response
+    assert "/Users/alice/project/run.log" not in result.query
+    assert "alice@example.com" not in result.query
+    assert "secret-token-123" not in result.raw_response
+    assert "/private/tmp/result.txt" not in result.raw_response
+    assert result.trust_boundary_result.decision.policy_name == "chat-polish-outbound-v1"
+    assert result.trust_boundary_result.summary["redacted_count"] >= 2

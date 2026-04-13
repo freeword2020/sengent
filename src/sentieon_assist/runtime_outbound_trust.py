@@ -75,6 +75,18 @@ def build_reference_intent_outbound_trust(*, query: str) -> RuntimeOutboundTrust
     )
 
 
+def build_chat_polish_outbound_trust(
+    *,
+    query: str,
+    raw_response: str,
+) -> RuntimeOutboundTrustResult:
+    return _build_runtime_outbound_trust(
+        policy_name="chat-polish-outbound-v1",
+        query=query,
+        raw_response=raw_response,
+    )
+
+
 def _build_runtime_outbound_trust(
     *,
     policy_name: str,
@@ -201,6 +213,7 @@ def _looks_like_whole_path(value: str) -> bool:
 
 
 __all__ = [
+    "build_chat_polish_outbound_trust",
     "RuntimeOutboundTrustResult",
     "build_reference_answer_outbound_trust",
     "build_reference_intent_outbound_trust",

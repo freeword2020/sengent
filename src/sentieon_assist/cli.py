@@ -53,6 +53,7 @@ from sentieon_assist.knowledge_review import build_maintainer_queue, format_main
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
+from sentieon_assist.runtime_outbound_trust import build_chat_polish_outbound_trust
 from sentieon_assist.runtime_guidance import format_ollama_runtime_error, format_runtime_provider_error
 from sentieon_assist.session_events import (
     SupportSessionRecord,
@@ -464,14 +465,21 @@ def render_chat_response(
     model_stream_generate: Callable[..., str] | None = None,
     stream_output_fn: Callable[[str], None] | None = None,
     clear_status_fn: Callable[[], None] | None = None,
+    trace_collector: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, bool]:
     if _is_stable_chat_response(raw_response):
         if clear_status_fn is not None:
             clear_status_fn()
         return normalize_model_answer(raw_response).strip(), False
-    prompt = build_chat_polish_prompt(query, raw_response)
+    outbound = build_chat_polish_outbound_trust(
+        query=query,
+        raw_response=raw_response,
+    )
+    prompt = build_chat_polish_prompt(outbound.query, outbound.raw_response)
     if raw_response.startswith("需要补充以下信息"):
-        prompt = build_chat_missing_info_prompt(query, raw_response)
+        prompt = build_chat_missing_info_prompt(outbound.query, outbound.raw_response)
+    if trace_collector is not None:
+        trace_collector({"trust_boundary_summary": outbound.trust_boundary_result.summary})
     should_try_stream = stream_output_fn is not None and (model_stream_generate is not None or model_generate is None)
     if should_try_stream:
         streamed_chunks: list[str] = []
@@ -1309,6 +1317,33 @@ def chat_loop(
             response=response,
         )
         response_mode = classify_response_mode(response, task=planned_turn.route.task)
+        effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
+        streamed_started = False
+        clear_generation_status: Callable[[], None] | None = None
+        if not _is_stable_chat_response(response):
+            clear_generation_status = start_thinking_animation(
+                status_writer=status_writer,
+                label=event_generate_reply(),
+            )
+
+        def wrapped_stream_output(chunk: str) -> None:
+            nonlocal streamed_started
+            if not streamed_started:
+                if clear_generation_status is not None:
+                    clear_generation_status()
+                ui.render_streaming_answer_header()
+                streamed_started = True
+            effective_stream_output_fn(chunk)
+
+        rendered, streamed = render_chat_response(
+            effective_query,
+            response,
+            model_generate=model_generate,
+            model_stream_generate=model_stream_generate,
+            stream_output_fn=wrapped_stream_output,
+            clear_status_fn=clear_generation_status,
+            trace_collector=lambda payload: trace.update(payload),
+        )
         turn_event = build_turn_event(
             session_id=session_record.session_id,
             turn_index=len(turn_history) + 1,
@@ -1336,32 +1371,6 @@ def chat_loop(
         )
         append_turn_event(turn_event, runtime_root=runtime_root)
         turn_history.append(turn_view_from_event(turn_event))
-        effective_stream_output_fn = stream_output_fn or _default_stream_output_fn
-        streamed_started = False
-        clear_generation_status: Callable[[], None] | None = None
-        if not _is_stable_chat_response(response):
-            clear_generation_status = start_thinking_animation(
-                status_writer=status_writer,
-                label=event_generate_reply(),
-            )
-
-        def wrapped_stream_output(chunk: str) -> None:
-            nonlocal streamed_started
-            if not streamed_started:
-                if clear_generation_status is not None:
-                    clear_generation_status()
-                ui.render_streaming_answer_header()
-                streamed_started = True
-            effective_stream_output_fn(chunk)
-
-        rendered, streamed = render_chat_response(
-            effective_query,
-            response,
-            model_generate=model_generate,
-            model_stream_generate=model_stream_generate,
-            stream_output_fn=wrapped_stream_output,
-            clear_status_fn=clear_generation_status,
-        )
         if not streamed:
             ui.render_answer(rendered)
         output_fn(format_feedback_hint())
