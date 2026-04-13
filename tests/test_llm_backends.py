@@ -2,6 +2,7 @@ import pytest
 
 from sentieon_assist.config import AppConfig
 from sentieon_assist.llm_capabilities import LLMCapabilityDescriptor
+from sentieon_assist.llm_requests import build_llm_outbound_request
 from sentieon_assist.llm_backends import BackendRouter, OllamaBackend, OpenAICompatibleBackend, build_backend_router
 
 
@@ -76,6 +77,56 @@ def test_backend_router_prefers_primary_backend():
 
     assert primary.calls == [("generate", "hello"), ("generate_stream", "stream")]
     assert fallback.calls == []
+
+
+def test_ollama_backend_generate_uses_structured_outbound_request(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_generate(model, prompt, *, base_url=None, keep_alive=None):
+        captured["model"] = model
+        captured["prompt"] = prompt
+        captured["base_url"] = base_url
+        captured["keep_alive"] = keep_alive
+        return "ollama answer"
+
+    monkeypatch.setattr("sentieon_assist.llm_backends.generate", fake_generate)
+    backend = OllamaBackend(base_url="http://127.0.0.1:11434", model="gemma4:e4b", keep_alive="30m")
+    request = build_llm_outbound_request(
+        purpose="support_answer",
+        prompt="hello world",
+        trust_boundary_summary={"policy_name": "support-answer-outbound-v1"},
+    )
+
+    assert backend.generate(request) == "ollama answer"
+    assert captured["prompt"] == "hello world"
+    assert captured["model"] == "gemma4:e4b"
+    assert captured["base_url"] == "http://127.0.0.1:11434"
+    assert captured["keep_alive"] == "30m"
+
+
+def test_openai_compatible_backend_generate_uses_structured_outbound_request(monkeypatch):
+    captured = _capture_request(
+        monkeypatch,
+        b'{"choices":[{"message":{"content":"assistant answer"}}]}',
+    )
+    backend = OpenAICompatibleBackend(base_url="https://llm.example/v1", model="gpt-5.4-mini", api_key="secret-token")
+    request = build_llm_outbound_request(
+        purpose="reference_intent",
+        prompt="hello world",
+        trust_boundary_summary={"policy_name": "reference-intent-outbound-v1"},
+    )
+
+    text = backend.generate(request)
+
+    request_obj = captured["request"]
+    assert text == "assistant answer"
+    assert request_obj.full_url == "https://llm.example/v1/chat/completions"
+    assert request_obj.get_method() == "POST"
+    assert request_obj.get_header("Authorization") == "Bearer secret-token"
+    assert request_obj.data is not None
+    assert b'"model": "gpt-5.4-mini"' in request_obj.data
+    assert b'"stream": false' in request_obj.data.lower()
+    assert b"hello world" in request_obj.data
 
 
 def test_backend_router_uses_fallback_when_primary_generation_fails():

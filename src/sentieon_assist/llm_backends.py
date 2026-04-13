@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from sentieon_assist.config import AppConfig
 from sentieon_assist.llm_capabilities import LLMCapabilityDescriptor, default_capabilities, normalize_provider
+from sentieon_assist.llm_requests import LLMOutboundRequest, coerce_llm_outbound_request
 from sentieon_assist.ollama_client import generate, generate_stream, probe_ollama, warmup_model
 
 
@@ -17,10 +18,10 @@ class LLMBackend(Protocol):
     def probe(self) -> dict[str, Any]:
         ...
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, request: LLMOutboundRequest | str) -> str:
         ...
 
-    def generate_stream(self, prompt: str, *, on_chunk: Callable[[str], None]) -> str:
+    def generate_stream(self, request: LLMOutboundRequest | str, *, on_chunk: Callable[[str], None]) -> str:
         ...
 
     def warmup(self) -> None:
@@ -37,18 +38,20 @@ class OllamaBackend:
     def probe(self) -> dict[str, Any]:
         return probe_ollama(self.base_url, self.model)
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, request: LLMOutboundRequest | str) -> str:
+        outbound = coerce_llm_outbound_request(request)
         return generate(
             self.model,
-            prompt,
+            outbound.prompt,
             base_url=self.base_url,
             keep_alive=self.keep_alive,
         )
 
-    def generate_stream(self, prompt: str, *, on_chunk: Callable[[str], None]) -> str:
+    def generate_stream(self, request: LLMOutboundRequest | str, *, on_chunk: Callable[[str], None]) -> str:
+        outbound = coerce_llm_outbound_request(request, stream=True)
         return generate_stream(
             self.model,
-            prompt,
+            outbound.prompt,
             on_chunk=on_chunk,
             base_url=self.base_url,
             keep_alive=self.keep_alive,
@@ -112,24 +115,26 @@ class OpenAICompatibleBackend:
             "models": models,
         }
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, request: LLMOutboundRequest | str) -> str:
+        outbound = coerce_llm_outbound_request(request)
         payload = self._request_json(
             f"{self.base_url.rstrip('/')}/chat/completions",
             body={
                 "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [{"role": "user", "content": outbound.prompt}],
                 "stream": False,
             },
         )
         return self._extract_text(payload)
 
-    def generate_stream(self, prompt: str, *, on_chunk: Callable[[str], None]) -> str:
+    def generate_stream(self, request: LLMOutboundRequest | str, *, on_chunk: Callable[[str], None]) -> str:
+        outbound = coerce_llm_outbound_request(request, stream=True)
         request = Request(
             f"{self.base_url.rstrip('/')}/chat/completions",
             data=json.dumps(
                 {
                     "model": self.model,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": outbound.prompt}],
                     "stream": True,
                 }
             ).encode("utf-8"),
@@ -189,21 +194,21 @@ class BackendRouter:
     def warmup_primary(self) -> None:
         self.primary.warmup()
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, request: LLMOutboundRequest | str) -> str:
         try:
-            return self.primary.generate(prompt)
+            return self.primary.generate(request)
         except RuntimeError:
             if self.fallback is None:
                 raise
-            return self.fallback.generate(prompt)
+            return self.fallback.generate(request)
 
-    def generate_stream(self, prompt: str, *, on_chunk: Callable[[str], None]) -> str:
+    def generate_stream(self, request: LLMOutboundRequest | str, *, on_chunk: Callable[[str], None]) -> str:
         try:
-            return self.primary.generate_stream(prompt, on_chunk=on_chunk)
+            return self.primary.generate_stream(request, on_chunk=on_chunk)
         except RuntimeError:
             if self.fallback is None:
                 raise
-            return self.fallback.generate_stream(prompt, on_chunk=on_chunk)
+            return self.fallback.generate_stream(request, on_chunk=on_chunk)
 
 
 def _build_capability_descriptor(config: AppConfig) -> LLMCapabilityDescriptor:

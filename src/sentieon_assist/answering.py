@@ -14,12 +14,13 @@ from sentieon_assist.answer_contracts import (
 from sentieon_assist.config import AppConfig, load_config
 from sentieon_assist.gap_records import build_gap_record
 from sentieon_assist.llm_backends import build_backend_router
-from sentieon_assist.prompts import build_reference_prompt, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
 from sentieon_assist.rules import match_rule
 from sentieon_assist.reference_resolution import resolve_reference_answer
 from sentieon_assist.runtime_outbound_trust import (
+    build_reference_answer_outbound_request,
     build_reference_answer_outbound_trust,
+    build_support_answer_outbound_request,
     build_support_answer_outbound_trust,
 )
 from sentieon_assist.sources import collect_source_bundle_metadata, collect_source_evidence
@@ -353,21 +354,14 @@ def generate_model_fallback(
     config: AppConfig | None = None,
 ) -> str:
     app_config = config or load_config()
-    outbound = build_support_answer_outbound_trust(
+    outbound = build_support_answer_outbound_request(
         issue_type=issue_type,
         query=query,
         info=info,
         source_context=source_context,
         evidence=evidence,
     )
-    prompt = build_support_prompt(
-        issue_type,
-        outbound.query,
-        outbound.info,
-        source_context=outbound.source_context,
-        evidence=list(outbound.evidence),
-    )
-    text = build_backend_router(app_config).generate(prompt)
+    text = build_backend_router(app_config).generate(outbound)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
         text,
@@ -385,17 +379,12 @@ def generate_reference_fallback(
     config: AppConfig | None = None,
 ) -> str:
     app_config = config or load_config()
-    outbound = build_reference_answer_outbound_trust(
+    outbound = build_reference_answer_outbound_request(
         query=query,
         source_context=source_context,
         evidence=evidence,
     )
-    prompt = build_reference_prompt(
-        outbound.query,
-        source_context=outbound.source_context,
-        evidence=list(outbound.evidence),
-    )
-    text = build_backend_router(app_config).generate(prompt)
+    text = build_backend_router(app_config).generate(outbound)
     source_names = [item["name"] for item in evidence or []]
     return normalize_model_answer(
         text,

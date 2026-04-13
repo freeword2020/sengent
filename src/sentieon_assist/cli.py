@@ -51,9 +51,8 @@ from sentieon_assist.knowledge_build import (
 )
 from sentieon_assist.knowledge_review import build_maintainer_queue, format_maintainer_queue
 from sentieon_assist.llm_backends import build_backend_router
-from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
-from sentieon_assist.runtime_outbound_trust import build_chat_polish_outbound_trust
+from sentieon_assist.runtime_outbound_trust import build_chat_polish_outbound_request
 from sentieon_assist.runtime_guidance import format_ollama_runtime_error, format_runtime_provider_error
 from sentieon_assist.session_events import (
     SupportSessionRecord,
@@ -427,24 +426,24 @@ def require_chat_model(
 
 
 def _chat_model_generate(
-    prompt: str,
+    request: Any,
     *,
     model_generate: Callable[..., str] | None = None,
 ) -> str:
     if model_generate is not None:
-        return model_generate(prompt)
-    return build_backend_router(load_config()).generate(prompt)
+        return model_generate(getattr(request, "prompt", request))
+    return build_backend_router(load_config()).generate(request)
 
 
 def _chat_model_stream_generate(
-    prompt: str,
+    request: Any,
     *,
     on_chunk: Callable[[str], None],
     model_stream_generate: Callable[..., str] | None = None,
 ) -> str:
     if model_stream_generate is not None:
-        return model_stream_generate(prompt, on_chunk=on_chunk)
-    return build_backend_router(load_config()).generate_stream(prompt, on_chunk=on_chunk)
+        return model_stream_generate(getattr(request, "prompt", request), on_chunk=on_chunk)
+    return build_backend_router(load_config()).generate_stream(request, on_chunk=on_chunk)
 
 
 def _is_stable_chat_response(raw_response: str) -> bool:
@@ -471,22 +470,19 @@ def render_chat_response(
         if clear_status_fn is not None:
             clear_status_fn()
         return normalize_model_answer(raw_response).strip(), False
-    outbound = build_chat_polish_outbound_trust(
+    outbound = build_chat_polish_outbound_request(
         query=query,
         raw_response=raw_response,
     )
-    prompt = build_chat_polish_prompt(outbound.query, outbound.raw_response)
-    if raw_response.startswith("需要补充以下信息"):
-        prompt = build_chat_missing_info_prompt(outbound.query, outbound.raw_response)
     if trace_collector is not None:
-        trace_collector({"trust_boundary_summary": outbound.trust_boundary_result.summary})
+        trace_collector({"trust_boundary_summary": outbound.trust_boundary_summary})
     should_try_stream = stream_output_fn is not None and (model_stream_generate is not None or model_generate is None)
     if should_try_stream:
         streamed_chunks: list[str] = []
         saw_chunk = False
         try:
             text = _chat_model_stream_generate(
-                prompt,
+                outbound.with_stream(True),
                 on_chunk=lambda chunk: _handle_stream_chunk(
                     chunk,
                     streamed_chunks,
@@ -504,7 +500,7 @@ def render_chat_response(
             return text.strip(), False
         except RuntimeError:
             pass
-    text = _chat_model_generate(prompt, model_generate=model_generate).strip()
+    text = _chat_model_generate(outbound, model_generate=model_generate).strip()
     if clear_status_fn is not None:
         clear_status_fn()
     return text, False

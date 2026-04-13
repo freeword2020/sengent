@@ -371,6 +371,29 @@ def test_cli_chat_runtime_error_is_not_double_wrapped(monkeypatch):
     assert "【原始错误】" not in joined
 
 
+def test_render_chat_response_uses_structured_outbound_request_for_polish(monkeypatch):
+    import sentieon_assist.cli as cli
+
+    captured: dict[str, object] = {}
+
+    class FakeRouter:
+        def generate(self, request):
+            captured["request"] = request
+            return "polished answer"
+
+    monkeypatch.setattr(cli, "build_backend_router", lambda config: FakeRouter())
+    monkeypatch.setattr(cli, "load_config", _make_hosted_config)
+
+    text, streamed = cli.render_chat_response("what is this", "rough answer")
+
+    request = captured["request"]
+    assert text == "polished answer"
+    assert streamed is False
+    assert request.purpose == "chat_polish"
+    assert request.stream is False
+    assert request.trust_boundary_summary["policy_name"] == "chat-polish-outbound-v1"
+
+
 def test_cli_explains_global_options_must_precede_command(monkeypatch):
     outputs: list[str] = []
 

@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from sentieon_assist.llm_requests import LLMOutboundRequest, build_llm_outbound_request
 from sentieon_assist.trust_boundary import (
     OutboundContextDisposition,
     OutboundContextItem,
@@ -52,6 +53,36 @@ def build_support_answer_outbound_trust(
     )
 
 
+def build_support_answer_outbound_request(
+    *,
+    issue_type: str,
+    query: str,
+    info: Mapping[str, Any] | None = None,
+    source_context: Mapping[str, Any] | None = None,
+    evidence: list[Mapping[str, Any]] | None = None,
+    raw_response: str = "",
+) -> LLMOutboundRequest:
+    outbound = build_support_answer_outbound_trust(
+        issue_type=issue_type,
+        query=query,
+        info=info,
+        source_context=source_context,
+        evidence=evidence,
+        raw_response=raw_response,
+    )
+    return build_llm_outbound_request(
+        purpose="support_answer",
+        prompt=_build_support_prompt(
+            issue_type,
+            outbound.query,
+            outbound.info,
+            source_context=outbound.source_context,
+            evidence=list(outbound.evidence),
+        ),
+        trust_boundary_summary=outbound.trust_boundary_result.summary,
+    )
+
+
 def build_reference_answer_outbound_trust(
     *,
     query: str,
@@ -68,10 +99,43 @@ def build_reference_answer_outbound_trust(
     )
 
 
+def build_reference_answer_outbound_request(
+    *,
+    query: str,
+    source_context: Mapping[str, Any] | None = None,
+    evidence: list[Mapping[str, Any]] | None = None,
+    raw_response: str = "",
+) -> LLMOutboundRequest:
+    outbound = build_reference_answer_outbound_trust(
+        query=query,
+        source_context=source_context,
+        evidence=evidence,
+        raw_response=raw_response,
+    )
+    return build_llm_outbound_request(
+        purpose="reference_answer",
+        prompt=_build_reference_prompt(
+            outbound.query,
+            source_context=outbound.source_context,
+            evidence=list(outbound.evidence),
+        ),
+        trust_boundary_summary=outbound.trust_boundary_result.summary,
+    )
+
+
 def build_reference_intent_outbound_trust(*, query: str) -> RuntimeOutboundTrustResult:
     return _build_runtime_outbound_trust(
         policy_name="reference-intent-outbound-v1",
         query=query,
+    )
+
+
+def build_reference_intent_outbound_request(*, query: str) -> LLMOutboundRequest:
+    outbound = build_reference_intent_outbound_trust(query=query)
+    return build_llm_outbound_request(
+        purpose="reference_intent",
+        prompt=_build_reference_intent_prompt(outbound.query),
+        trust_boundary_summary=outbound.trust_boundary_result.summary,
     )
 
 
@@ -84,6 +148,22 @@ def build_chat_polish_outbound_trust(
         policy_name="chat-polish-outbound-v1",
         query=query,
         raw_response=raw_response,
+    )
+
+
+def build_chat_polish_outbound_request(
+    *,
+    query: str,
+    raw_response: str,
+) -> LLMOutboundRequest:
+    outbound = build_chat_polish_outbound_trust(
+        query=query,
+        raw_response=raw_response,
+    )
+    return build_llm_outbound_request(
+        purpose="chat_polish",
+        prompt=_build_chat_polish_prompt(outbound.query, outbound.raw_response),
+        trust_boundary_summary=outbound.trust_boundary_result.summary,
     )
 
 
@@ -212,10 +292,61 @@ def _looks_like_whole_path(value: str) -> bool:
     return False
 
 
+def _build_support_prompt(
+    issue_type: str,
+    query: str,
+    info: Mapping[str, Any] | None = None,
+    source_context: Mapping[str, Any] | None = None,
+    evidence: list[Mapping[str, Any]] | None = None,
+) -> str:
+    from sentieon_assist.prompts import build_support_prompt
+
+    return build_support_prompt(
+        issue_type,
+        query,
+        dict(info or {}),
+        source_context=dict(source_context or {}) or None,
+        evidence=list(evidence or []),
+    )
+
+
+def _build_reference_prompt(
+    query: str,
+    source_context: Mapping[str, Any] | None = None,
+    evidence: list[Mapping[str, Any]] | None = None,
+) -> str:
+    from sentieon_assist.prompts import build_reference_prompt
+
+    return build_reference_prompt(
+        query,
+        source_context=dict(source_context or {}) or None,
+        evidence=list(evidence or []),
+    )
+
+
+def _build_reference_intent_prompt(query: str) -> str:
+    from sentieon_assist.prompts import build_reference_intent_prompt
+
+    return build_reference_intent_prompt(query)
+
+
+def _build_chat_polish_prompt(query: str, raw_response: str) -> str:
+    from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
+
+    prompt = build_chat_polish_prompt(query, raw_response)
+    if str(raw_response).startswith("需要补充以下信息"):
+        prompt = build_chat_missing_info_prompt(query, raw_response)
+    return prompt
+
+
 __all__ = [
     "build_chat_polish_outbound_trust",
+    "build_chat_polish_outbound_request",
     "RuntimeOutboundTrustResult",
+    "build_reference_answer_outbound_request",
     "build_reference_answer_outbound_trust",
+    "build_reference_intent_outbound_request",
     "build_reference_intent_outbound_trust",
+    "build_support_answer_outbound_request",
     "build_support_answer_outbound_trust",
 ]

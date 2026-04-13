@@ -104,6 +104,41 @@ def test_generate_stream_reads_chunked_ollama_response(monkeypatch):
     assert text == "请告诉我 Sentieon 版本号，例如 202503.03。"
 
 
+def test_generate_model_fallback_uses_structured_outbound_request(monkeypatch):
+    import sentieon_assist.answering as answering
+
+    captured: dict[str, object] = {}
+
+    class FakeRouter:
+        def generate(self, request):
+            captured["request"] = request
+            return "assistant answer"
+
+    monkeypatch.setattr(answering, "build_backend_router", lambda config: FakeRouter())
+    text = answering.generate_model_fallback(
+        "license",
+        "Sentieon 202503 license 报错",
+        {
+            "version": "202503",
+            "input_type": "",
+            "error": "Sentieon 202503 license 报错",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        source_context={"primary_release": "202503.03"},
+        evidence=[{"name": "Sentieon202503.03.pdf", "trust": "official", "snippet": "license"}],
+        config=_make_hosted_config(),
+    )
+
+    request = captured["request"]
+    assert text.startswith("assistant answer")
+    assert request.purpose == "support_answer"
+    assert request.prompt
+    assert request.stream is False
+    assert request.trust_boundary_summary["policy_name"] == "support-answer-outbound-v1"
+
+
 def test_answer_template_has_required_sections():
     assert "【问题判断】" in ANSWER_TEMPLATE
     assert "【可能原因】" in ANSWER_TEMPLATE

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from sentieon_assist.reference_intents import parse_reference_intent
 
 
@@ -327,3 +329,28 @@ def test_parse_reference_intent_prefers_parameter_lookup_over_boundary_for_dnasc
     assert result.intent == "parameter_lookup"
     assert result.module == "DNAscope"
     assert result.confidence > 0.0
+
+
+def test_parse_reference_intent_uses_structured_outbound_request_for_backend_generation(monkeypatch):
+    import sentieon_assist.reference_intents as reference_intents
+
+    captured: dict[str, object] = {}
+
+    class FakeRouter:
+        def generate(self, request):
+            captured["request"] = request
+            return '{"intent":"module_intro","module":"DNAscope","confidence":0.77}'
+
+    monkeypatch.setattr(reference_intents, "_heuristic_reference_intent", lambda query: reference_intents.ReferenceIntent(intent="module_intro", confidence=0.2))
+    monkeypatch.setattr(reference_intents, "build_backend_router", lambda config: FakeRouter())
+
+    result = reference_intents.parse_reference_intent(
+        "我想了解这个模块",
+        config=SimpleNamespace(runtime_llm_provider="openai_compatible"),
+    )
+
+    request = captured["request"]
+    assert result.intent == "module_intro"
+    assert request.purpose == "reference_intent"
+    assert request.stream is False
+    assert request.trust_boundary_summary["policy_name"] == "reference-intent-outbound-v1"
