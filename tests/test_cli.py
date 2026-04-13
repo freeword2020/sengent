@@ -14,6 +14,7 @@ from sentieon_assist.session_events import SupportSessionRecord
 from sentieon_assist.session_events import append_session_record
 from sentieon_assist.session_events import append_turn_event
 from sentieon_assist.session_events import build_turn_event
+from sentieon_assist.support_experience import format_support_answer_card
 from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_coordinator import SupportRouteDecision
 
@@ -238,7 +239,7 @@ def test_cli_prints_answer_for_query(capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert out.strip()
-    assert out == f"{run_query('Sentieon 202503 license 报错')}\n"
+    assert out == f"{format_support_answer_card(run_query('Sentieon 202503 license 报错'))}\n"
 
 
 def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
@@ -246,7 +247,7 @@ def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
     code = main()
     out = capsys.readouterr().out
     assert code == 0
-    assert out == f"{run_query('Sentieon 202503 license 报错')}\n"
+    assert out == f"{format_support_answer_card(run_query('Sentieon 202503 license 报错'))}\n"
 
 
 def test_cli_doctor_forwards_skip_ollama(monkeypatch):
@@ -1718,6 +1719,33 @@ def test_chat_loop_renders_user_and_answer_in_order_with_reference_status(monkey
     assert "事件流" not in joined
     assert "DNAscope 是做什么的" not in joined_after_welcome
     assert any(text.startswith("正在思考中") for text, clear in statuses if not clear)
+    assert "【建议下一步】" in joined
+    assert "【资料查询】" not in joined
+
+
+def test_cli_formats_one_shot_query_into_support_card(monkeypatch):
+    outputs: list[str] = []
+
+    monkeypatch.setattr(
+        "sentieon_assist.cli.run_query",
+        lambda query, **kwargs: (
+            "【资料查询】\n"
+            "- 命中模块索引：DNAscope\n\n"
+            "【模块介绍】\n"
+            "DNAscope：用于 germline variant calling\n\n"
+            "【常用参数】\n"
+            "- 可继续追问：DNAscope 的输入是什么；DNAscope 参考脚本。"
+        ),
+    )
+
+    code = main(["DNAscope", "是什么"], output_fn=outputs.append)
+
+    assert code == 0
+    rendered = "\n".join(outputs)
+    assert "【模块介绍】" in rendered
+    assert "【建议下一步】" in rendered
+    assert "【证据依据】" in rendered
+    assert "【资料查询】" not in rendered
 
 
 def test_chat_loop_emits_missing_info_statuses_before_followup_answer(monkeypatch):

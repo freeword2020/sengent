@@ -125,11 +125,16 @@ def test_render_answer_marks_sengent_role():
     console = Console(record=True, width=100)
     ui = ChatUI(console=console)
 
-    ui.render_answer("【模块介绍】\nDNAscope：用于 germline variant calling")
+    ui.render_answer(
+        "【资料查询】\n- 命中模块索引：DNAscope\n\n【模块介绍】\nDNAscope：用于 germline variant calling"
+    )
 
     text = console.export_text()
     assert "Sengent" in text
     assert "【模块介绍】" in text
+    assert "DNAscope：用于 germline variant calling" in text
+    assert "【证据依据】" in text
+    assert "【资料查询】" not in text
 
 
 def test_render_answer_uses_sengent_palette():
@@ -212,6 +217,25 @@ def test_render_answer_adds_leading_spacing():
 
     lines = console.export_text().splitlines()
     assert lines[0] == ""
+
+
+def test_render_answer_shows_reply_hint_for_clarify_answer():
+    console = Console(record=True, width=100)
+    ui = ChatUI(console=console)
+
+    ui.render_answer(
+        "需要补充以下信息：Sentieon 版本\n\n"
+        "【当前判断】\n"
+        "- 现有信息还不足以给出确定性建议。\n\n"
+        "【需要确认的信息】\n"
+        "- Sentieon 版本\n\n"
+        "【建议下一步】\n"
+        "- 请直接补充上面列出的关键信息后再继续。"
+    )
+
+    text = console.export_text()
+    assert "【下一条可直接回复】" in text
+    assert "Sentieon 版本：<请填写>" in text
 
 
 def test_missing_info_event_text_is_deterministic():

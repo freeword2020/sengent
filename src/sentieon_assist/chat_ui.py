@@ -10,6 +10,8 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from sentieon_assist.support_experience import format_support_answer_card
+
 WELCOME_BORDER_STYLE = "dark_orange3"
 WELCOME_ACCENT_STYLE = "bold dark_orange3"
 WELCOME_SHADOW_STYLE = "bold color(94)"
@@ -143,7 +145,7 @@ class ChatUI:
         self._print_assistant_spacing()
         self.console.print(
             Panel(
-                text,
+                format_support_answer_card(text),
                 title=Text("Sengent", style=ASSISTANT_ACCENT_STYLE),
                 border_style=ASSISTANT_BORDER_STYLE,
             )

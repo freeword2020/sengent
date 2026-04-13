@@ -59,6 +59,7 @@ from sentieon_assist.session_events import (
     default_runtime_root,
     turn_view_from_event,
 )
+from sentieon_assist.support_experience import format_support_answer_card
 from sentieon_assist.source_intake import intake_source_to_inbox
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
@@ -1588,10 +1589,12 @@ def main(
     query = " ".join(args).strip()
     try:
         output_fn(
-            run_query(
-                query,
-                knowledge_directory=effective_knowledge_directory,
-                source_directory=effective_source_directory,
+            format_support_answer_card(
+                run_query(
+                    query,
+                    knowledge_directory=effective_knowledge_directory,
+                    source_directory=effective_source_directory,
+                )
             )
         )
     except RuntimeError as error:
