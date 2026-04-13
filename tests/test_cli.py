@@ -1371,6 +1371,169 @@ def test_chat_loop_feedback_session_writes_full_context(tmp_path, monkeypatch):
     assert (runtime_directory / "sessions" / f"{record['session_id']}.jsonl").exists()
 
 
+def test_knowledge_export_dataset_writes_reviewed_gap_samples(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_id = "20260413T120000Z-dataset"
+    build_dir = build_root / build_id
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "report.md").write_text("# Build report\n", encoding="utf-8")
+
+    metadata_path = tmp_path / "inbox" / "license-gap.meta.yaml"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        yaml.safe_dump(
+            {
+                "pack_target": "incident-memory.json",
+                "entry_type": "incident",
+                "origin": "runtime-gap-capture",
+                "id": "license-gap-001",
+                "vendor_id": "sentieon",
+                "vendor_version": "202503.03",
+                "gap_type": "clarification_open",
+                "user_question": "Which Sentieon version is deployed?",
+                "missing_materials": ["Sentieon 版本"],
+                "known_context": {"error": "license error"},
+                "captured_at": "2026-04-13T00:00:00+00:00",
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    runtime_root = tmp_path / "runtime"
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+    turn = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="license 报错",
+        effective_query="license 报错",
+        reused_anchor=False,
+        task="troubleshooting",
+        issue_type="license",
+        route_reason="issue_type:license",
+        parsed_intent_intent="",
+        parsed_intent_module="",
+        response_text="【当前判断】\n- 现有信息还不足以给出确定性建议。",
+        response_mode="clarify",
+        state_before={"clarification_rounds": 0},
+        state_after={"clarification_rounds": 1},
+        support_intent="troubleshooting",
+        fallback_mode="clarification_open",
+        vendor_id="sentieon",
+        vendor_version="202503.03",
+    )
+    append_turn_event(turn, runtime_root=runtime_root)
+
+    (candidate_dir / "incident-memory.json").write_text(
+        json.dumps(
+            {
+                "version": "",
+                "entries": [
+                    {
+                        "id": "license-gap-001",
+                        "vendor_id": "sentieon",
+                        "vendor_version": "202503.03",
+                        "gap_type": "clarification_open",
+                        "user_question": "Which Sentieon version is deployed?",
+                        "missing_materials": ["Sentieon 版本"],
+                        "known_context": {"error": "license error"},
+                        "captured_at": "2026-04-13T00:00:00+00:00",
+                        "origin": "runtime-gap-capture",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (build_dir / "gap_intake_review.jsonl").write_text(
+        json.dumps(
+            {
+                "build_id": build_id,
+                "doc_id": "doc-gap-001",
+                "relative_path": "license-gap.md",
+                "metadata_path": str(metadata_path),
+                "pack_target": "incident-memory.json",
+                "entry_id": "license-gap-001",
+                "session_id": session.session_id,
+                "turn_id": turn.turn_id,
+                "gap_type": "clarification_open",
+                "vendor_version": "202503.03",
+                "user_question": "Which Sentieon version is deployed?",
+                "missing_materials": ["Sentieon 版本"],
+                "known_context": {"error": "license error"},
+                "captured_at": "2026-04-13T00:00:00+00:00",
+                "review_status": "triaged",
+                "review_decision": "seed_eval",
+                "review_scope": "last",
+                "review_notes": "Export this sample.",
+                "expected_mode": "boundary",
+                "expected_task": "troubleshooting",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (build_dir / "gap_eval_seed.jsonl").write_text(
+        json.dumps(
+            {
+                "record_id": f"gap-eval.{build_id}.license-gap-001",
+                "source": "gap-intake-review",
+                "scope": "last",
+                "session_id": session.session_id,
+                "selected_turn_ids": [turn.turn_id],
+                "expected_mode": "boundary",
+                "expected_task": "troubleshooting",
+                "scorable": True,
+                "entry_id": "license-gap-001",
+                "gap_type": "clarification_open",
+                "build_id": build_id,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    output_path = tmp_path / "exports" / "reviewed-gap-dataset.jsonl"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "export-dataset",
+            "--build-root",
+            str(build_root),
+            "--runtime-root",
+            str(runtime_root),
+            "--output",
+            str(output_path),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    assert output_path.exists()
+    payload = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(payload) == 1
+    summary = "\n".join(outputs)
+    assert f"Build ID: {build_id}" in summary
+    assert "Exported samples: 1" in summary
+    assert "Skipped samples: 0" in summary
+    assert str(output_path) in summary
+
+
 def test_chat_loop_writes_reference_trace_metadata_into_session_log(tmp_path, monkeypatch):
     runtime_directory = tmp_path / "runtime"
     prompts = iter(

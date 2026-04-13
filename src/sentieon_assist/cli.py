@@ -19,6 +19,7 @@ from sentieon_assist.chat_ui import ChatUI, build_console
 from sentieon_assist.classifier import classify_query, is_reference_query
 from sentieon_assist.config import load_config
 from sentieon_assist.doctor import format_doctor_report, gather_doctor_report
+from sentieon_assist.dataset_export import export_reviewed_gap_dataset, format_dataset_export_summary
 from sentieon_assist.external_guides import is_external_error_query
 from sentieon_assist.extractor import extract_info_from_query
 from sentieon_assist.feedback_runtime import (
@@ -138,6 +139,7 @@ def format_cli_help() -> str:
             "  sengent knowledge intake-gap --session-id <id> [--turn-id <id> | --latest] [--runtime-root <dir>] [--inbox-dir <dir>]",
             "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
             "  sengent knowledge queue [--build-id <id>] [--build-root <dir>]",
+            "  sengent knowledge export-dataset --output <path> [--build-id <id>] [--build-root <dir>] [--runtime-root <dir>]",
             "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge triage-gap --build-id <id> --entry-id <id> --decision <decision> [--expected-mode <mode>] [--expected-task <task>]",
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
@@ -214,6 +216,7 @@ def format_knowledge_help() -> str:
             "  intake-gap  Export a captured runtime gap into the knowledge inbox",
             "  build       Compile inbox content into candidate packs",
             "  queue       Show the maintainer queue and next actions for a build",
+            "  export-dataset  Export audited reviewed-gap training samples",
             "  review      Show the latest or selected build report",
             "  triage-gap  Record a maintainer decision for a captured gap entry",
             "  activate    Promote a gated build into active packs",
@@ -269,6 +272,14 @@ def format_knowledge_subcommand_help(subcommand: str) -> str:
                 "Usage: sengent knowledge queue [--build-id <id>] [--build-root <dir>]",
                 "",
                 "Show the maintainer queue and next actions for the latest or selected build.",
+            ]
+        )
+    if subcommand == "export-dataset":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge export-dataset --output <path> [--build-id <id>] [--build-root <dir>] [--runtime-root <dir>]",
+                "",
+                "Export audited reviewed-gap support samples into a JSONL dataset artifact.",
             ]
         )
     if subcommand == "triage-gap":
@@ -678,6 +689,31 @@ def _parse_knowledge_review_options(args: list[str]) -> tuple[str | None, str | 
             build_id = args[index]
         index += 1
     return build_root, build_id
+
+
+def _parse_knowledge_export_dataset_options(args: list[str]) -> tuple[str | None, str | None, str | None, str | None]:
+    build_root: str | None = None
+    build_id: str | None = None
+    output_path: str | None = None
+    runtime_root: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--build-root", "--build-id", "--output", "--runtime-root"}:
+            raise ValueError(f"unknown knowledge export-dataset option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--build-root":
+            build_root = args[index]
+        elif option == "--build-id":
+            build_id = args[index]
+        elif option == "--output":
+            output_path = args[index]
+        else:
+            runtime_root = args[index]
+        index += 1
+    return build_root, build_id, output_path, runtime_root
 
 
 def _parse_knowledge_intake_source_options(
@@ -1576,6 +1612,24 @@ def main(
             return 2
         output_fn(f"Knowledge review: {result.build_dir}")
         output_fn(result.report_text.rstrip())
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "export-dataset":
+        try:
+            build_root, build_id, output_path, export_runtime_root = _parse_knowledge_export_dataset_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not output_path:
+            output_fn("knowledge export-dataset requires --output")
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        result = export_reviewed_gap_dataset(
+            build_root=resolved_build_root,
+            build_id=build_id,
+            runtime_root=export_runtime_root or runtime_directory,
+            output_path=output_path,
+        )
+        output_fn(format_dataset_export_summary(result))
         return 0
     if args and args[0] == "search":
         if len(args) >= 2 and args[1] in HELP_FLAGS:
