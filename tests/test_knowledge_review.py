@@ -112,6 +112,7 @@ def _write_attached_factory_draft(
     *,
     draft_id: str = "factory-draft.dataset.001",
     task_kind: str = "dataset_draft",
+    eval_trace: dict[str, object] | None = None,
 ) -> Path:
     draft_dir = build_dir / "factory-drafts"
     draft_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +163,10 @@ def _write_attached_factory_draft(
         + "\n",
         encoding="utf-8",
     )
+    if eval_trace is not None:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+        payload["eval_trace"] = eval_trace
+        artifact_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return artifact_path
 
 
@@ -246,3 +251,25 @@ def test_format_maintainer_queue_includes_factory_draft_review_section(tmp_path:
     assert "review-factory-draft" in text
     assert "Lifecycle state: review_needed" in text
     assert "Evidence fidelity: draft_only" in text
+
+
+def test_format_maintainer_queue_surfaces_trust_boundary_audit_posture_without_raw_values(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = _write_queue_build(build_root)
+    _write_attached_factory_draft(
+        build_dir,
+        eval_trace={
+            "lifecycle_state": "review_needed",
+            "review_status": "needs_review",
+            "evidence_fidelity": "draft_only",
+            "trust_boundary_policy_name": "factory-draft-local-only",
+            "trust_boundary_audit_present": True,
+            "trust_boundary_audit_provenance_only": True,
+            "trust_boundary_audit_posture": "provenance_only",
+        },
+    )
+
+    text = format_maintainer_queue(build_maintainer_queue(build_root=build_root, build_id=build_dir.name))
+
+    assert "Trust boundary audit: present" in text
+    assert "Audit posture: provenance_only" in text

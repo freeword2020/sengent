@@ -6,7 +6,19 @@ from pathlib import Path
 import yaml
 
 from sentieon_assist.dataset_export import export_reviewed_gap_dataset
-from sentieon_assist.session_events import SupportSessionRecord, append_session_record, append_turn_event, build_turn_event
+from sentieon_assist.session_events import (
+    SupportSessionRecord,
+    append_session_record,
+    append_turn_event,
+    build_turn_event,
+    session_log_path,
+)
+from sentieon_assist.trust_boundary import (
+    OutboundContextDisposition,
+    OutboundContextItem,
+    TrustBoundaryDecision,
+    build_trust_boundary_result,
+)
 
 
 def _write_reviewed_gap_fixture(tmp_path: Path, *, include_trace: bool = True) -> tuple[Path, str, Path, Path, str, str]:
@@ -81,6 +93,31 @@ def _write_reviewed_gap_fixture(tmp_path: Path, *, include_trace: bool = True) -
             "missing_materials": ["Sentieon 版本"],
             "captured_at": "2026-04-13T00:00:00+00:00",
         },
+        trust_boundary_result=build_trust_boundary_result(
+            TrustBoundaryDecision(
+                policy_name="support-answer-outbound-v1",
+                items=(
+                    OutboundContextItem(
+                        key="query",
+                        value="license 报错 /Users/zhuge/Documents/codex/harness/private.txt alice@example.com token=super-secret",
+                        disposition=OutboundContextDisposition.REDACTED,
+                        provenance={
+                            "source": "runtime",
+                            "sanitized_value": "license 报错 [PATH] [EMAIL] token=[REDACTED]",
+                        },
+                    ),
+                    OutboundContextItem(
+                        key="session_secret",
+                        value="super-secret",
+                        disposition=OutboundContextDisposition.LOCAL_ONLY,
+                        provenance={
+                            "source": "runtime",
+                            "path": "/Users/zhuge/Documents/codex/harness/private.txt",
+                        },
+                    ),
+                ),
+            )
+        ),
     )
     if include_trace:
         append_turn_event(turn, runtime_root=runtime_root)
@@ -201,7 +238,57 @@ def test_export_reviewed_gap_dataset_writes_audited_gap_support_sample(tmp_path:
     assert sample["support_trace"]["selected_turn_ids"] == [turn_id]
     assert sample["support_trace"]["turns"][0]["turn_id"] == turn_id
     assert sample["support_trace"]["turns"][0]["response_mode"] == "clarify"
+    assert sample["support_trace"]["turns"][0]["trust_boundary_audit"][0]["key"] == "query"
+    assert sample["support_trace"]["turns"][0]["trust_boundary_audit"][1]["disposition"] == "local_only"
+    assert sample["support_trace"]["turns"][0]["eval_trace"]["trust_boundary_audit_present"] is True
+    assert sample["support_trace"]["turns"][0]["eval_trace"]["trust_boundary_audit_posture"] == "mixed"
+    assert sample["eval_trace"]["trust_boundary_audit_turn_count"] == 1
+    assert sample["eval_trace"]["trust_boundary_audit_posture"] == "mixed"
+    assert "super-secret" not in json.dumps(sample["support_trace"], ensure_ascii=False)
+    assert "/Users/zhuge/Documents/codex/harness/private.txt" not in json.dumps(sample["support_trace"], ensure_ascii=False)
     assert str(metadata_path) in sample["source_artifacts"]
+
+
+def test_export_reviewed_gap_dataset_resanitizes_legacy_audit_provenance(tmp_path: Path):
+    build_root, build_id, runtime_root, _metadata_path, session_id, _turn_id = _write_reviewed_gap_fixture(tmp_path)
+    output_path = tmp_path / "exports" / "reviewed-gap-dataset.jsonl"
+    log_path = session_log_path(session_id, runtime_root=runtime_root)
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    turn_event = next(event for event in events if event.get("event_type") == "turn_resolved")
+    turn_event["trust_boundary_audit"] = [
+        {
+            "key": "query",
+            "disposition": "redacted",
+            "provenance": {
+                "source": "runtime",
+                "path": "/Users/zhuge/Documents/codex/harness/private.txt",
+                "contact": "alice@example.com",
+                "payload": "token=super-secret",
+            },
+            "redaction_reason": "legacy-runtime-sanitizer",
+        }
+    ]
+    log_path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in events) + "\n",
+        encoding="utf-8",
+    )
+
+    result = export_reviewed_gap_dataset(
+        build_root=build_root,
+        build_id=build_id,
+        runtime_root=runtime_root,
+        output_path=output_path,
+    )
+
+    assert result.exported_count == 1
+    sample = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
+    audit_json = json.dumps(sample["support_trace"]["turns"][0]["trust_boundary_audit"], ensure_ascii=False)
+    assert "alice@example.com" not in audit_json
+    assert "/Users/zhuge/Documents/codex/harness/private.txt" not in audit_json
+    assert "super-secret" not in audit_json
+    assert "\"payload\"" not in audit_json
+    assert "[EMAIL]" in audit_json
+    assert "[PATH]" in audit_json
 
 
 def test_export_reviewed_gap_dataset_skips_seed_when_selected_trace_is_missing(tmp_path: Path):

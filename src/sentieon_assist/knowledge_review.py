@@ -207,12 +207,18 @@ def format_maintainer_queue(result: MaintainerQueueResult) -> str:
             lifecycle_state = str(bucket.eval_trace.get("lifecycle_state", "")).strip()
             evidence_fidelity = str(bucket.eval_trace.get("evidence_fidelity", "")).strip()
             trust_boundary_policy = str(bucket.eval_trace.get("trust_boundary_policy_name", "")).strip()
+            trust_boundary_audit_present = bool(bucket.eval_trace.get("trust_boundary_audit_present", False))
+            trust_boundary_audit_posture = str(bucket.eval_trace.get("trust_boundary_audit_posture", "")).strip()
             if lifecycle_state:
                 lines.append(f"Lifecycle state: {lifecycle_state}")
             if evidence_fidelity:
                 lines.append(f"Evidence fidelity: {evidence_fidelity}")
             if trust_boundary_policy:
                 lines.append(f"Trust boundary policy: {trust_boundary_policy}")
+            if trust_boundary_audit_present:
+                lines.append("Trust boundary audit: present")
+            if trust_boundary_audit_posture:
+                lines.append(f"Audit posture: {trust_boundary_audit_posture}")
     return "\n".join(lines)
 
 

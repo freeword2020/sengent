@@ -9,7 +9,12 @@ import yaml
 
 from sentieon_assist.eval_trace_plane import aggregate_runtime_eval_traces, project_runtime_eval_trace
 from sentieon_assist.knowledge_build import review_knowledge_build
-from sentieon_assist.session_events import default_runtime_root, load_session_events, session_log_path
+from sentieon_assist.session_events import (
+    _normalize_trust_boundary_audit,
+    default_runtime_root,
+    load_session_events,
+    session_log_path,
+)
 
 
 @dataclass(frozen=True)
@@ -227,6 +232,9 @@ def _trace_turn_payload(event: dict[str, Any]) -> dict[str, Any]:
     planner = event.get("planner", {}) if isinstance(event.get("planner"), dict) else {}
     answer = event.get("answer", {}) if isinstance(event.get("answer"), dict) else {}
     eval_trace = answer.get("eval_trace") if isinstance(answer.get("eval_trace"), dict) else project_runtime_eval_trace(event)
+    trust_boundary_audit = event.get("trust_boundary_audit")
+    if not isinstance(trust_boundary_audit, (list, tuple)) and isinstance(answer.get("trust_boundary_audit"), (list, tuple)):
+        trust_boundary_audit = answer.get("trust_boundary_audit")
     return {
         "turn_id": str(event.get("turn_id", "")).strip(),
         "turn_index": int(event.get("turn_index", 0) or 0),
@@ -245,6 +253,7 @@ def _trace_turn_payload(event: dict[str, Any]) -> dict[str, Any]:
         "boundary_tags": _list_value(answer.get("boundary_tags")),
         "resolver_path": _list_value(answer.get("resolver_path")),
         "gap_record": answer.get("gap_record") if isinstance(answer.get("gap_record"), dict) else None,
+        "trust_boundary_audit": _audit_list_value(trust_boundary_audit),
         "eval_trace": dict(eval_trace),
     }
 
@@ -320,6 +329,17 @@ def _list_value(*values: Any) -> list[str]:
         if not isinstance(value, list):
             continue
         normalized = [str(item).strip() for item in value if str(item).strip()]
+        if normalized:
+            return normalized
+    return []
+
+
+def _audit_list_value(*values: Any) -> list[dict[str, Any]]:
+    for value in values:
+        normalized_items = _normalize_trust_boundary_audit(value)
+        if normalized_items is None:
+            continue
+        normalized = [dict(item) for item in normalized_items]
         if normalized:
             return normalized
     return []

@@ -40,6 +40,101 @@ def test_project_runtime_eval_trace_captures_clarify_and_trust_boundary_signal()
     assert projection["trust_boundary_local_only_count"] == 2
 
 
+def test_project_runtime_eval_trace_captures_trust_boundary_audit_presence_and_posture():
+    projection = project_runtime_eval_trace(
+        {
+            "planner": {
+                "support_intent": "troubleshooting",
+                "fallback_mode": "clarification_open",
+                "vendor_id": "sentieon",
+                "vendor_version": "202503.03",
+            },
+            "answer": {
+                "response_mode": "clarify",
+                "sources": ["Sentieon202503.03.pdf"],
+                "boundary_tags": [],
+                "resolver_path": ["troubleshooting_knowledge_gap"],
+                "gap_record": {"gap_type": "clarification_open"},
+            },
+            "trust_boundary_summary": {
+                "policy_name": "hosted-llm",
+                "allowed_count": 1,
+                "local_only_count": 1,
+                "redacted_count": 1,
+            },
+            "trust_boundary_audit": [
+                {
+                    "key": "query",
+                    "disposition": "redacted",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+                {
+                    "key": "session_secret",
+                    "disposition": "local_only",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+            ],
+        }
+    )
+
+    assert projection["trust_boundary_audit_present"] is True
+    assert projection["trust_boundary_audit_policy_name"] == "hosted-llm"
+    assert projection["trust_boundary_audit_item_count"] == 2
+    assert projection["trust_boundary_audit_redacted_count"] == 1
+    assert projection["trust_boundary_audit_local_only_count"] == 1
+    assert projection["trust_boundary_audit_provenance_only"] is True
+    assert projection["trust_boundary_audit_posture"] == "provenance_only"
+
+
+def test_project_runtime_eval_trace_marks_audit_as_mixed_when_raw_fields_are_present():
+    projection = project_runtime_eval_trace(
+        {
+            "planner": {
+                "support_intent": "troubleshooting",
+                "fallback_mode": "clarification_open",
+                "vendor_id": "sentieon",
+                "vendor_version": "202503.03",
+            },
+            "answer": {
+                "response_mode": "clarify",
+                "sources": ["Sentieon202503.03.pdf"],
+                "boundary_tags": [],
+                "resolver_path": ["troubleshooting_knowledge_gap"],
+                "gap_record": {"gap_type": "clarification_open"},
+            },
+            "trust_boundary_summary": {
+                "policy_name": "hosted-llm",
+                "allowed_count": 1,
+                "local_only_count": 1,
+                "redacted_count": 1,
+            },
+            "trust_boundary_audit": [
+                {
+                    "key": "query",
+                    "value": "license error",
+                    "disposition": "redacted",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+                {
+                    "key": "session_secret",
+                    "raw_value": "super-secret",
+                    "disposition": "local_only",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+            ],
+        }
+    )
+
+    assert projection["trust_boundary_audit_present"] is True
+    assert projection["trust_boundary_audit_item_count"] == 2
+    assert projection["trust_boundary_audit_provenance_only"] is False
+    assert projection["trust_boundary_audit_posture"] == "mixed"
+
+
 def test_project_runtime_eval_trace_marks_arbitration_must_tool():
     projection = project_runtime_eval_trace(
         {
@@ -95,6 +190,8 @@ def test_aggregate_runtime_eval_traces_tracks_boundary_and_fidelity_summary():
                 "tool_required": False,
                 "refusal_required": False,
                 "escalation_required": False,
+                "trust_boundary_audit_present": True,
+                "trust_boundary_audit_posture": "provenance_only",
             },
             {
                 "boundary_adherence": "must_tool",
@@ -103,6 +200,8 @@ def test_aggregate_runtime_eval_traces_tracks_boundary_and_fidelity_summary():
                 "tool_required": True,
                 "refusal_required": False,
                 "escalation_required": False,
+                "trust_boundary_audit_present": True,
+                "trust_boundary_audit_posture": "provenance_only",
             },
         ]
     )
@@ -111,3 +210,5 @@ def test_aggregate_runtime_eval_traces_tracks_boundary_and_fidelity_summary():
     assert summary["evidence_fidelity"] == "mixed"
     assert summary["clarify_turn_count"] == 1
     assert summary["tool_turn_count"] == 1
+    assert summary["trust_boundary_audit_turn_count"] == 2
+    assert summary["trust_boundary_audit_posture"] == "provenance_only"

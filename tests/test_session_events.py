@@ -256,6 +256,114 @@ def test_session_event_round_trip_preserves_trust_boundary_summary_without_raw_s
     assert view.eval_trace["evidence_fidelity"] == "contract_only"
 
 
+def test_session_event_round_trip_preserves_trust_boundary_audit_trail_without_raw_sensitive_values(tmp_path: Path):
+    runtime_root = tmp_path / "runtime"
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+
+    trust_boundary = build_trust_boundary_result(
+        TrustBoundaryDecision(
+            policy_name="support-answer-outbound-v1",
+            items=(
+                OutboundContextItem(
+                    key="query",
+                    value="license 报错 /Users/zhuge/Documents/codex/harness/private.txt alice@example.com token=super-secret",
+                    disposition=OutboundContextDisposition.REDACTED,
+                    provenance={
+                        "source": "runtime",
+                        "sanitized_value": "license 报错 [PATH] [EMAIL] token=[REDACTED]",
+                    },
+                ),
+                OutboundContextItem(
+                    key="session_secret",
+                    value="super-secret",
+                    disposition=OutboundContextDisposition.LOCAL_ONLY,
+                    provenance={
+                        "source": "runtime",
+                        "path": "/Users/zhuge/Documents/codex/harness/private.txt",
+                    },
+                ),
+            ),
+        )
+    )
+
+    turn_event = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="license 报错",
+        effective_query="license 报错",
+        reused_anchor=False,
+        task="troubleshooting",
+        issue_type="license",
+        route_reason="issue_type:license",
+        parsed_intent_intent="not_reference",
+        parsed_intent_module="",
+        response_text="需要补充以下信息：Sentieon 版本",
+        response_mode="clarify",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "troubleshooting"},
+        trust_boundary_result=trust_boundary,
+    )
+    append_turn_event(turn_event, runtime_root=runtime_root)
+
+    view = load_turn_views(session.session_id, runtime_root=runtime_root)[0]
+
+    assert view.trust_boundary_audit is not None
+    assert [item["key"] for item in view.trust_boundary_audit] == ["query", "session_secret"]
+    assert [item["disposition"] for item in view.trust_boundary_audit] == ["redacted", "local_only"]
+    assert "super-secret" not in json.dumps(view.trust_boundary_audit, ensure_ascii=False)
+    assert "alice@example.com" not in json.dumps(view.trust_boundary_audit, ensure_ascii=False)
+    assert "/Users/zhuge/Documents/codex/harness/private.txt" not in json.dumps(view.trust_boundary_audit, ensure_ascii=False)
+    assert "sanitized_value" not in json.dumps(view.trust_boundary_audit, ensure_ascii=False)
+    assert view.eval_trace is not None
+    assert view.eval_trace["trust_boundary_audit_present"] is True
+    assert view.eval_trace["trust_boundary_audit_provenance_only"] is False
+    assert view.eval_trace["trust_boundary_audit_posture"] == "mixed"
+
+
+def test_turn_view_from_event_handles_legacy_events_without_trust_boundary_audit():
+    view = turn_view_from_event(
+        {
+            "session_id": "session-legacy",
+            "turn_id": "turn-legacy",
+            "turn_index": 1,
+            "planner": {
+                "raw_query": "DNAscope 是做什么的",
+                "effective_query": "DNAscope 是做什么的",
+                "reused_anchor": False,
+                "task": "reference_lookup",
+                "issue_type": "other",
+                "route_reason": "module_intro",
+                "support_intent": "",
+                "fallback_mode": "",
+                "vendor_id": "",
+                "vendor_version": "",
+                "parsed_intent": {"intent": "module_intro", "module": "DNAscope"},
+            },
+            "answer": {
+                "response_mode": "module_intro",
+                "response_text": "【模块介绍】\nDNAscope：用于 germline variant calling",
+                "sources": [],
+                "boundary_tags": [],
+                "resolver_path": [],
+                "gap_record": None,
+                "trust_boundary_summary": None,
+            },
+            "state_before": {"active_task": "idle"},
+            "state_after": {"active_task": "reference_lookup"},
+            "trust_boundary_summary": None,
+        }
+    )
+
+    assert view.trust_boundary_audit is None
+
+
 def test_session_event_sanitizes_trust_boundary_summary_dict_input(tmp_path: Path):
     runtime_root = tmp_path / "runtime"
     session = SupportSessionRecord.new(

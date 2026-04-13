@@ -121,6 +121,20 @@ def test_project_gap_review_eval_alignment_marks_expected_review_and_eval_contra
                 "resolver_path": ["troubleshooting_knowledge_gap"],
                 "gap_record": {"gap_type": "clarification_open"},
             },
+            "trust_boundary_audit": [
+                {
+                    "key": "query",
+                    "disposition": "redacted",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+                {
+                    "key": "session_secret",
+                    "disposition": "local_only",
+                    "provenance": {"source": "runtime"},
+                    "redaction_reason": "runtime-sanitizer",
+                },
+            ],
         }
     )
 
@@ -132,6 +146,8 @@ def test_project_gap_review_eval_alignment_marks_expected_review_and_eval_contra
     assert alignment["expected_task_matches"] is True
     assert alignment["boundary_adherence"] == "clarify"
     assert alignment["evidence_fidelity"] == "source_grounded"
+    assert alignment["trust_boundary_audit_present"] is True
+    assert alignment["trust_boundary_audit_posture"] == "provenance_only"
 
 
 def test_aggregate_gap_review_eval_alignments_counts_mixed_alignment_states():

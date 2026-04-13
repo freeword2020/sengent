@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from sentieon_assist.app_paths import default_runtime_root as default_runtime_root_path
 from sentieon_assist.eval_trace_plane import project_runtime_eval_trace
 from sentieon_assist.support_contracts import normalize_fallback_mode, normalize_support_intent
 from sentieon_assist.trace_vocab import ResponseMode, normalize_resolver_path, normalize_response_mode
-from sentieon_assist.trust_boundary import TrustBoundaryResult, sanitize_trust_boundary_summary
+from sentieon_assist.trust_boundary import (
+    OutboundContextDisposition,
+    OutboundContextItem,
+    TrustBoundaryResult,
+    normalize_outbound_context_disposition,
+    sanitize_trust_boundary_summary,
+)
 
 
 SCHEMA_VERSION = "2026-04-09"
@@ -137,6 +144,7 @@ class SupportTurnEvent:
     state_before: dict[str, Any]
     state_after: dict[str, Any]
     trust_boundary_summary: dict[str, Any] | None = None
+    trust_boundary_audit: tuple[dict[str, Any], ...] | None = None
     eval_trace: dict[str, Any] | None = None
     event_type: str = "turn_resolved"
 
@@ -152,6 +160,7 @@ class SupportTurnEvent:
             "state_before": self.state_before,
             "state_after": self.state_after,
             "trust_boundary_summary": self.trust_boundary_summary,
+            "trust_boundary_audit": list(self.trust_boundary_audit) if self.trust_boundary_audit is not None else None,
             "eval_trace": self.eval_trace,
         }
 
@@ -197,6 +206,7 @@ class SupportTurnView:
     response_mode: str = ""
     gap_record: dict[str, Any] | None = None
     trust_boundary_summary: dict[str, Any] | None = None
+    trust_boundary_audit: tuple[dict[str, Any], ...] | None = None
     eval_trace: dict[str, Any] | None = None
 
 
@@ -227,6 +237,7 @@ def build_turn_event(
     trust_boundary_result: TrustBoundaryResult | dict[str, Any] | None = None,
 ) -> SupportTurnEvent:
     trust_boundary_summary = _normalize_trust_boundary_summary(trust_boundary_result)
+    trust_boundary_audit = _normalize_trust_boundary_audit(trust_boundary_result)
     planner = {
         "raw_query": raw_query,
         "effective_query": effective_query,
@@ -251,12 +262,15 @@ def build_turn_event(
         "resolver_path": normalize_resolver_path(resolver_path),
         "gap_record": dict(gap_record or {}) if gap_record else None,
         "trust_boundary_summary": trust_boundary_summary,
+        "trust_boundary_audit": list(trust_boundary_audit) if trust_boundary_audit is not None else None,
     }
     eval_trace = project_runtime_eval_trace(
         {
             "planner": planner,
             "answer": answer,
+            "trust_boundary_result": trust_boundary_result,
             "trust_boundary_summary": trust_boundary_summary,
+            "trust_boundary_audit": list(trust_boundary_audit) if trust_boundary_audit is not None else None,
         }
     )
     answer["eval_trace"] = dict(eval_trace)
@@ -270,6 +284,7 @@ def build_turn_event(
         state_before=state_before,
         state_after=state_after,
         trust_boundary_summary=trust_boundary_summary,
+        trust_boundary_audit=trust_boundary_audit,
         eval_trace=eval_trace,
     )
 
@@ -325,6 +340,11 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
     eval_trace = answer.get("eval_trace") if isinstance(answer.get("eval_trace"), dict) else payload.get("eval_trace")
     if not isinstance(eval_trace, dict):
         eval_trace = project_runtime_eval_trace(payload)
+    trust_boundary_audit = _normalize_trust_boundary_audit(
+        answer.get("trust_boundary_audit")
+        if isinstance(answer.get("trust_boundary_audit"), (list, tuple, dict, TrustBoundaryResult))
+        else payload.get("trust_boundary_audit")
+    )
     return SupportTurnView(
         session_id=str(payload.get("session_id", "")),
         turn_id=str(payload.get("turn_id", "")),
@@ -348,6 +368,7 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
         dict(answer.get("trust_boundary_summary", {}))
         if isinstance(answer.get("trust_boundary_summary"), dict)
         else None,
+        trust_boundary_audit=trust_boundary_audit,
         eval_trace=dict(eval_trace),
     )
 
@@ -384,3 +405,124 @@ def _normalize_trust_boundary_summary(
     if isinstance(trust_boundary_result, dict):
         return sanitize_trust_boundary_summary(trust_boundary_result)
     raise TypeError(f"unsupported trust boundary result: {type(trust_boundary_result)!r}")
+
+
+def _normalize_trust_boundary_audit(
+    trust_boundary_result: TrustBoundaryResult | dict[str, Any] | list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
+) -> tuple[dict[str, Any], ...] | None:
+    if trust_boundary_result is None:
+        return None
+    if isinstance(trust_boundary_result, TrustBoundaryResult):
+        items = trust_boundary_result.decision.items
+        normalized = [_normalize_trust_boundary_audit_item(item) for item in items]
+        return tuple(item for item in normalized if item is not None) or None
+    if isinstance(trust_boundary_result, dict):
+        candidate_items = trust_boundary_result.get("items")
+        if not isinstance(candidate_items, list):
+            candidate_items = trust_boundary_result.get("trust_boundary_audit")
+        if not isinstance(candidate_items, list):
+            candidate_items = trust_boundary_result.get("outbound_items")
+        if not isinstance(candidate_items, list):
+            return None
+        normalized = [_normalize_trust_boundary_audit_item(item) for item in candidate_items]
+        return tuple(item for item in normalized if item is not None) or None
+    if isinstance(trust_boundary_result, (list, tuple)):
+        normalized = [_normalize_trust_boundary_audit_item(item) for item in trust_boundary_result]
+        return tuple(item for item in normalized if item is not None) or None
+    return None
+
+
+def _normalize_trust_boundary_audit_item(item: OutboundContextItem | Mapping[str, Any]) -> dict[str, Any] | None:
+    if isinstance(item, OutboundContextItem):
+        key = str(item.key).strip()
+        disposition = normalize_outbound_context_disposition(item.disposition)
+        provenance = _sanitize_audit_provenance(item.provenance)
+        redaction_reason = str(item.redaction_reason).strip()
+    elif isinstance(item, Mapping):
+        key = str(item.get("key", "")).strip()
+        disposition = normalize_outbound_context_disposition(item.get("disposition"))
+        provenance = _sanitize_audit_provenance(item.get("provenance"))
+        redaction_reason = str(item.get("redaction_reason", "")).strip()
+    else:
+        return None
+    if not key:
+        return None
+    payload: dict[str, Any] = {
+        "key": key,
+        "disposition": str(disposition),
+        "provenance": provenance,
+    }
+    if redaction_reason:
+        payload["redaction_reason"] = redaction_reason
+    return payload
+
+
+def _sanitize_audit_provenance(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    sanitized: dict[str, Any] = {}
+    for key, item in value.items():
+        field_name = str(key).strip()
+        if not field_name:
+            continue
+        if field_name.lower() in _AUDIT_PROVENANCE_DENYLIST:
+            continue
+        sanitized_value = _sanitize_audit_provenance_value(item)
+        if sanitized_value is not None:
+            sanitized[field_name] = sanitized_value
+    return sanitized
+
+
+def _sanitize_audit_provenance_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _sanitize_audit_provenance(value)
+    if isinstance(value, list):
+        return [_sanitize_audit_provenance_value(item) for item in value if _sanitize_audit_provenance_value(item) is not None]
+    if isinstance(value, tuple):
+        return tuple(
+            item
+            for item in (_sanitize_audit_provenance_value(element) for element in value)
+            if item is not None
+        )
+    if isinstance(value, str):
+        return _sanitize_audit_text(value)
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    return _sanitize_audit_text(str(value))
+
+
+def _sanitize_audit_text(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        return ""
+    if _looks_like_path(candidate):
+        return "[PATH]"
+    scrubbed = _AUDIT_EMAIL_PATTERN.sub("[EMAIL]", candidate)
+    if _AUDIT_SECRET_PATTERN.search(scrubbed):
+        return "[REDACTED]"
+    scrubbed = _AUDIT_PATH_FRAGMENT_PATTERN.sub("[PATH]", scrubbed)
+    return scrubbed
+
+
+def _looks_like_path(value: str) -> bool:
+    if value.startswith("http://") or value.startswith("https://"):
+        return False
+    return value.startswith(("/", "./", "../")) or bool(re.match(r"^[A-Za-z]:[\\/]", value))
+
+
+_AUDIT_PROVENANCE_DENYLIST = {
+    "value",
+    "raw_value",
+    "sanitized_value",
+    "raw",
+    "text",
+    "payload",
+    "secret",
+    "token",
+    "password",
+    "passwd",
+    "pwd",
+}
+_AUDIT_EMAIL_PATTERN = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w.+-])")
+_AUDIT_SECRET_PATTERN = re.compile(r"(?i)\b(?:token|secret|password|passwd|pwd|api[_-]?key)\b")
+_AUDIT_PATH_FRAGMENT_PATTERN = re.compile(r"(?<!\w)(?:/|[A-Za-z]:[\\/]|\.{1,2}[\\/])[^\s<>'\"`]+")

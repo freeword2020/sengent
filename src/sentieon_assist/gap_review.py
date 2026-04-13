@@ -140,7 +140,7 @@ def project_gap_review_eval_alignment(
     actual_task = _string_value(projection.get("task")) or _string_value(projection.get("support_intent"))
     expected_mode_matches = not expected_mode or normalize_response_mode(actual_mode) == normalize_response_mode(expected_mode)
     expected_task_matches = not expected_task or actual_task == expected_task
-    return {
+    result = {
         "entry_id": _string_value(review_record.get("entry_id")),
         "review_status": _string_value(review_record.get("review_status")) or _string_value(review_record.get("status")),
         "review_decision": _string_value(review_record.get("review_decision")) or _string_value(review_record.get("decision")),
@@ -153,6 +153,13 @@ def project_gap_review_eval_alignment(
         "boundary_adherence": _string_value(projection.get("boundary_adherence")),
         "evidence_fidelity": _string_value(projection.get("evidence_fidelity")),
     }
+    if "trust_boundary_audit_present" in projection:
+        result["trust_boundary_audit_present"] = bool(projection.get("trust_boundary_audit_present"))
+    if "trust_boundary_audit_provenance_only" in projection:
+        result["trust_boundary_audit_provenance_only"] = bool(projection.get("trust_boundary_audit_provenance_only"))
+    if _string_value(projection.get("trust_boundary_audit_posture")):
+        result["trust_boundary_audit_posture"] = _string_value(projection.get("trust_boundary_audit_posture"))
+    return result
 
 
 def aggregate_gap_review_eval_alignments(alignments: list[dict[str, Any]]) -> dict[str, Any]:
