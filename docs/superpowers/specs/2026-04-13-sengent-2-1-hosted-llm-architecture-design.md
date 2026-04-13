@@ -1,400 +1,474 @@
 # Sengent 2.1 Hosted-LLM Architecture Design
 
-## Goal
+## Core Judgment
 
-定义 `Sengent 2.1` 的第一版正式架构：让系统可以直接使用强托管模型做 runtime understanding 和 offline factory drafting，但仍然坚持 `governance-first`，不漂成 raw-retrieval support bot。
+`Sengent 2.1` 可以推进，但当前只适合进入 `formal spec` 阶段，不适合直接进入实现阶段。
 
-一句话定义：
+原因不是方向不清楚，而是方向已经足够清楚，如果不先补齐硬约束，系统很容易 drift 成：
 
-`Sengent = a bounded software support agent factory`
+- 更聪明
+- 更会说
+- 但更松散的半 RAG support bot
 
-在 `2.1` 阶段，它应当成为：
+所以 `2.1` 的当前目标不是“尽快接上 hosted API”，而是先把 architecture 和 invariants 定死。
 
-`LLM-native, but governance-first`
+## Priority Red Lines
+
+在 `2.1` 正式设计里，必须优先守住两条：
+
+### 1. Hard Constraints Must Land In Spec First
+
+必须先把以下三层写硬，再谈实现：
+
+- `Anti-Drift`
+- `Trust Boundary`
+- `Tool Arbitration`
+
+如果这三层没有先固化，后面的 hosted runtime 很容易 drift 成 full RAG 风格的 support bot。
+
+### 2. 2.1 Means A Lighter Hosted Runtime, Not A Lighter Governance Core
+
+`2.1` 的定位必须是：
+
+- 更轻的 hosted runtime
+- 保留治理内核
+
+可以去掉：
+
+- Ollama 带来的 runtime burden
+- 一部分 weak-model compensation
+
+不能丢掉：
+
+- `vendor / domain / playbook / incident` layering
+- `build / review / gate / activate / rollback`
+- `clarify-first`
+- deterministic diagnostics
 
 ## Product Definition
 
-`Sengent 2.1` 不是：
+`Sengent = a bounded software support agent factory`
+
+`Sengent 2.1` 应被定义为：
+
+`LLM-native, but governance-first`
+
+它不是：
 
 - full-RAG software copilot
 - raw-doc direct runtime retrieval bot
-- 让模型直接决定事实的在线知识库
+- 用模型权重替代正式知识层的 support system
 
 它是：
 
-- 一个利用强托管模型做理解、澄清、归纳、草拟的 software support system
-- 一个仍然对当前软件负责、对版本边界负责、对知识治理负责的 support kernel
-- 一个未来可承载多软件 vendor profile 的内核，而不只是 Sentieon 单点工具
+- 一个利用强托管模型做理解、归纳、澄清、草拟的 software support system
+- 一个仍然对当前软件负责、对版本边界负责、对支持边界负责的 support kernel
+- 一个未来可承载多个 vendor profile 的内核，而不只是 Sentieon 特化工具
 
-## Why 2.1
+## What 2.1 Must Preserve
 
-`2.0` 证明了这些约束是对的：
+这些不是 `2.0` 的历史包袱，而是 `2.1` 的地基：
 
-- vendor/domain/playbook/incident layering 必须显式存在
-- runtime facts 不能直接来自模型
-- maintainers 必须 review，再 build / gate / activate
-- clarify-first 比“尽量回答更多”更重要
+- `LLM-native, but governance-first`
+- 不做 full RAG
+- `vendor / domain / playbook / incident` knowledge layering
+- `build / review / gate / activate / rollback`
+- `clarify-first`
+- deterministic diagnostics
+- model output is draft until promoted
+- runtime 不能把 raw docs 当 truth
 
-但 `2.0` 运行时仍然明显受限于 local small model 假设：
+## What 2.1 Should Weaken Or Replace
 
-- runtime/doctor/config 对 `Ollama` 有很强默认依赖
-- prompt 组装和报错恢复里有大量 small-model/local-host 假设
-- knowledge factory 虽然已有离线 draft 接缝，但还没有朝强托管模型的完整演进路线
+`2.1` 可以弱化或替换的东西主要有三类：
 
-`2.1` 的目的不是推翻 `2.0`，而是在不破坏治理边界的前提下，把模型层升级为 hosted-first。
+### 1. Local Small-Model Runtime Burden
 
-## Scope
+- Ollama-first runtime assumptions
+- local warmup / local model ops burden
+- build-only host 仍强依赖本地模型的诊断叙事
 
-`2.1` 第一阶段只做 architecture + contract + PoC。
+### 2. Weak-Model Compensation
 
-包含：
+- 很多为弱模型兜底的机械路由
+- 很重的 prompt 拼装
+- 一部分 rigid answer assembly
 
-- hosted-LLM runtime architecture
-- `OpenAI-compatible` adapter seam
-- anti-drift governance principles
-- provider-aware config / diagnostics / runtime wiring plan
-- 明确保留哪些 `2.0` control surfaces 不动
-- 独立 worktree / branch 上的实验性实现
+### 3. Provider Assumption
 
-不包含：
+新的 runtime 假设应是：
 
-- raw ingestion 直接进入 runtime truth
-- model outputs 直接进入 active packs
-- auto-activate
-- multi-tenant gateway 平台化
-- 第二 vendor profile 落地
-- full prompt/policy rewrite
+- 使用强托管模型
+- 内部版先走 `OpenAI-compatible API`
+- 先不做复杂 gateway
+- 但 adapter 必须保留未来 gateway 接缝
 
 ## Non-Goals
 
-本阶段明确不做：
+`2.1` 第一阶段明确不做：
 
-- “把 docs/RAG 接得更广”来换更像人的回答
-- 让 runtime 直接读 source inbox / source bundles / raw docs
-- 用训练权重代替正式知识层
-- 用模型推断代替 deterministic diagnostics
-- 因为 hosted model 更强而弱化 review / rollback / audit
+- raw ingestion 直接进入 runtime truth
+- model outputs 直接进入 active packs
+- online learning 直接改变 runtime truth
+- multi-tenant gateway 平台化
+- 第二 vendor 的正式落地
+- customer packaging / distribution
 
-## Current State Audit
+## Adversarial Review Upgrades
 
-当前代码里与 `2.1` 直接相关的现状很清楚：
+这是 `2.1` 修订版 spec 必须显式新增的硬层，不允许只停留在口头原则。
 
-### 1. `llm_backends.py` 已经有 hosted adapter 雏形，但位置仍是 fallback
+### 1. Trust Boundary Layer
 
-- `OpenAICompatibleBackend` 已存在
-- `BackendRouter` 已支持 primary/fallback
-- 但 `build_backend_router()` 仍把 `OllamaBackend` 固定成 primary
+必须先定义：
 
-这意味着 hosted path 现在只是应急后备，不是正式 runtime contract。
+- 什么数据允许发给外部 LLM
+- 什么字段必须脱敏
+- prompt / trace / logs 如何存储
+- 哪些上下文不能出本地
 
-### 2. `config.py` 仍是 Ollama-first
+没有这层，`2.1` 一进入 hosted runtime，就会在合规、审计、客户现场数据边界上出问题。
 
-当前配置模型是：
+### 2. Tool Arbitration Layer
 
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `OLLAMA_KEEP_ALIVE`
-- `SENGENT_LLM_FALLBACK_*`
+deterministic diagnostics 不能只是一组工具；在 `2.1` 里，它必须升级成 `hard arbitration layer`。
 
-这套 contract 默认假设本地小模型是主路径，hosted 只是补位。
+至少要能回答：
 
-### 3. `doctor.py` / `runtime_guidance.py` 仍是本地模型运维导向
+- 哪些问题必须先跑工具
+- 哪些问题模型只能解释工具结果
+- 哪些问题不能靠模型自由判断
 
-- doctor probe 直接调用 `probe_ollama`
-- guidance 默认建议 `ollama pull`
-- build-only host 与 runtime host 的区分仍围绕本地模型安装状态展开
+尤其是以下类目必须优先走 tool-first：
 
-这与 `2.1` 的 hosted-first 目标不匹配。
+- `VCF / BAM / CRAM / BED / FASTA`
+- header/index/contig/sort consistency
+- 文件结构与格式错误
+- deterministic file-state / environment-state checks
 
-### 4. `Support Kernel` / `Knowledge Compiler` / `Knowledge Factory` 的治理骨架是对的
+### 3. Anti-Drift Invariants
 
-这些必须保留：
+anti-drift 必须从原则升级成系统不变量。至少包括：
 
-- active knowledge 仍是 runtime truth source
-- build / review / gate / activate / rollback
-- clarify-first
-- gap capture / controlled learning loop
-- deterministic diagnostics
-- vendor profile + domain standards + playbooks + incident memory layering
+- runtime never reads raw ingestion directly as truth
+- model output is draft only unless promoted
+- tool-required intents cannot be answered from model-only reasoning
+- knowledge layers remain explicit
+- every evolution path preserves rollback
 
-`2.1` 不应重写这些层，而应让更强模型服务于这些层。
+### 4. Capability-Based LLM Adapter
 
-## Hard Boundary
+`2.1` 不能把 adapter 只建模成：
 
-### 1. Runtime Never Reads Raw Ingestion As Truth
+- `base_url`
+- `api_key`
+- `model`
+
+还必须显式抽象 provider capabilities，例如：
+
+- `supports_tools`
+- `supports_json_schema`
+- `max_context`
+- `supports_reasoning_effort`
+- `supports_streaming`
+- `prompt_cache_behavior`
+
+原因很简单：
+
+- OpenAI-compatible protocol 相同
+- 不等于 provider capability 相同
+
+### 5. Boundary Pack
+
+`2.1` 必须引入显式 `Boundary Pack`，而不是把边界继续散在 prompt 和隐式规则里。
+
+至少包含：
+
+- `should-answer`
+- `must-clarify`
+- `must-tool`
+- `must-refuse`
+- `must-escalate`
+- version-sensitive boundaries
+
+核心原则：
+
+`Boundary governance should stay strict, but boundary authoring should become low-touch`
+
+也就是：
+
+- 边界治理严格
+- 边界编写尽量由模型先归纳、人类后裁决
+
+### 6. Eval / Trace Plane
+
+`2.1` 不能只说“模型更强所以会更好”。
+
+必须显式定义 `eval / trace plane`，至少覆盖：
+
+- factual correctness
+- boundary adherence
+- clarification quality
+- refusal quality
+- tool-usage correctness
+- evidence fidelity / citation discipline
+
+### 7. Artifact Lifecycle
+
+Knowledge Factory 在 `2.1` 会更强，所以必须定义 artifact lifecycle，否则 draft/candidate 会淹没维护者。
+
+至少包含这些阶段：
+
+- `raw`
+- `candidate`
+- `review-needed`
+- `reviewed`
+- `activated`
+- `expired`
+- `superseded`
+
+## Anti-Drift Invariants
+
+以下不变量必须被视为 `2.1` 的正式红线：
+
+### 1. Runtime Never Reads Raw Ingestion Directly As Truth
 
 runtime 可以读取：
 
-- active packs
-- compiled vendor/domain/playbook/incident layers
-- 当前会话上下文
+- active knowledge
+- explicit compiled layers
+- current session context
 
-runtime 不可以把以下内容直接当事实源：
+runtime 不可以直接把以下内容当事实源：
 
+- raw docs
 - source inbox
+- parsed ingestion bundles
 - factory drafts
-- raw vendor docs
-- raw parsed text bundles
-- hosted model outputs
+- model completions
 
-### 2. Model Outputs Are Drafts, Never Truth
+### 2. Model Output Is Draft Only Unless Promoted
 
-模型可以产出：
+模型产物可以影响：
 
-- answer wording
-- clarification wording
-- candidate drafts
-- normalization drafts
-- contradiction clusters
-- dataset drafts
+- wording
+- clarification
+- candidate drafting
+- normalization
+- contradiction clustering
+- dataset drafting
 
-模型不可以直接产出：
+但不能直接成为：
 
-- active fact mutation
-- gate pass
-- activated runtime truth
+- activated facts
+- runtime boundaries
+- gate decisions
 
-### 3. Hosted Runtime Must Stay Bounded By The Support Contract
+### 3. Tool-Required Intents Cannot Be Answered From Model-Only Reasoning
 
-更强模型不意味着更大的事实自由度。
+对于被 `must-tool` 命中的问题，模型只能：
 
-runtime 仍必须：
+- 组织工具输出
+- 解释工具结果
+- 引导下一步
 
-- obey vendor profile boundaries
-- obey version boundaries
-- clarify before guessing
-- cite evidence tiers rather than free-associate
+不能绕过工具直接给出“看起来合理”的诊断结论。
 
-### 4. Every Evolution Path Must Preserve Rollback
+### 4. Knowledge Layers Remain Explicit
 
-无论是 runtime provider 切换，还是 factory adapter 升级，都必须保留：
+这些层必须继续是一等公民：
 
-- config-level rollback
-- pack-level rollback
-- maintainer review rollback
+- vendor reference / vendor facts
+- vendor decisions
+- domain standards
+- playbooks / procedures
+- troubleshooting / known issues
+- incident memory / site memory
+
+### 5. Every Evolution Path Preserves Rollback
+
+无论引入什么 hosted runtime/provider/factory enhancement，都必须保留：
+
+- config rollback
+- review rollback
+- activation rollback
+- pack rollback
 - branch/worktree rollback
 
-## Target 2.1 Architecture
+## Recommended 2.1 Architecture
+
+建议把 `2.1` 总体架构正式写成以下分层：
+
+- Thin Client / CLI
+- Support Control Layer
+- Boundary Pack + Active Knowledge
+- Tool Arbitration Layer
+- Deterministic Diagnostics
+- Capability-Based LLM Adapter
+- Knowledge Factory
+- Eval / Trace Plane
+- Trust Boundary Layer
 
 ### 1. Thin Client / CLI
 
 继续保留 CLI-first operator surface。
 
-它负责：
+负责：
 
 - chat / single-turn entry
-- doctor / inspect / review commands
-- operator-visible runtime diagnostics
+- doctor / inspect / review entry
+- operator-visible diagnostics
 
-它不负责：
+不负责：
 
 - truth governance
-- raw doc retrieval policy
+- boundary policy ownership
 
 ### 2. Support Control Layer
 
-这是 `2.1` 仍然最重要的 runtime layer。
+这是 runtime 的核心控制层。
 
-它继续负责：
+继续负责：
 
-- intent parsing
-- evidence hierarchy
+- intent understanding
 - clarify-first
 - answer contract
-- gap capture
+- vendor responsibility
+- evidence hierarchy
 
-这里的核心变化不是“加更多规则”，而是：
+它的核心不是“更自由地回答”，而是：
 
-- 减少为小模型补洞的机械 prompt 拼装
-- 保留 contract / boundary / evidence discipline
-- 把更强模型当作受控解释器，而不是事实源
+- 用更强模型在更严格的边界内回答
 
-### 3. Knowledge Compiler + Active Knowledge
+### 3. Boundary Pack + Active Knowledge
 
-这层保持 `2.0` 治理结构不动：
+这是 `2.1` 的事实与边界中枢。
 
-- inbox
-- build
-- review
-- gate
-- activate
-- rollback
+它负责定义：
 
-这是 `2.1` 必须保护的核心资产，而不是待替换模块。
+- 能答什么
+- 先问什么
+- 必须跑工具什么
+- 必须拒绝什么
+- 必须升级什么
 
-### 4. Knowledge Factory
+同时，active knowledge 仍然是 runtime truth source。
 
-`2.1` 最应增强的是 factory，不是 runtime truth path。
+### 4. Tool Arbitration Layer
 
-factory 应逐步能用 stronger hosted models 产出：
+这层负责把 deterministic tools 从“可选工具”提升成“决策仲裁器”。
 
-- candidate facts
-- candidate support boundaries
-- candidate clarification triggers
-- candidate playbooks
-- candidate incident clusters
-- dataset drafts
+它决定：
 
-但这些都必须继续以 `draft + review_required` 形式存在。
+- 先 tool 还是先 clarify
+- tool 输出能否直接形成 answer evidence
+- 模型是否只能解释 tool result
 
 ### 5. Deterministic Diagnostics
 
-diagnostics 仍是一等公民。
+diagnostics 仍然是一等控制面，不允许被“更强模型”替代。
 
-`2.1` 要保留并增强：
+它继续负责：
 
-- provider reachability checks
-- configured-model availability checks
-- knowledge/runtime separation checks
-- build/runtime host role guidance
+- 环境检查
+- 文件结构检查
+- 格式/索引/一致性检查
+- runtime/build role guidance
 
-只是 probes 不应再只围绕 `Ollama`。
+### 6. Capability-Based LLM Adapter
 
-### 6. OpenAI-Compatible LLM Adapter
+内部版先用 `OpenAI-compatible` transport，但 adapter contract 必须 capability-based，而不是只看 URL。
 
-`2.1` 的最小模型接缝应采用 `OpenAI-compatible` adapter。
+最小能力面应包括：
 
-原因：
+- transport info
+- auth info
+- capability flags
+- max context
+- schema / tool / streaming support
+- traceability metadata
 
-- 先兼容广泛 hosted providers
-- 保留将来接 gateway 的接缝
-- 不在第一阶段引入复杂 provider SDK matrix
+### 7. Knowledge Factory
 
-最小 canonical fields 应覆盖：
+`2.1` 最应增强的是 factory，而不是 runtime truth path。
 
-- `provider`
-- `base_url`
-- `api_key`
-- `model`
-- optional provider headers
-- optional timeout / stream options
+factory 负责：
 
-## Control Surface Decisions
+- ingest
+- candidate extraction
+- contradiction clustering
+- dataset drafting
+- boundary drafting
 
-### 1. Canonical Runtime LLM Config Must Become Provider-Aware
+但一律以 `draft + review-required` 进入 lifecycle。
 
-`2.1` 应把运行时配置收口为 canonical contract。
+### 8. Eval / Trace Plane
 
-建议第一版至少引入：
+这层必须独立存在，而不是混在日志里。
 
-- `SENGENT_RUNTIME_LLM_PROVIDER`
-- `SENGENT_RUNTIME_LLM_BASE_URL`
-- `SENGENT_RUNTIME_LLM_MODEL`
-- `SENGENT_RUNTIME_LLM_API_KEY`
-- `SENGENT_RUNTIME_LLM_KEEP_ALIVE`
+它负责：
 
-其中：
+- trace capture
+- eval corpus growth
+- boundary adherence measurement
+- evidence fidelity review
 
-- `ollama` 仍是兼容 provider
-- `openai_compatible` 是 hosted-first provider
+### 9. Trust Boundary Layer
 
-旧的 `OLLAMA_*` 与 `SENGENT_LLM_FALLBACK_*` 可以作为 compatibility aliases 暂存，但不再代表长期主 contract。
+这是 `2.1` hosted direction 的关键新增层。
 
-### 2. Runtime And Factory Adapter Contracts Must Stay Separate
+它负责：
 
-虽然二者都可能走 `OpenAI-compatible` transport，但不能共用“truth responsibility”。
+- outbound context filtering
+- redaction policy
+- prompt / trace retention policy
+- local-only context rules
+- hosted-provider auditability
 
-runtime adapter 用于：
+## Internal Deployment Recommendation
 
-- answer generation
-- clarification wording
-- bounded reasoning
+如果当前阶段只是内部版，推荐路线是：
 
-factory adapter 用于：
+- 先不要复杂 gateway
+- 先做薄的 `OpenAI-compatible + capability-based adapter`
+- 通过 env/config 提供 `base_url / api_key / model / provider`
+- 给将来挂 LiteLLM / Helicone 这类 gateway 留接缝
 
-- drafting
-- normalization
-- clustering
-- dataset preparation
+明确不要做：
 
-二者共享 transport seam，但不共享 truth semantics。
+- 在安装包里硬编码共享 API key
+- 让 raw docs 直接进入 runtime retrieval truth path
 
-### 3. Doctor Must Become Provider-Aware
+## Phase Judgment
 
-`doctor` 的职责要从：
+`2.1` 当前阶段判断必须写清楚：
 
-- “本地 Ollama 好了没有”
+- 可以开始 `research / spec`
+- 可以开始 `architecture plan`
+- 不要在修订版 spec 完成前直接写 `2.1` 代码
 
-升级为：
+当前最正确的下一步是：
 
-- “当前配置的 runtime provider 是否可达”
-- “当前配置的 model 是否可用”
-- “当前主机更适合 runtime 还是 build/review”
-- “当前 knowledge/runtime separation 是否健康”
+- 在独立 `2.1` worktree 上完成修订版正式 spec
+- 固化 anti-drift principles
+- spec 稳定后，再写 engineering implementation plan
+- 只有在 plan 完成后，才考虑派子线程做 hosted runtime PoC
 
-### 4. Runtime Guidance Must Stop Assuming Local Model Ops
+## Success Criteria For This Tranche
 
-`2.1` 的 guidance 不能默认建议：
+这一 tranche 的成功标准不是“接上 hosted API”，而是：
 
-- 安装 Ollama
-- `ollama pull`
+- `2.1` 的 hosted direction 被写成正式 architecture contract
+- anti-drift 被升级成 invariants
+- trust boundary、tool arbitration、boundary pack、eval plane、artifact lifecycle 被写成正式层
+- 实施顺序被重新约束成 `spec -> plan -> PoC`
 
-它应该基于 provider 输出：
+## Defining Lines To Keep
 
-- hosted credential/config guidance
-- local provider guidance
-- build-only host guidance
+这些句子应正式写进 `2.1` 文档并持续沿用：
 
-## First Implementation Slice
-
-第一实现 chunk 必须压在最小、低风险、可验证的地方：
-
-### Chunk A: Hosted Adapter Contract Foundation
-
-包含：
-
-- canonical runtime provider config
-- `build_backend_router()` 改用 provider-aware primary selection
-- 保留 `ollama` / `openai_compatible` 两种 provider
-- backward-compatible env alias mapping
-- focused tests
-
-不包含：
-
-- doctor / CLI 文案全面改造
-- factory remote provider integration
-- prompt strategy rewrite
-- provider gateway
-
-### Chunk B: Provider-Aware Doctor And Runtime Guidance
-
-在 chunk A 稳定后，再做：
-
-- provider-neutral doctor report shape
-- provider-aware guidance text
-- CLI runtime failure path 改造
-
-### Chunk C: Hosted Factory Adapter Planning
-
-这不是第一实现 chunk，但必须在 `2.1` 计划里预留。
-
-届时要做的是：
-
-- factory-side hosted adapter contract
-- offline audit fields
-- factory-only credential/config seam
-
-## Success Criteria
-
-`2.1` 第一阶段成功，不是因为系统“更像聊天机器人”，而是因为以下条件同时成立：
-
-- runtime provider 不再被硬编码成 Ollama-first
-- hosted model 可以成为正式 runtime primary path
-- 2.0 control surfaces 没有被削弱
-- doctor / rollback / audit 的故事更清楚，而不是更模糊
-- factory 升级方向被明确保留，但没有侵入 runtime truth path
-
-## Failure Modes To Avoid
-
-最危险的失败不是“接不上 hosted API”，而是边界漂移。
-
-必须避免：
-
-- 为了更强模型而让 raw docs 直接进入 runtime truth
-- 为了简化 UX 而跳过 review / gate / activate
-- 把 runtime 和 factory 的 adapter 语义混为一谈
-- 把“回答更像人”误解成“可以少做 governance”
-
-一句话红线：
-
-`Sengent may become more model-native, but it must never become raw-retrieval-native.`
+- `Sengent = a bounded software support agent factory`
+- `LLM-native, but governance-first`
+- `Boundary governance should stay strict, but boundary authoring should become low-touch`
+- `Runtime simplicity must not come from dropping knowledge governance`
+- `Sengent may become more model-native, but it must never become raw-retrieval-native`
