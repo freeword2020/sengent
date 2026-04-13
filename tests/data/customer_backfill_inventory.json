@@ -1,0 +1,101 @@
+[
+  {
+    "id": "LIC-NET",
+    "source": "Sentieon QA list.pdf",
+    "category": "license_runtime_ops",
+    "task": "troubleshooting",
+    "failure_mechanism": "routing_playbook_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "区分联网 license；先检查 licsrvr 进程，再检查 license 节点到 master3.sentieon.com 的连通性；如果服务不在，给出 licsrvr 重启命令。"
+  },
+  {
+    "id": "LIC-USB",
+    "source": "Sentieon QA list.pdf",
+    "category": "license_runtime_ops",
+    "task": "troubleshooting",
+    "failure_mechanism": "answer_quality_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "区分 USB license；检查 udev rule、USB server 节点、licsrvr 日志/report 文件，并给出 USB license server 启动要点。"
+  },
+  {
+    "id": "IDX-BAI",
+    "source": "Sentieon QA list.pdf",
+    "category": "index_limit",
+    "task": "troubleshooting",
+    "failure_mechanism": "boundary_gap",
+    "turn_shape": "single-turn",
+    "expected_behavior": "直接指出 BAI 单条 contig 长度上限约 512M，建议改用 CSI；在大型基因组主线下说明 CRAM/CSI 参考一致性要求。"
+  },
+  {
+    "id": "ML-REJ",
+    "source": "Sentieon QA list.pdf",
+    "category": "filtering_guidance",
+    "task": "reference_lookup",
+    "failure_mechanism": "answer_quality_gap",
+    "turn_shape": "single-turn",
+    "expected_behavior": "说明 MLrejected 一般直接过滤，不发明通用 ML PROB 阈值；若为热点或高度怀疑真阳性，可建议单独 IGV 复核。"
+  },
+  {
+    "id": "ORIENT",
+    "source": "Sentieon QA list.pdf",
+    "category": "artifact_filtering",
+    "task": "reference_lookup",
+    "failure_mechanism": "routing_playbook_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "把 orientationbias 映射到 GATK LearnReadOrientationModel；明确它覆盖 read-orientation artifacts，并回答 OXO/FFPE 相关伪影是否属于这一类。"
+  },
+  {
+    "id": "PON-SEM",
+    "source": "Sentieon QA list.pdf",
+    "category": "pon_semantics",
+    "task": "reference_lookup",
+    "failure_mechanism": "answer_quality_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "解释 --pon 的语义、PON 构建常见规则（至少 2 normals），区分 PON 与 germline_vcf，不把经验阈值说成统计定律。"
+  },
+  {
+    "id": "PANGEN-HPRC",
+    "source": "Sentieon QA list.pdf",
+    "category": "pangenome_scope",
+    "task": "reference_lookup",
+    "failure_mechanism": "boundary_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "对当前泛参考研发态直接给出版本、比对器、读长类型、坐标回转和耗时层级，不夸大成稳定生产支持。"
+  },
+  {
+    "id": "PANGEN-PLANT",
+    "source": "Sentieon QA list.pdf",
+    "category": "unsupported_boundary",
+    "task": "reference_lookup",
+    "failure_mechanism": "boundary_gap",
+    "turn_shape": "single-turn",
+    "expected_behavior": "明确说任意非线性植物泛基因组参考当前不支持，不要把 human GRCh38 pangenome 主线误转成植物也可用。"
+  },
+  {
+    "id": "CNV-BIN",
+    "source": "Sentieon QA list.pdf",
+    "category": "cnv_behavior",
+    "task": "reference_lookup",
+    "failure_mechanism": "answer_quality_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "解释 CNVscope 是 read-depth 驱动而非断点优先；说明短 CNV 与具体断点的局限，不把它答成精确 breakpoint caller。"
+  },
+  {
+    "id": "SV-VAL",
+    "source": "Sentieon QA list.pdf",
+    "category": "sv_reliability",
+    "task": "reference_lookup",
+    "failure_mechanism": "answer_quality_gap",
+    "turn_shape": "multi-turn",
+    "expected_behavior": "明确 DNAscope SV 可与 CNV 交叉验证，但不应作为主要 CNV 验证手段；说明低敏感性和断点/插入语义限制。"
+  },
+  {
+    "id": "GVCF-INTERVAL",
+    "source": "live_customer_case",
+    "category": "parameter_scope",
+    "task": "troubleshooting",
+    "failure_mechanism": "routing_playbook_gap",
+    "turn_shape": "single-turn",
+    "expected_behavior": "明确 GVCFtyper 可以按区域跑，但 --interval 是 sentieon driver 层参数，必须放在 --algo GVCFtyper 前；BED 也可以。"
+  }
+]

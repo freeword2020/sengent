@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "prompt": "cat $GVCF_LIST | sentieon driver --interval ${chrom} -r $FASTA --algo GVCFtyper --dbsnp $KNOWN_DBSNP output-${chrom}-${NUM}-jc.vcf.gz - 报错 GVCFtyper: Unrecognized option '--interval'，那应该怎么改命令？也可以用 BED 吗？",
+    "expected_mode": "doc",
+    "expected": [
+      "【资料说明】",
+      "--interval 是 sentieon driver 层参数",
+      "--algo GVCFtyper 前",
+      "BED"
+    ],
+    "forbidden": [
+      "必须先跑确定性检查",
+      "tool_required_intent"
+    ],
+    "audit_bucket": "parameter_scope"
+  }
+]

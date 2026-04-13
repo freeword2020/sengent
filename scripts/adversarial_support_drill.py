@@ -84,7 +84,7 @@ def _load_json_cases(path: Path, *, prefix: str) -> tuple[DrillCase, ...]:
             expected = ("【需要确认的信息】",)
         else:
             expected = tuple(item.get("expected", [])) or ("【资料说明】",)
-        forbidden = ("当前 MVP 仅支持 license 和 install 问题",)
+        forbidden = tuple(item.get("forbidden", [])) or ("当前 MVP 仅支持 license 和 install 问题",)
         cases.append(
             DrillCase(
                 name=f"{prefix}-{case_id:02d}",
@@ -102,6 +102,10 @@ def load_notebooklm_cases(repo_root: Path) -> tuple[DrillCase, ...]:
 
 def load_novice_cases(repo_root: Path) -> tuple[DrillCase, ...]:
     return _load_json_cases(repo_root / "tests" / "data" / "novice_adversarial_cases.json", prefix="novice")
+
+
+def load_customer_backfill_cases(repo_root: Path) -> tuple[DrillCase, ...]:
+    return _load_json_cases(repo_root / "tests" / "data" / "customer_backfill_adversarial_cases.json", prefix="customer")
 
 
 def run_case(repo_root: Path, case: DrillCase, *, source_directory: Path | None = None) -> tuple[bool, str]:
@@ -140,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-dir", type=Path, help="Optional source pack directory to evaluate instead of sentieon-note/.")
     args = parser.parse_args(argv)
     repo_root = Path(__file__).resolve().parents[1]
-    cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root), *load_novice_cases(repo_root))
+    cases = (*LEGACY_CASES, *load_notebooklm_cases(repo_root), *load_novice_cases(repo_root), *load_customer_backfill_cases(repo_root))
     failures = 0
     print(f"Running adversarial support drill from {repo_root}")
     for case in cases:

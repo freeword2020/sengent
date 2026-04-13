@@ -1123,6 +1123,26 @@ def test_novice_adversarial_corpus_is_committed_and_complete():
     assert len([item for item in payload if item["expected_mode"] == "doc"]) >= 7
 
 
+def test_customer_backfill_inventory_is_committed_with_real_support_mix():
+    path = Path(__file__).resolve().parent / "data" / "customer_backfill_inventory.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload) >= 10
+    assert payload[0]["id"] == "LIC-NET"
+    assert any(item["category"] == "parameter_scope" for item in payload)
+    assert any(item["turn_shape"] == "multi-turn" for item in payload)
+
+
+def test_customer_backfill_adversarial_corpus_is_committed_and_seeded():
+    path = Path(__file__).resolve().parent / "data" / "customer_backfill_adversarial_cases.json"
+    payload = json.loads(path.read_text())
+
+    assert len(payload) >= 1
+    assert payload[0]["id"] == 1
+    assert payload[0]["expected_mode"] == "doc"
+    assert "GVCFtyper" in payload[0]["prompt"]
+
+
 def test_answer_reference_query_supports_bwa_interleaved_parameter():
     text = answer_reference_query("当 FASTQ 是 interleaved 时，Sentieon BWA 的 -p 参数有什么作用？")
 
@@ -1143,6 +1163,63 @@ def test_answer_reference_query_supports_gvcftyper_emit_mode_parameter():
 
     assert "【常用参数】" in text
     assert "GVCFtyper 的 --emit_mode" in text
+
+
+def test_answer_reference_query_supports_gvcftyper_driver_interval_scope_fix():
+    text = answer_reference_query(
+        "cat $GVCF_LIST | sentieon driver --interval ${chrom} -r $FASTA --algo GVCFtyper "
+        "--dbsnp $KNOWN_DBSNP output-${chrom}-${NUM}-jc.vcf.gz - 报错 "
+        "GVCFtyper: Unrecognized option '--interval'，那应该怎么改命令？也可以用 BED 吗？"
+    )
+
+    assert "【资料说明】" in text
+    assert "--interval 是 sentieon driver 层参数" in text
+    assert "--algo GVCFtyper 前" in text
+    assert "BED" in text
+
+
+def test_answer_reference_query_prefers_external_error_association_for_read_group_mismatch():
+    text = answer_reference_query("BAM 报错说 read group 不一致怎么办")
+
+    assert "【关联判断】" in text
+    assert "Read Group" in text or "read group" in text
+    assert "header" in text or "@RG" in text
+
+
+def test_answer_reference_query_prefers_external_error_association_over_route_must_tool():
+    text = answer_reference_query(
+        "BAM 报错说 read group 不一致怎么办",
+        route_decision=SupportRouteDecision(
+            task="reference_lookup",
+            issue_type="other",
+            parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.9),
+            info={"error_keywords": "read group"},
+            reason="external_error_query",
+            support_intent=SupportIntent.CONCEPT_UNDERSTANDING,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="sentieon",
+            vendor_version="202503.03",
+            explicit=True,
+            arbitration_action="must_tool",
+            tool_requirement="required",
+            boundary_reason="文件结构一致性问题需要先跑确定性检查。",
+        ),
+        parsed_intent=ReferenceIntent(intent="reference_other", confidence=0.9),
+    )
+
+    assert "【关联判断】" in text
+    assert "Read Group" in text or "read group" in text
+    assert "【优先检查】" in text
+
+
+def test_answer_reference_query_supports_samtools_collate_realigning_rationale():
+    text = answer_reference_query(
+        "在纠正上游单端标记错误的 BAM 文件时，为何推荐使用 samtools collate 结合管道直连 BWA 重比对，而不是使用 Picard 拆分出 FASTQ 文件？"
+    )
+
+    assert "【资料说明】" in text
+    assert "samtools collate" in text
+    assert "SamToFastq" in text
 
 
 def test_answer_reference_query_supports_joint_call_script_request_with_repeated_spaces(tmp_path):
@@ -2752,7 +2829,7 @@ def test_checked_in_source_directory_exposes_vcf_index_error_association():
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "索引" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_shell_error_association():
@@ -2781,9 +2858,9 @@ def test_checked_in_source_directory_exposes_read_group_error_association():
         model_fallback=lambda *args: (_ for _ in ()).throw(AssertionError("should not fall back to model")),
     )
 
-    assert text.startswith("【资料边界】")
-    assert "确定性检查" in text
-    assert "完整报错或检查输出" in text
+    assert text.startswith("【关联判断】")
+    assert "Read Group" in text or "read group" in text
+    assert "【优先检查】" in text
 
 
 def test_checked_in_source_directory_exposes_cram_reference_error_association():
@@ -2800,7 +2877,7 @@ def test_checked_in_source_directory_exposes_cram_reference_error_association():
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "完整报错或检查输出" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_contig_naming_error_association():
@@ -2817,7 +2894,7 @@ def test_checked_in_source_directory_exposes_contig_naming_error_association():
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "contig" in text.lower()
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_sequence_dictionary_error_association():
@@ -2834,7 +2911,7 @@ def test_checked_in_source_directory_exposes_sequence_dictionary_error_associati
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "完整报错或检查输出" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_bed_coordinate_error_association():
@@ -2851,7 +2928,7 @@ def test_checked_in_source_directory_exposes_bed_coordinate_error_association():
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "相关输入文件类型和路径" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_reference_companion_file_error_association():
@@ -2868,7 +2945,7 @@ def test_checked_in_source_directory_exposes_reference_companion_file_error_asso
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "完整报错或检查输出" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_cram_crai_random_access_error_association():
@@ -2885,7 +2962,7 @@ def test_checked_in_source_directory_exposes_cram_crai_random_access_error_assoc
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "相关输入文件类型和路径" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_exposes_bam_sort_index_error_association():
@@ -2902,7 +2979,7 @@ def test_checked_in_source_directory_exposes_bam_sort_index_error_association():
 
     assert text.startswith("【资料边界】")
     assert "确定性检查" in text
-    assert "实际执行步骤" in text
+    assert "【建议下一步】" in text
 
 
 def test_checked_in_source_directory_keeps_bam_format_explanation_on_external_guide_path():

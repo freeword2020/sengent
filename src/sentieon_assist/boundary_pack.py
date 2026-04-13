@@ -184,7 +184,6 @@ _DEFAULT_BOUNDARY_PACK = BoundaryPack.from_mapping(
                     "tabix 建不了索引",
                     "reference mismatch",
                     "sequence dictionary mismatch",
-                    "read group 不一致",
                     "bed 区间",
                     "差一位",
                     "fai 和 dict 对不上",
@@ -196,7 +195,7 @@ _DEFAULT_BOUNDARY_PACK = BoundaryPack.from_mapping(
                     "header mismatch",
                     "index is missing",
                     "missing index",
-                    "header is inconsistent",
+                    "header is inconsistent"
                 ],
                 "tool_requirement": "required",
                 "reason": "文件结构一致性问题需要先跑确定性检查。",

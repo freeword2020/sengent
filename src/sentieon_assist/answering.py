@@ -769,6 +769,18 @@ def answer_reference_query(
     if resolved_intent.intent == "not_reference":
         resolved_intent = parse_reference_intent(query, config=app_config)
     arbitration_action = str(getattr(route_decision, "arbitration_action", "")).strip()
+    resolved = None
+    if arbitration_action == BoundaryOutcome.MUST_TOOL:
+        resolved = resolve_reference_answer(
+            query,
+            source_directory=effective_source_directory,
+            resolved_intent=resolved_intent,
+        )
+        if resolved.resolver_path and resolved.resolver_path[0] in {
+            ResolverPath.DOC_REFERENCE,
+            ResolverPath.EXTERNAL_ERROR_ASSOCIATION,
+        }:
+            arbitration_action = ""
     if arbitration_action in {
         BoundaryOutcome.MUST_CLARIFY,
         BoundaryOutcome.MUST_TOOL,
@@ -798,11 +810,12 @@ def answer_reference_query(
                 )
             )
         return rendered
-    resolved = resolve_reference_answer(
-        query,
-        source_directory=effective_source_directory,
-        resolved_intent=resolved_intent,
-    )
+    if resolved is None:
+        resolved = resolve_reference_answer(
+            query,
+            source_directory=effective_source_directory,
+            resolved_intent=resolved_intent,
+        )
     rendered = format_reference_display(
         normalize_model_answer(
             resolved.text,

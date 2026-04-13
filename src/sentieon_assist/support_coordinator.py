@@ -41,6 +41,16 @@ GENERAL_MODULE_QUERY_CUES = GENERIC_MODULE_INTRO_CUES + (
     "哪几类",
     "从哪里下载",
 )
+DIRECT_TROUBLESHOOTING_CUES = (
+    "报错",
+    "失败",
+    "无法",
+    "找不到",
+    "不可用",
+    "error",
+    "failed",
+    "cannot",
+)
 NON_MODULE_ASCII_TOKENS = {
     "agilent",
     "arm",
@@ -448,7 +458,11 @@ def select_support_route(
         )
     license_install_reference = (
         is_reference_query_fn(query)
-        or (parsed_intent.is_reference and parsed_intent.intent != "reference_other")
+        or (
+            parsed_intent.is_reference
+            and parsed_intent.intent != "reference_other"
+            and not any(cue in query.lower() for cue in DIRECT_TROUBLESHOOTING_CUES)
+        )
         or (
             bool(explicit_module)
             and any(cue in query.lower() for cue in ("哪个", "哪一个", "如何", "怎么", "工具", "命令", "检查", "支持"))
@@ -463,6 +477,18 @@ def select_support_route(
             parsed_intent=parsed_intent,
             info=info,
             reason=parsed_intent.intent or f"{issue_type}_reference_lookup",
+            query=query,
+            explicit=True,
+        )
+    if is_external_error_query_fn(query, info):
+        if not parsed_intent.is_reference:
+            parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.5)
+        return _build_route_decision(
+            task="reference_lookup",
+            issue_type=issue_type,
+            parsed_intent=parsed_intent,
+            info=info,
+            reason="external_error_query",
             query=query,
             explicit=True,
         )
@@ -500,18 +526,6 @@ def select_support_route(
             parsed_intent=ReferenceIntent(intent=explicit_intent, module=explicit_module, confidence=0.42),
             info=info,
             reason=explicit_intent,
-            query=query,
-            explicit=True,
-        )
-    if is_external_error_query_fn(query, info):
-        if not parsed_intent.is_reference:
-            parsed_intent = ReferenceIntent(intent="reference_other", confidence=0.5)
-        return _build_route_decision(
-            task="troubleshooting",
-            issue_type=issue_type,
-            parsed_intent=parsed_intent,
-            info=info,
-            reason="external_error_query",
             query=query,
             explicit=True,
         )

@@ -96,6 +96,17 @@
             "不同 workflow 仍可能额外要求 BED、dbSNP、model bundle 等配套输入。"
           ],
           "values": []
+        },
+        {
+          "name": "--interval",
+          "aliases": ["interval"],
+          "summary": "指定 sentieon driver 层的区间限制输入，用于把调用或统计限制在目标区域。",
+          "details": [
+            "这是 sentieon driver 的共享参数，应该放在 `sentieon driver` 后、具体 `--algo` 前。",
+            "常见输入可以是 BED 或 `chr:start-end` 这类 region 形式。",
+            "具体哪些流程支持 interval、以及 interval 对结果范围的影响，仍要结合对应模块或 workflow 确认。"
+          ],
+          "values": []
         }
       ],
       "common_questions": ["sentieon-cli 的 -t 是什么", "sentieon-cli 的 -r 是什么"],

@@ -119,6 +119,30 @@ TOOL_REQUIRED_DIAGNOSTIC_TERMS = (
     "差一位",
     "对不上",
 )
+TOOL_REQUIRED_STRUCTURE_TERMS = (
+    "contig",
+    "header",
+    "index",
+    "dictionary",
+    "dict",
+    "fai",
+    "crai",
+    "tabix",
+    "sort",
+    "sorted",
+    "随机访问",
+    "差一位",
+    "偏一位",
+    "off by one",
+)
+OPTION_SCOPE_ERROR_TERMS = (
+    "unrecognized option",
+    "unknown option",
+    "invalid option",
+    "不认识这个参数",
+    "不支持这个参数",
+    "参数无效",
+)
 
 
 def _normalize_intent(value: str) -> str:
@@ -152,8 +176,12 @@ def _safe_tool_requirement(value: object) -> str:
 
 def _detect_tool_requirement(query: str) -> str:
     normalized = query.lower()
+    if any(term in normalized for term in OPTION_SCOPE_ERROR_TERMS) and PARAMETER_TOKEN_PATTERN.search(query):
+        return ToolRequirement.NONE
     if any(term in normalized for term in TOOL_REQUIRED_FILE_TERMS) and any(
         term in normalized for term in TOOL_REQUIRED_DIAGNOSTIC_TERMS
+    ) and any(
+        term in normalized for term in TOOL_REQUIRED_STRUCTURE_TERMS
     ):
         return ToolRequirement.REQUIRED
     return ToolRequirement.NONE

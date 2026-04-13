@@ -115,6 +115,27 @@ def test_parse_reference_intent_marks_contig_error_question_as_must_tool():
     assert result.tool_requirement == "required"
 
 
+def test_parse_reference_intent_does_not_mark_option_scope_error_as_must_tool():
+    result = parse_reference_intent(
+        "GVCFtyper: Unrecognized option '--interval'",
+        model_generate=lambda prompt: '{"intent":"parameter_lookup","module":"GVCFtyper","confidence":0.72}',
+    )
+
+    assert result.intent == "parameter_lookup"
+    assert result.module == "GVCFtyper"
+    assert result.tool_requirement == "none"
+
+
+def test_parse_reference_intent_does_not_mark_read_group_mismatch_as_must_tool():
+    result = parse_reference_intent(
+        "BAM 报错说 read group 不一致怎么办",
+        model_generate=lambda prompt: '{"intent":"reference_other","confidence":0.61}',
+    )
+
+    assert result.intent == "reference_other"
+    assert result.tool_requirement == "none"
+
+
 def test_parse_reference_intent_ignores_invalid_tool_requirement_value():
     result = parse_reference_intent(
         "LICCLNT 是什么",

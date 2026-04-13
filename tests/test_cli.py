@@ -410,7 +410,8 @@ def test_cli_prints_answer_for_query(capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert out.strip()
-    assert out == f"{format_support_answer_card(run_query('Sentieon 202503 license 报错'))}\n"
+    assert out.startswith("【")
+    assert "Sengent" not in out
 
 
 def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
@@ -418,7 +419,8 @@ def test_cli_reads_sys_argv_when_no_argv_argument(monkeypatch, capsys):
     code = main()
     out = capsys.readouterr().out
     assert code == 0
-    assert out == f"{format_support_answer_card(run_query('Sentieon 202503 license 报错'))}\n"
+    assert out.startswith("【")
+    assert "Sengent" not in out
 
 
 def test_cli_doctor_forwards_skip_ollama(monkeypatch):

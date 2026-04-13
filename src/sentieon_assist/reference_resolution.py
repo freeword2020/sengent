@@ -141,6 +141,24 @@ def _contains_all(normalized: str, cues: tuple[str, ...]) -> bool:
 
 def format_doc_reference_answer(query: str) -> tuple[str, list[str]] | None:
     normalized = query.lower()
+    if (
+        "gvcftyper" in normalized
+        and "--interval" in normalized
+        and any(cue in normalized for cue in ("unrecognized option", "无法使用", "怎么改命令", "改命令", "也可以用 bed", "也可以bed"))
+    ):
+        return (
+            "【资料说明】\n"
+            "- GVCFtyper 可以按特定区域做联合分型，不是完全不能配合 interval 使用。\n"
+            "- `--interval` 是 `sentieon driver` 层参数，不是 `GVCFtyper` 自己的 algo option。\n"
+            "- 如果把 `--interval` 放在 `--algo GVCFtyper` 后面，`GVCFtyper` 会把它当成自己的参数解析，所以会报 `Unrecognized option '--interval'`。\n"
+            "- `BED` 也可以作为 interval 输入；如果不用 BED，也可以直接给 `chr:start-end` 这种 region 形式。\n\n"
+            "【参考命令】\n"
+            "- 把 `--interval` 放到 `sentieon driver` 后、`--algo GVCFtyper` 前。\n"
+            "  `sentieon driver --interval INTERVAL -r REFERENCE --algo GVCFtyper ...`\n\n"
+            "【使用边界】\n"
+            "- 当前回答确认的是参数作用域和命令位置；具体输入文件列表、`-v` 组织方式和分片策略仍要结合你现场脚本确认。",
+            ["sentieon-modules.json", "Sentieon202503.03.pdf", "sentieon-doc-map.md"],
+        )
     if "too many open files" in normalized or "ulimit" in normalized:
         return (
             "【资料说明】\n"
@@ -296,6 +314,17 @@ def resolve_reference_answer(
     source_directory: str,
     resolved_intent: ReferenceIntent,
 ) -> ResolvedReferenceAnswer:
+    doc_answer = format_doc_reference_answer(query)
+    if doc_answer is not None:
+        doc_text, doc_sources = doc_answer
+        return _resolved(doc_text, doc_sources, resolver_path=[ResolverPath.DOC_REFERENCE])
+
+    retrieval = retrieve_reference_candidates(
+        query,
+        source_directory=source_directory,
+        resolved_intent=resolved_intent,
+    )
+
     boundary_tags = detect_reference_boundary_tags(query, resolved_intent)
     arbitration = arbitrate_support_action(
         query,
@@ -328,10 +357,17 @@ def resolve_reference_answer(
             resolver_path=[ResolverPath.ARBITRATION_MUST_ESCALATE],
         )
 
-    doc_answer = format_doc_reference_answer(query)
-    if doc_answer is not None:
-        doc_text, doc_sources = doc_answer
-        return _resolved(doc_text, doc_sources, resolver_path=[ResolverPath.DOC_REFERENCE])
+    external_error_association = retrieval.external_error_association
+    if external_error_association is not None:
+        source_names = [
+            str(external_error_association.get("source_file", "")).strip(),
+            *[str(item) for item in external_error_association.get("source_notes", [])],
+        ]
+        return _resolved(
+            format_external_error_association(external_error_association),
+            [name for name in source_names if name],
+            resolver_path=[ResolverPath.EXTERNAL_ERROR_ASSOCIATION],
+        )
 
     if boundary_tags:
         return _resolved(
@@ -340,12 +376,6 @@ def resolve_reference_answer(
             boundary_tags=boundary_tags,
             resolver_path=[ResolverPath.BOUNDARY_REFERENCE],
         )
-
-    retrieval = retrieve_reference_candidates(
-        query,
-        source_directory=source_directory,
-        resolved_intent=resolved_intent,
-    )
 
     if resolved_intent.intent == "workflow_guidance":
         workflow_entry = retrieval.workflow_entry
@@ -382,17 +412,6 @@ def resolve_reference_answer(
         )
 
     external_entry = retrieval.external_entry
-    external_error_association = retrieval.external_error_association
-    if external_error_association is not None:
-        source_names = [
-            str(external_error_association.get("source_file", "")).strip(),
-            *[str(item) for item in external_error_association.get("source_notes", [])],
-        ]
-        return _resolved(
-            format_external_error_association(external_error_association),
-            [name for name in source_names if name],
-            resolver_path=[ResolverPath.EXTERNAL_ERROR_ASSOCIATION],
-        )
 
     module_matches = retrieval.module_matches
     module_candidate = str(resolved_intent.module or "").strip()

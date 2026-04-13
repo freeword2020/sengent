@@ -179,6 +179,50 @@ def test_select_support_route_exposes_must_tool_arbitration_for_contig_error():
     assert route.boundary_reason
 
 
+def test_select_support_route_uses_reference_lookup_for_read_group_external_error():
+    route = select_support_route(
+        "BAM 报错说 read group 不一致怎么办",
+        parse_reference_intent_fn=lambda query, **kwargs: parse_reference_intent(
+            query,
+            model_generate=lambda prompt: '{"intent":"reference_other","confidence":0.61}',
+        ),
+    )
+
+    assert route.task == "reference_lookup"
+    assert route.reason == "external_error_query"
+    assert route.arbitration_action == "should_answer"
+
+
+def test_select_support_route_prefers_external_error_query_even_when_issue_classifier_says_license():
+    route = select_support_route(
+        "BAM 报错说 read group 不一致怎么办",
+        classify_query_fn=lambda query: "license",
+        is_reference_query_fn=lambda query: False,
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(intent="reference_other", confidence=0.72),
+    )
+
+    assert route.task == "reference_lookup"
+    assert route.reason == "external_error_query"
+    assert route.arbitration_action == "should_answer"
+
+
+def test_select_support_route_keeps_license_error_prompt_on_troubleshooting_path_even_if_reference_model_overfires():
+    route = select_support_route(
+        "Sentieon 202503 license 报错，找不到 license 文件",
+        classify_query_fn=lambda query: "license",
+        is_reference_query_fn=lambda query: False,
+        parse_reference_intent_fn=lambda query, **kwargs: ReferenceIntent(
+            intent="parameter_lookup",
+            module="LICCLNT",
+            confidence=0.87,
+        ),
+    )
+
+    assert route.task == "troubleshooting"
+    assert route.reason == "issue_type:license"
+    assert route.arbitration_action == "should_answer"
+
+
 def test_update_support_state_tracks_clarification_rounds_and_caps_at_vendor_policy():
     state = SupportSessionState()
     planned_turn = plan_support_turn(
