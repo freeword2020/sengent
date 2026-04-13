@@ -7,6 +7,14 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
+from sentieon_assist.runtime_invariants import PromotionState, normalize_promotion_state
+from sentieon_assist.trust_boundary import (
+    OutboundContextDisposition,
+    OutboundContextItem,
+    TrustBoundaryDecision,
+    build_trust_boundary_result,
+)
+
 
 FACTORY_MODEL_INTERFACE_VERSION = "factory-model-interface-v1"
 FACTORY_DRAFT_ORIGIN = "knowledge-factory-model-interface"
@@ -121,12 +129,14 @@ class FactoryDraftArtifact:
     artifact_path: Path
     build_id: str | None
     task_kind: str
+    lifecycle_state: str
     created_at: str
     review_status: str
     why: str
     next_action: str
     recommended_command: str
     summary: str
+    trust_boundary_provenance: dict[str, Any]
     source_references: tuple[dict[str, Any], ...]
     draft_items: tuple[dict[str, Any], ...]
     review_hints: tuple[str, ...]
@@ -242,6 +252,7 @@ def run_factory_draft(
         draft_id=draft_id,
     )
     resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+    trust_boundary_provenance = _build_factory_trust_boundary_provenance(normalized_sources)
     review_guidance = _build_review_guidance(
         build_id=attached_build_dir.name if attached_build_dir else None,
         draft_id=draft_id,
@@ -253,6 +264,7 @@ def run_factory_draft(
         "origin": FACTORY_DRAFT_ORIGIN,
         "interface_version": FACTORY_MODEL_INTERFACE_VERSION,
         "task_kind": normalized_task,
+        "lifecycle_state": normalize_promotion_state(PromotionState.REVIEW_NEEDED),
         "build_id": attached_build_dir.name if attached_build_dir else None,
         "vendor_id": normalized_vendor_id,
         "created_at": created_at,
@@ -265,6 +277,7 @@ def run_factory_draft(
             "interface_version": FACTORY_MODEL_INTERFACE_VERSION,
         },
         "prompt_provenance": prompt_provenance,
+        "trust_boundary_provenance": trust_boundary_provenance,
         "source_references": normalized_sources,
         "draft_payload": draft_payload,
         "review_guidance": review_guidance,
@@ -533,6 +546,10 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
     review_status = str(payload.get("review_status", "")).strip()
     if not draft_id or not task_kind or not created_at or not review_status:
         return None
+    try:
+        lifecycle_state = normalize_promotion_state(payload.get("lifecycle_state"))
+    except ValueError:
+        return None
     build_id = str(payload.get("build_id", "")).strip() or _infer_build_id_from_path(path)
     review_guidance = payload.get("review_guidance")
     if not isinstance(review_guidance, dict):
@@ -541,6 +558,11 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
     if not isinstance(draft_payload, dict):
         draft_payload = {}
     source_references = payload.get("source_references")
+    trust_boundary_provenance = payload.get("trust_boundary_provenance")
+    if not isinstance(trust_boundary_provenance, dict):
+        trust_boundary_provenance = _build_factory_trust_boundary_provenance(
+            source_references if isinstance(source_references, list) else []
+        )
     draft_items = draft_payload.get("draft_items")
     review_hints = draft_payload.get("review_hints")
     return FactoryDraftArtifact(
@@ -548,12 +570,14 @@ def _load_factory_draft_artifact(path: Path) -> FactoryDraftArtifact | None:
         artifact_path=path,
         build_id=build_id or None,
         task_kind=task_kind,
+        lifecycle_state=lifecycle_state,
         created_at=created_at,
         review_status=review_status,
         why=str(review_guidance.get("why", "")).strip(),
         next_action=str(review_guidance.get("next_action", "")).strip(),
         recommended_command=str(review_guidance.get("recommended_command", "")).strip(),
         summary=str(draft_payload.get("summary", "")).strip(),
+        trust_boundary_provenance=dict(trust_boundary_provenance),
         source_references=tuple(item for item in source_references if isinstance(item, dict))
         if isinstance(source_references, list)
         else (),
@@ -593,3 +617,22 @@ def _stub_review_hints(task_kind: str) -> list[str]:
         task_specific[task_kind],
         "Promote only maintainer-reviewed content into formal knowledge or dataset exports.",
     ]
+
+
+def _build_factory_trust_boundary_provenance(source_references: list[dict[str, Any]]) -> dict[str, Any]:
+    decision = TrustBoundaryDecision(
+        policy_name="factory-draft-local-only",
+        items=tuple(
+            OutboundContextItem(
+                key=str(reference.get("label", "")).strip(),
+                value=reference.get("preview", ""),
+                disposition=OutboundContextDisposition.LOCAL_ONLY,
+                provenance={
+                    "path": reference.get("path", ""),
+                    "file_type": reference.get("file_type", ""),
+                },
+            )
+            for reference in source_references
+        ),
+    )
+    return build_trust_boundary_result(decision).summary

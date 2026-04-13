@@ -44,6 +44,8 @@ def test_run_factory_draft_writes_review_needed_artifact_with_prompt_and_source_
     assert payload["adapter"]["model_name"] == "stub-factory-v1"
     assert payload["review_status"] == "needs_review"
     assert payload["review_required"] is True
+    assert payload["lifecycle_state"] == "review_needed"
+    assert payload["trust_boundary_provenance"]["policy_name"] == "factory-draft-local-only"
     assert payload["prompt_provenance"]["template_id"] == "factory.candidate_draft.v1"
     assert payload["prompt_provenance"]["template_version"] == "v1"
     assert "Draft candidate review notes from this source." in payload["prompt_provenance"]["rendered_prompt"]

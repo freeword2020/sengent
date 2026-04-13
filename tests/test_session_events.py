@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from sentieon_assist.session_events import (
@@ -14,6 +15,12 @@ from sentieon_assist.session_events import (
     turn_view_from_event,
 )
 from sentieon_assist.trace_vocab import ResolverPath, ResponseMode, normalize_resolver_path, normalize_response_mode
+from sentieon_assist.trust_boundary import (
+    OutboundContextDisposition,
+    OutboundContextItem,
+    TrustBoundaryDecision,
+    build_trust_boundary_result,
+)
 
 
 def test_session_event_log_round_trip_produces_unified_turn_view(tmp_path: Path):
@@ -187,6 +194,106 @@ def test_session_event_round_trip_preserves_gap_record(tmp_path: Path):
     assert view.gap_record is not None
     assert view.gap_record["gap_type"] == "clarification_open"
     assert view.gap_record["missing_materials"] == ["Sentieon 版本"]
+
+
+def test_session_event_round_trip_preserves_trust_boundary_summary_without_raw_sensitive_values(tmp_path: Path):
+    runtime_root = tmp_path / "runtime"
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+
+    trust_boundary = build_trust_boundary_result(
+        TrustBoundaryDecision(
+            policy_name="hosted-llm",
+            items=(
+                OutboundContextItem(
+                    key="session_secret",
+                    value="super-secret",
+                    disposition=OutboundContextDisposition.LOCAL_ONLY,
+                    provenance={"source": "runtime"},
+                ),
+                OutboundContextItem(
+                    key="module_name",
+                    value="DNAscope",
+                    disposition=OutboundContextDisposition.ALLOWED,
+                    provenance={"source": "catalog"},
+                ),
+            ),
+        )
+    )
+
+    turn_event = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="DNAscope 是做什么的",
+        effective_query="DNAscope 是做什么的",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="other",
+        route_reason="module_intro",
+        parsed_intent_intent="module_intro",
+        parsed_intent_module="DNAscope",
+        response_text="【模块介绍】\nDNAscope：用于 germline variant calling",
+        response_mode="module_intro",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "reference_lookup"},
+        trust_boundary_result=trust_boundary,
+    )
+    append_turn_event(turn_event, runtime_root=runtime_root)
+
+    view = load_turn_views(session.session_id, runtime_root=runtime_root)[0]
+    assert view.trust_boundary_summary is not None
+    assert view.trust_boundary_summary["allowed_count"] == 1
+    assert view.trust_boundary_summary["local_only_count"] == 1
+    assert "super-secret" not in json.dumps(view.trust_boundary_summary, ensure_ascii=False)
+
+
+def test_session_event_sanitizes_trust_boundary_summary_dict_input(tmp_path: Path):
+    runtime_root = tmp_path / "runtime"
+    session = SupportSessionRecord.new(
+        repo_root=str(tmp_path),
+        git_sha="abc123",
+        source_directory="",
+        knowledge_directory="",
+        mode="interactive",
+    )
+    append_session_record(session, runtime_root=runtime_root)
+
+    turn_event = build_turn_event(
+        session_id=session.session_id,
+        turn_index=1,
+        raw_query="DNAscope 是做什么的",
+        effective_query="DNAscope 是做什么的",
+        reused_anchor=False,
+        task="reference_lookup",
+        issue_type="other",
+        route_reason="module_intro",
+        parsed_intent_intent="module_intro",
+        parsed_intent_module="DNAscope",
+        response_text="【模块介绍】\nDNAscope：用于 germline variant calling",
+        response_mode="module_intro",
+        state_before={"active_task": "idle"},
+        state_after={"active_task": "reference_lookup"},
+        trust_boundary_result={
+            "policy_name": "hosted-llm",
+            "allowed_count": 1,
+            "allowed_keys": ["module_name"],
+            "leaked_value": "super-secret",
+        },
+    )
+    append_turn_event(turn_event, runtime_root=runtime_root)
+
+    view = load_turn_views(session.session_id, runtime_root=runtime_root)[0]
+    assert view.trust_boundary_summary is not None
+    assert view.trust_boundary_summary["policy_name"] == "hosted-llm"
+    assert view.trust_boundary_summary["allowed_count"] == 1
+    assert "leaked_value" not in view.trust_boundary_summary
+    assert "super-secret" not in json.dumps(view.trust_boundary_summary, ensure_ascii=False)
 
 
 def test_turn_view_from_event_normalizes_legacy_blank_response_mode():

@@ -10,6 +10,7 @@ from uuid import uuid4
 from sentieon_assist.app_paths import default_runtime_root as default_runtime_root_path
 from sentieon_assist.support_contracts import normalize_fallback_mode, normalize_support_intent
 from sentieon_assist.trace_vocab import ResponseMode, normalize_resolver_path, normalize_response_mode
+from sentieon_assist.trust_boundary import TrustBoundaryResult, sanitize_trust_boundary_summary
 
 
 SCHEMA_VERSION = "2026-04-09"
@@ -134,6 +135,7 @@ class SupportTurnEvent:
     answer: dict[str, Any]
     state_before: dict[str, Any]
     state_after: dict[str, Any]
+    trust_boundary_summary: dict[str, Any] | None = None
     event_type: str = "turn_resolved"
 
     def to_dict(self) -> dict[str, Any]:
@@ -147,6 +149,7 @@ class SupportTurnEvent:
             "answer": self.answer,
             "state_before": self.state_before,
             "state_after": self.state_after,
+            "trust_boundary_summary": self.trust_boundary_summary,
         }
 
 
@@ -190,6 +193,7 @@ class SupportTurnView:
     parsed_intent_module: str
     response_mode: str
     gap_record: dict[str, Any] | None = None
+    trust_boundary_summary: dict[str, Any] | None = None
 
 
 def build_turn_event(
@@ -216,7 +220,9 @@ def build_turn_event(
     boundary_tags: list[str] | None = None,
     resolver_path: list[str] | None = None,
     gap_record: dict[str, Any] | None = None,
+    trust_boundary_result: TrustBoundaryResult | dict[str, Any] | None = None,
 ) -> SupportTurnEvent:
+    trust_boundary_summary = _normalize_trust_boundary_summary(trust_boundary_result)
     return SupportTurnEvent(
         session_id=session_id,
         turn_id=uuid4().hex,
@@ -245,9 +251,11 @@ def build_turn_event(
             "boundary_tags": list(boundary_tags or []),
             "resolver_path": normalize_resolver_path(resolver_path),
             "gap_record": dict(gap_record or {}) if gap_record else None,
+            "trust_boundary_summary": trust_boundary_summary,
         },
         state_before=state_before,
         state_after=state_after,
+        trust_boundary_summary=trust_boundary_summary,
     )
 
 
@@ -318,6 +326,10 @@ def turn_view_from_event(event: SupportTurnEvent | dict[str, Any]) -> SupportTur
         parsed_intent_module=str(parsed_intent.get("module", "")),
         response_mode=normalize_response_mode(str(answer.get("response_mode", ""))),
         gap_record=dict(answer.get("gap_record", {})) if isinstance(answer.get("gap_record"), dict) else None,
+        trust_boundary_summary=
+        dict(answer.get("trust_boundary_summary", {}))
+        if isinstance(answer.get("trust_boundary_summary"), dict)
+        else None,
     )
 
 
@@ -341,3 +353,15 @@ def load_selected_turn_views(
         return []
     indexed = {view.turn_id: view for view in load_turn_views(session_id, runtime_root=runtime_root)}
     return [indexed[turn_id] for turn_id in requested if turn_id in indexed]
+
+
+def _normalize_trust_boundary_summary(
+    trust_boundary_result: TrustBoundaryResult | dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if trust_boundary_result is None:
+        return None
+    if isinstance(trust_boundary_result, TrustBoundaryResult):
+        return sanitize_trust_boundary_summary(trust_boundary_result.summary)
+    if isinstance(trust_boundary_result, dict):
+        return sanitize_trust_boundary_summary(trust_boundary_result)
+    raise TypeError(f"unsupported trust boundary result: {type(trust_boundary_result)!r}")
