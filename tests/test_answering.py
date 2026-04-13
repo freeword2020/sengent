@@ -6,7 +6,14 @@ import sys
 from types import SimpleNamespace
 
 from sentieon_assist.ollama_client import build_generate_payload, generate_stream
-from sentieon_assist.answering import answer_query, answer_reference_query, format_rule_answer, normalize_model_answer
+from sentieon_assist.answer_contracts import format_no_answer_boundary
+from sentieon_assist.answering import (
+    answer_query,
+    answer_reference_query,
+    format_capability_explanation_answer,
+    format_rule_answer,
+    normalize_model_answer,
+)
 from sentieon_assist.prompts import ANSWER_TEMPLATE, build_support_prompt
 from sentieon_assist.reference_intents import ReferenceIntent
 from sentieon_assist.session_events import classify_response_mode
@@ -337,6 +344,149 @@ def test_answer_query_trace_collector_reports_gap_record_for_unsupported_version
     assert text.startswith("【资料边界】")
     assert seen["gap_record"]["gap_type"] == "unsupported_version"
     assert seen["gap_record"]["vendor_version"] == "202401.01"
+
+
+def test_format_capability_explanation_answer_uses_runtime_wording(monkeypatch):
+    import sentieon_assist.answering as answering
+
+    monkeypatch.setattr(
+        answering,
+        "get_vendor_profile",
+        lambda vendor_id: SimpleNamespace(
+            display_name="Acme",
+            runtime_wording=SimpleNamespace(
+                field_labels={},
+                capability_summary_lines=("自定义能力一。", "自定义能力二。"),
+                capability_example_queries=("例子一", "例子二"),
+                official_material_terms=("guide", "release notes"),
+            ),
+        ),
+    )
+
+    text = format_capability_explanation_answer(vendor_id="acme")
+
+    assert "我可以帮你做这些 Acme 技术支持工作：" in text
+    assert "- 自定义能力一。" in text
+    assert "- 自定义能力二。" in text
+    assert "- 直接告诉我你的目标或问题，例如：例子一；例子二。" in text
+
+
+def test_answer_query_missing_fields_use_runtime_wording_labels(monkeypatch):
+    import sentieon_assist.answer_contracts as answer_contracts
+    import sentieon_assist.answering as answering
+
+    custom_profile = SimpleNamespace(
+        display_name="Acme",
+        runtime_wording=SimpleNamespace(
+            field_labels={
+                "version": "产品版本",
+                "error": "完整报错信息",
+                "input_type": "输入文件类型",
+                "data_type": "数据类型",
+                "step": "执行步骤",
+            },
+            capability_summary_lines=(),
+            capability_example_queries=(),
+            official_material_terms=("guide", "release notes"),
+        ),
+        clarification_policy={"max_rounds": 2},
+    )
+    monkeypatch.setattr(answering, "resolve_vendor_id", lambda vendor_id=None: "acme", raising=False)
+    monkeypatch.setattr(answering, "get_vendor_profile", lambda vendor_id: custom_profile)
+    monkeypatch.setattr(answer_contracts, "get_vendor_profile", lambda vendor_id: custom_profile)
+
+    text = answer_query(
+        "license",
+        "许可证激活失败",
+        {
+            "version": "",
+            "input_type": "",
+            "error": "许可证激活失败",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+    )
+
+    assert text.startswith("需要补充以下信息：产品版本")
+
+
+def test_answer_query_unsupported_version_uses_runtime_wording_official_material_terms(monkeypatch):
+    import sentieon_assist.answer_contracts as answer_contracts
+    import sentieon_assist.answering as answering
+
+    custom_profile = SimpleNamespace(
+        display_name="Acme",
+        supported_versions=("1.0",),
+        runtime_wording=SimpleNamespace(
+            field_labels={},
+            capability_summary_lines=(),
+            capability_example_queries=(),
+            official_material_terms=("guide", "release notes"),
+        ),
+    )
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(answering, "resolve_vendor_id", lambda vendor_id=None: "acme", raising=False)
+    monkeypatch.setattr(answering, "get_vendor_profile", lambda vendor_id: custom_profile)
+    monkeypatch.setattr(answer_contracts, "get_vendor_profile", lambda vendor_id: custom_profile)
+
+    text = answer_query(
+        "license",
+        "Acme 2.0 license 报错",
+        {
+            "version": "2.0",
+            "input_type": "",
+            "error": "Acme 2.0 license 报错",
+            "error_keywords": "license",
+            "step": "",
+            "data_type": "",
+        },
+        route_decision=SupportRouteDecision(
+            task="troubleshooting",
+            issue_type="license",
+            parsed_intent=ReferenceIntent(),
+            info={
+                "version": "2.0",
+                "input_type": "",
+                "error": "Acme 2.0 license 报错",
+                "error_keywords": "license",
+                "step": "",
+                "data_type": "",
+            },
+            reason="issue_type:license",
+            support_intent=SupportIntent.TROUBLESHOOTING,
+            fallback_mode=FallbackMode.UNSUPPORTED_VERSION,
+            vendor_id="acme",
+            vendor_version="2.0",
+            explicit=True,
+        ),
+        trace_collector=lambda trace: seen.update({"gap_record": trace.gap_record}),
+    )
+
+    assert "Acme 2.0 对应的 guide / release notes" in text
+    assert seen["gap_record"]["missing_materials"] == ["Acme 2.0 对应的 guide / release notes"]
+
+
+def test_format_no_answer_boundary_uses_runtime_wording_official_material_terms(monkeypatch):
+    import sentieon_assist.answer_contracts as answer_contracts
+
+    monkeypatch.setattr(
+        answer_contracts,
+        "get_vendor_profile",
+        lambda vendor_id: SimpleNamespace(
+            display_name="Acme",
+            runtime_wording=SimpleNamespace(official_material_terms=("guide", "release notes")),
+        ),
+    )
+
+    text = format_no_answer_boundary(
+        vendor_id="acme",
+        vendor_version="",
+        missing_labels=[],
+        reason="连续补问后仍缺少关键上下文。",
+    )
+
+    assert "Acme 对应版本的 guide / release notes" in text
 
 
 def test_answer_reference_query_returns_boundary_when_clarify_limit_reached():

@@ -1,7 +1,29 @@
 from __future__ import annotations
 
 from sentieon_assist.kernel.pack_contract import PackManifestEntry
-from sentieon_assist.vendors.base import VendorProfile
+from sentieon_assist.vendors.base import VendorProfile, VendorRuntimeWording
+
+
+SENTIEON_RUNTIME_WORDING = VendorRuntimeWording(
+    field_labels={
+        "version": "Sentieon 版本",
+        "error": "完整报错信息",
+        "input_type": "输入文件类型",
+        "data_type": "数据类型",
+        "step": "执行步骤",
+    },
+    capability_summary_lines=(
+        "入门导航：帮你判断 WGS/WES/panel、胚系/体细胞、短读长/长读长 该先看哪条流程。",
+        "排障：帮你定位 license、安装、运行报错和常见格式/文件问题。",
+        "资料/脚本查询：帮你查模块介绍、参数含义、输入输出和参考命令骨架。",
+    ),
+    capability_example_queries=(
+        "我要做 WES 分析该怎么选",
+        "license 报错原文是什么",
+        "DNAscope 是什么",
+    ),
+    official_material_terms=("manual", "release notes", "app note"),
+)
 
 
 SENTIEON_PROFILE = VendorProfile(
@@ -65,4 +87,5 @@ SENTIEON_PROFILE = VendorProfile(
         "roadmap",
         "deep-mechanism",
     ),
+    runtime_wording=SENTIEON_RUNTIME_WORDING,
 )

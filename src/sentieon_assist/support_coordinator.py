@@ -12,13 +12,6 @@ from sentieon_assist.support_contracts import FallbackMode, SupportIntent
 from sentieon_assist.support_state import SupportSessionState, SupportTask
 from sentieon_assist.vendors import DEFAULT_VENDOR_ID, get_vendor_profile, resolve_vendor_id
 
-FIELD_SLOT_LABELS = {
-    "version": "Sentieon 版本",
-    "error": "完整报错信息",
-    "input_type": "输入文件类型",
-    "data_type": "数据类型",
-    "step": "执行步骤",
-}
 CAPABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"你(?:能|可以)做什么"),
     re.compile(r"你有(?:什么|哪些)功能"),
@@ -304,6 +297,12 @@ def _clarification_round_limit(vendor_id: str) -> int:
         return max(0, int(profile.clarification_policy.get("max_rounds", 2)))
     except (TypeError, ValueError):
         return 2
+
+
+def _field_slot_labels(vendor_id: str | None = None) -> dict[str, str]:
+    resolved_vendor_id = resolve_vendor_id(None) if vendor_id is None else str(vendor_id).strip().lower()
+    profile = get_vendor_profile(resolved_vendor_id)
+    return dict(profile.runtime_wording.field_labels)
 
 
 def is_capability_question(query: str) -> bool:
@@ -610,7 +609,7 @@ def update_support_state(
     facts = dict(state.confirmed_facts)
     facts.update({key: value for key, value in planned_turn.route.info.items() if value})
     facts.update(_extract_guidance_facts(planned_turn.effective_query))
-    slots = infer_open_clarification_slots(response)
+    slots = infer_open_clarification_slots(response, vendor_id=planned_turn.route.vendor_id)
     clarification_rounds = min(
         state.clarification_rounds + 1,
         _clarification_round_limit(planned_turn.route.vendor_id),
@@ -649,10 +648,10 @@ def update_support_state(
     return state.cleared()
 
 
-def infer_open_clarification_slots(response: str) -> tuple[str, ...]:
+def infer_open_clarification_slots(response: str, *, vendor_id: str | None = None) -> tuple[str, ...]:
     slots: list[str] = []
     if response.startswith("需要补充以下信息"):
-        for field, label in FIELD_SLOT_LABELS.items():
+        for field, label in _field_slot_labels(vendor_id).items():
             if label in response:
                 slots.append(field)
     if response.startswith("需要确认模块"):

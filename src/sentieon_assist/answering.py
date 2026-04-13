@@ -27,27 +27,34 @@ REQUIRED_FIELDS = {
     "install": ("version",),
 }
 
-FIELD_LABELS = {
-    "version": "Sentieon 版本",
-    "error": "完整报错信息",
-    "input_type": "输入文件类型",
-    "data_type": "数据类型",
-    "step": "执行步骤",
-}
-
-REQUIREMENT_FIELD_ALIASES = {
-    "Sentieon 版本": "version",
-    "完整报错信息": "error",
-    "输入文件类型": "input_type",
-    "数据类型": "data_type",
-    "执行步骤": "step",
-}
-
-
 def _join_lines(values: list[str]) -> str:
     if not values:
         return "- 无"
     return "\n".join(f"- {value}" for value in values)
+
+
+def _get_vendor_profile(vendor_id: str | None = None):
+    resolved_vendor_id = resolve_vendor_id(None) if vendor_id is None else str(vendor_id).strip().lower()
+    return get_vendor_profile(resolved_vendor_id)
+
+
+def _field_labels(vendor_id: str | None = None) -> dict[str, str]:
+    return dict(_get_vendor_profile(vendor_id).runtime_wording.field_labels)
+
+
+def _requirement_field_aliases(vendor_id: str | None = None) -> dict[str, str]:
+    return dict(_get_vendor_profile(vendor_id).runtime_wording.requirement_field_aliases)
+
+
+def _official_material_request(vendor_id: str | None = None, *, version_hint: str = "") -> str:
+    profile = _get_vendor_profile(vendor_id)
+    terms = " / ".join(
+        str(term).strip() for term in profile.runtime_wording.official_material_terms if str(term).strip()
+    ) or "官方资料"
+    resolved_version = str(version_hint).strip()
+    if resolved_version:
+        return f"{profile.display_name} {resolved_version} 对应的 {terms}"
+    return f"{profile.display_name} 对应版本的 {terms}"
 
 
 def format_rule_answer(rule: dict[str, Any]) -> str:
@@ -67,12 +74,13 @@ def format_rule_answer(rule: dict[str, Any]) -> str:
     )
 
 
-def filter_known_requirements(rule: dict[str, Any], info: dict[str, str]) -> dict[str, Any]:
+def filter_known_requirements(rule: dict[str, Any], info: dict[str, str], *, vendor_id: str | None = None) -> dict[str, Any]:
     filtered_rule = dict(rule)
+    aliases = _requirement_field_aliases(vendor_id)
     filtered_requires: list[str] = []
     for requirement in rule.get("requires", []):
         requirement_text = str(requirement).strip()
-        field_name = REQUIREMENT_FIELD_ALIASES.get(requirement_text, "")
+        field_name = aliases.get(requirement_text, "")
         if field_name and info.get(field_name, "").strip():
             continue
         filtered_requires.append(requirement_text)
@@ -84,13 +92,14 @@ def missing_required_fields(issue_type: str, info: dict[str, str]) -> list[str]:
     return [field for field in REQUIRED_FIELDS.get(issue_type, ()) if not info.get(field, "").strip()]
 
 
-def ask_for_missing(missing_fields: list[str]) -> str:
-    labels = [FIELD_LABELS.get(field, field) for field in missing_fields]
+def ask_for_missing(missing_fields: list[str], *, vendor_id: str | None = None) -> str:
+    labels = [label for label in _missing_field_labels(missing_fields, vendor_id=vendor_id)]
     return f"需要补充以下信息：{', '.join(labels)}"
 
 
-def _missing_field_labels(missing_fields: list[str]) -> list[str]:
-    return [FIELD_LABELS.get(field, field) for field in missing_fields]
+def _missing_field_labels(missing_fields: list[str], *, vendor_id: str | None = None) -> list[str]:
+    field_labels = _field_labels(vendor_id)
+    return [field_labels.get(field, field) for field in missing_fields]
 
 
 def _clarification_round_limit(vendor_id: str) -> int:
@@ -119,15 +128,17 @@ def _extract_confirmation_materials(text: str) -> list[str]:
     return [item for item in materials if item]
 
 
-def format_capability_explanation_answer() -> str:
+def format_capability_explanation_answer(vendor_id: str | None = None) -> str:
+    profile = _get_vendor_profile(vendor_id)
+    wording = profile.runtime_wording
+    capability_lines = "\n".join(f"- {line}" for line in wording.capability_summary_lines)
+    example_queries = "；".join(str(query).strip() for query in wording.capability_example_queries if str(query).strip())
     return (
         "【能力说明】\n"
-        "我可以帮你做这些 Sentieon 技术支持工作：\n"
-        "- 入门导航：帮你判断 WGS/WES/panel、胚系/体细胞、短读长/长读长 该先看哪条流程。\n"
-        "- 排障：帮你定位 license、安装、运行报错和常见格式/文件问题。\n"
-        "- 资料/脚本查询：帮你查模块介绍、参数含义、输入输出和参考命令骨架。\n\n"
+        f"我可以帮你做这些 {profile.display_name} 技术支持工作：\n"
+        f"{capability_lines}\n\n"
         "【建议下一步】\n"
-        "- 直接告诉我你的目标或问题，例如：我要做 WES 分析该怎么选；license 报错原文是什么；DNAscope 是什么。"
+        f"- 直接告诉我你的目标或问题，例如：{example_queries}。"
     )
 
 
@@ -436,7 +447,7 @@ def answer_query(
             gap_type="unsupported_version",
             query=query,
             known_context={"query_version": vendor_version, **known_context},
-            missing_materials=[f"Sentieon {vendor_version or '目标版本'} 对应的 manual / release notes"],
+            missing_materials=[_official_material_request(vendor_id, version_hint=vendor_version or "目标版本")],
         )
         if trace_collector is not None:
             trace_collector(
@@ -452,7 +463,7 @@ def answer_query(
 
     missing = missing_required_fields(issue_type, info)
     if missing:
-        missing_labels = _missing_field_labels(missing)
+        missing_labels = _missing_field_labels(missing, vendor_id=vendor_id)
         gap_record = _trace_gap_record(
             vendor_id=vendor_id,
             vendor_version=vendor_version,
@@ -506,7 +517,7 @@ def answer_query(
     else:
         rule = match_rule(query, knowledge_directory)
     if rule:
-        filtered_rule = filter_known_requirements(rule, info)
+        filtered_rule = filter_known_requirements(rule, info, vendor_id=vendor_id)
         rendered = normalize_model_answer(
             format_rule_answer(filtered_rule),
             query_version=info.get("version", ""),
@@ -608,7 +619,7 @@ def answer_reference_query(
             gap_type="unsupported_version",
             query=query,
             known_context={"query_version": vendor_version},
-            missing_materials=[f"Sentieon {vendor_version or '目标版本'} 对应的 manual / release notes"],
+            missing_materials=[_official_material_request(vendor_id, version_hint=vendor_version or "目标版本")],
         )
         if trace_collector is not None:
             trace_collector(

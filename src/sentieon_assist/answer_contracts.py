@@ -10,6 +10,17 @@ def _bullet_list(items: list[str], *, empty: str = "- 无") -> str:
     return "\n".join(f"- {item}" for item in cleaned)
 
 
+def _official_material_request(vendor_id: str, *, version_hint: str = "") -> str:
+    profile = get_vendor_profile(vendor_id)
+    terms = " / ".join(
+        str(term).strip() for term in profile.runtime_wording.official_material_terms if str(term).strip()
+    ) or "官方资料"
+    resolved_version = str(version_hint).strip()
+    if resolved_version:
+        return f"{profile.display_name} {resolved_version} 对应的 {terms}"
+    return f"{profile.display_name} 对应版本的 {terms}"
+
+
 def format_boundary_contract(
     *,
     summary_lines: list[str],
@@ -73,7 +84,7 @@ def format_unsupported_version_boundary(
             "如果问题允许按当前资料主版本保守参考，请先明确是否接受版本差异带来的偏差。",
         ],
         needed_materials=[
-            f"{profile.display_name} {requested_version or '目标版本'} 对应的 manual / release notes / app note",
+            _official_material_request(vendor_id, version_hint=requested_version or "目标版本"),
             "复现场景中的原始命令、完整报错和输入文件类型",
         ],
     )
@@ -100,7 +111,7 @@ def format_no_answer_boundary(
         ],
         needed_materials=missing_labels
         or [
-            f"{profile.display_name} 对应版本的官方资料",
+            _official_material_request(vendor_id),
             "原始命令、完整报错和输入文件类型",
         ],
     )

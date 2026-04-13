@@ -51,3 +51,15 @@ def test_resolve_vendor_id_defaults_to_sentieon():
 def test_resolve_vendor_id_rejects_unknown_vendor():
     with pytest.raises(KeyError, match="unknown vendor profile"):
         resolve_vendor_id("unknown-vendor")
+
+
+def test_sentieon_profile_runtime_wording_contract():
+    profile = get_vendor_profile("sentieon")
+
+    wording = profile.runtime_wording
+
+    assert wording.field_labels["version"] == "Sentieon 版本"
+    assert wording.field_labels["error"] == "完整报错信息"
+    assert wording.capability_summary_lines
+    assert wording.capability_example_queries
+    assert wording.official_material_terms == ("manual", "release notes", "app note")

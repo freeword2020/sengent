@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 from sentieon_assist.reference_intents import ReferenceIntent, parse_reference_intent
 from sentieon_assist.support_coordinator import (
+    infer_open_clarification_slots,
     is_capability_question,
     plan_support_turn,
     select_support_route,
@@ -181,3 +184,30 @@ def test_update_support_state_tracks_clarification_rounds_and_caps_at_vendor_pol
 
     state = update_support_state(state, planned_turn=planned_turn, response=clarify_response)
     assert state.clarification_rounds == 2
+
+
+def test_infer_open_clarification_slots_uses_runtime_wording_labels(monkeypatch):
+    import sentieon_assist.support_coordinator as support_coordinator
+
+    monkeypatch.setattr(
+        support_coordinator,
+        "get_vendor_profile",
+        lambda vendor_id: SimpleNamespace(
+            runtime_wording=SimpleNamespace(
+                field_labels={
+                    "version": "产品版本",
+                    "error": "完整报错信息",
+                    "input_type": "输入文件类型",
+                    "data_type": "数据类型",
+                    "step": "执行步骤",
+                }
+            )
+        ),
+    )
+
+    slots = infer_open_clarification_slots(
+        "需要补充以下信息：产品版本, 执行步骤",
+        vendor_id="custom-vendor",
+    )
+
+    assert slots == ("version", "step")
