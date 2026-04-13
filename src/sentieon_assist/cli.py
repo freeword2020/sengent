@@ -32,6 +32,7 @@ from sentieon_assist.feedback_runtime import (
     normalize_feedback_scope,
 )
 from sentieon_assist.gap_intake import export_gap_turn_to_inbox
+from sentieon_assist.gap_review import apply_gap_review_decision
 from sentieon_assist.knowledge_build import (
     activate_knowledge_build,
     default_build_root,
@@ -57,6 +58,7 @@ from sentieon_assist.session_events import (
     default_runtime_root,
     turn_view_from_event,
 )
+from sentieon_assist.source_intake import intake_source_to_inbox
 from sentieon_assist.sources import list_sources, search_sources
 from sentieon_assist.state_machine import next_state
 from sentieon_assist.support_coordinator import plan_support_turn, select_support_route, update_support_state
@@ -130,9 +132,11 @@ def format_cli_help() -> str:
             "",
             "Knowledge maintenance:",
             "  sengent knowledge scaffold --kind <kind> --id <id> [--name <name>]",
+            "  sengent knowledge intake-source --source-class <class> --source-path <path> --kind <kind> --id <id> --name <name>",
             "  sengent knowledge intake-gap --session-id <id> [--turn-id <id> | --latest] [--runtime-root <dir>] [--inbox-dir <dir>]",
             "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
             "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
+            "  sengent knowledge triage-gap --build-id <id> --entry-id <id> --decision <decision> [--expected-mode <mode>] [--expected-task <task>]",
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
             "  sengent knowledge rollback --backup-id <id> [--build-root <dir>]",
             "",
@@ -203,9 +207,11 @@ def format_knowledge_help() -> str:
             "",
             "Subcommands:",
             "  scaffold    Create an inbox template for add/update/delete",
+            "  intake-source  Import a local source file into inbox-ready artifacts",
             "  intake-gap  Export a captured runtime gap into the knowledge inbox",
             "  build       Compile inbox content into candidate packs",
             "  review      Show the latest or selected build report",
+            "  triage-gap  Record a maintainer decision for a captured gap entry",
             "  activate    Promote a gated build into active packs",
             "  rollback    Restore active packs from a backup",
         ]
@@ -237,12 +243,28 @@ def format_knowledge_subcommand_help(subcommand: str) -> str:
                 "Export a captured runtime gap record into an inbox incident artifact.",
             ]
         )
+    if subcommand == "intake-source":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge intake-source --source-class <class> --source-path <path> --kind <kind> --id <id> --name <name> [--inbox-dir <dir>] [--file-stem <stem>]",
+                "",
+                "Import a local source file into inbox-ready markdown + metadata artifacts.",
+            ]
+        )
     if subcommand == "activate":
         return "\n".join(
             [
                 "Usage: sengent knowledge activate --build-id <id> [--build-root <dir>]",
                 "",
                 "Activate a gated knowledge build and back up the previous active packs first.",
+            ]
+        )
+    if subcommand == "triage-gap":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge triage-gap --build-id <id> --entry-id <id> --decision <decision> [--status <status>] [--expected-mode <mode>] [--expected-task <task>] [--scope <last|session>] [--note <text>] [--build-root <dir>]",
+                "",
+                "Write a maintainer gap triage decision back into the source sidecar metadata.",
             ]
         )
     if subcommand == "rollback":
@@ -644,6 +666,94 @@ def _parse_knowledge_review_options(args: list[str]) -> tuple[str | None, str | 
             build_id = args[index]
         index += 1
     return build_root, build_id
+
+
+def _parse_knowledge_intake_source_options(
+    args: list[str],
+) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None, str | None]:
+    inbox_directory: str | None = None
+    source_class: str | None = None
+    source_path: str | None = None
+    kind: str | None = None
+    entry_id: str | None = None
+    name: str | None = None
+    file_stem: str | None = None
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {"--inbox-dir", "--source-class", "--source-path", "--kind", "--id", "--name", "--file-stem"}:
+            raise ValueError(f"unknown knowledge intake-source option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--inbox-dir":
+            inbox_directory = args[index]
+        elif option == "--source-class":
+            source_class = args[index]
+        elif option == "--source-path":
+            source_path = args[index]
+        elif option == "--kind":
+            kind = args[index]
+        elif option == "--id":
+            entry_id = args[index]
+        elif option == "--name":
+            name = args[index]
+        else:
+            file_stem = args[index]
+        index += 1
+    return inbox_directory, source_class, source_path, kind, entry_id, name, file_stem
+
+
+def _parse_knowledge_triage_gap_options(
+    args: list[str],
+) -> tuple[str | None, str | None, str | None, str | None, str, str, str, str, str]:
+    build_root: str | None = None
+    build_id: str | None = None
+    entry_id: str | None = None
+    decision: str | None = None
+    status = "triaged"
+    expected_mode = ""
+    expected_task = ""
+    scope = "last"
+    note = ""
+    index = 0
+    while index < len(args):
+        option = args[index]
+        if option not in {
+            "--build-root",
+            "--build-id",
+            "--entry-id",
+            "--decision",
+            "--status",
+            "--expected-mode",
+            "--expected-task",
+            "--scope",
+            "--note",
+        }:
+            raise ValueError(f"unknown knowledge triage-gap option: {option}")
+        index += 1
+        if index >= len(args):
+            raise ValueError(f"missing value for {option}")
+        if option == "--build-root":
+            build_root = args[index]
+        elif option == "--build-id":
+            build_id = args[index]
+        elif option == "--entry-id":
+            entry_id = args[index]
+        elif option == "--decision":
+            decision = args[index]
+        elif option == "--status":
+            status = args[index]
+        elif option == "--expected-mode":
+            expected_mode = args[index]
+        elif option == "--expected-task":
+            expected_task = args[index]
+        elif option == "--scope":
+            scope = args[index]
+        else:
+            note = args[index]
+        index += 1
+    return build_root, build_id, entry_id, decision, status, expected_mode, expected_task, scope, note
 
 
 def _parse_knowledge_scaffold_options(
@@ -1293,6 +1403,87 @@ def main(
             "Knowledge gap intake completed: "
             f"{result.markdown_path} "
             f"(metadata={result.metadata_path}, session_id={result.session_id}, turn_id={result.turn_id}, gap_type={result.gap_type})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "intake-source":
+        try:
+            inbox_directory, source_class, source_path, kind, entry_id, name, file_stem = (
+                _parse_knowledge_intake_source_options(args[2:])
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not source_class:
+            output_fn("knowledge intake-source requires --source-class")
+            return 2
+        if not source_path:
+            output_fn("knowledge intake-source requires --source-path")
+            return 2
+        if not kind:
+            output_fn("knowledge intake-source requires --kind")
+            return 2
+        if not entry_id:
+            output_fn("knowledge intake-source requires --id")
+            return 2
+        if not name:
+            output_fn("knowledge intake-source requires --name")
+            return 2
+        resolved_inbox_directory = inbox_directory or str(default_inbox_dir())
+        try:
+            result = intake_source_to_inbox(
+                inbox_directory=resolved_inbox_directory,
+                source_class=source_class,
+                source_path=source_path,
+                kind=kind,
+                entry_id=entry_id,
+                name=name,
+                file_stem=file_stem,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge source intake completed: "
+            f"{result.markdown_path} "
+            f"(metadata={result.metadata_path}, source_class={result.source_class}, source_path={result.source_path})"
+        )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "triage-gap":
+        try:
+            build_root, build_id, entry_id, decision, status, expected_mode, expected_task, scope, note = (
+                _parse_knowledge_triage_gap_options(args[2:])
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        if not build_id:
+            output_fn("knowledge triage-gap requires --build-id")
+            return 2
+        if not entry_id:
+            output_fn("knowledge triage-gap requires --entry-id")
+            return 2
+        if not decision:
+            output_fn("knowledge triage-gap requires --decision")
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        try:
+            result = apply_gap_review_decision(
+                Path(resolved_build_root) / build_id,
+                entry_id=entry_id,
+                status=status,
+                decision=decision,
+                expected_mode=expected_mode,
+                expected_task=expected_task,
+                scope=scope,
+                note=note,
+            )
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(
+            "Knowledge gap triage updated: "
+            f"{result.metadata_path} "
+            f"(build_id={build_id}, entry_id={result.entry_id}, decision={result.review['decision']})"
         )
         return 0
     if len(args) >= 2 and args[0] == "knowledge" and args[1] == "activate":

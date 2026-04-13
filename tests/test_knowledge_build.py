@@ -9,6 +9,7 @@ import yaml
 from sentieon_assist.cli import main
 from sentieon_assist.knowledge_build import scaffold_knowledge_source
 from sentieon_assist.kernel.pack_contract import PackManifestEntry
+from sentieon_assist.source_intake import intake_source_to_inbox
 
 
 def _write_source_packs(source_dir: Path) -> None:
@@ -22,6 +23,43 @@ def _write_source_packs(source_dir: Path) -> None:
         "incident-memory.json",
     ):
         (source_dir / name).write_text('{"version":"","entries":[]}\n', encoding="utf-8")
+
+
+def _write_gap_inbox_entry(
+    inbox_dir: Path,
+    *,
+    stem: str = "incident-gap",
+    entry_id: str = "license-gap-001",
+    review: dict[str, object] | None = None,
+) -> None:
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    (inbox_dir / f"{stem}.md").write_text(
+        "# Incident capture\n\n"
+        "Use this to track the runtime gap.\n",
+        encoding="utf-8",
+    )
+    payload: dict[str, object] = {
+        "pack_target": "incident-memory.json",
+        "entry_type": "incident",
+        "id": entry_id,
+        "name": "License gap capture",
+        "summary": "Clarify the deployed version before giving the next step.",
+        "gap_type": "clarification_open",
+        "vendor_version": "202503.03",
+        "session_id": "session-gap-001",
+        "turn_id": "turn-gap-001",
+        "user_question": "Which Sentieon version is deployed?",
+        "missing_materials": ["Sentieon 202503.03"],
+        "known_context": {"query_version": "202503.03"},
+        "captured_at": "2026-04-13T00:00:00+00:00",
+        "origin": "runtime-gap-capture",
+    }
+    if review is not None:
+        payload["maintainer_review"] = review
+    (inbox_dir / f"{stem}.meta.yaml").write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
 
 
 def _latest_build_dir(build_root: Path) -> Path:
@@ -703,14 +741,23 @@ def test_knowledge_build_compiles_incident_intake_into_candidate_pack_and_review
             "build_id": review_records[0]["build_id"],
             "doc_id": review_records[0]["doc_id"],
             "relative_path": "incident-gap.md",
+            "metadata_path": review_records[0]["metadata_path"],
             "pack_target": "incident-memory.json",
             "entry_id": "license-gap-001",
+            "session_id": "",
+            "turn_id": "",
             "gap_type": "clarification_open",
             "vendor_version": "202503.03",
             "user_question": "Which Sentieon version is deployed?",
             "missing_materials": ["Sentieon 202503.03"],
             "known_context": {"query_version": "202503.03"},
             "captured_at": "2026-04-13T00:00:00+00:00",
+            "review_status": "pending",
+            "review_decision": "pending",
+            "review_scope": "last",
+            "review_notes": "",
+            "expected_mode": "",
+            "expected_task": "",
         }
     ]
 
@@ -762,9 +809,155 @@ def test_knowledge_build_queues_duplicate_candidate_ids_as_exceptions(tmp_path: 
         if line.strip()
     ]
     assert any(item["exception_type"] == "duplicate_candidate" for item in exceptions)
-    modules_payload = json.loads((build_dir / "candidate-packs" / "sentieon-modules.json").read_text(encoding="utf-8"))
-    matching_entries = [entry for entry in modules_payload["entries"] if entry["id"] == "fastdedup"]
-    assert len(matching_entries) == 1
+
+
+def test_knowledge_build_marks_gap_review_records_pending_when_gap_has_not_been_triaged(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    _write_gap_inbox_entry(inbox_dir)
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    build_dir = _latest_build_dir(build_root)
+    review_records = [
+        json.loads(line)
+        for line in (build_dir / "gap_intake_review.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert review_records[0]["review_status"] == "pending"
+    assert review_records[0]["review_decision"] == "pending"
+    assert review_records[0]["review_scope"] == "last"
+    assert review_records[0]["expected_mode"] == ""
+    assert review_records[0]["expected_task"] == ""
+    assert review_records[0]["metadata_path"].endswith("incident-gap.meta.yaml")
+
+
+def test_knowledge_build_skips_factory_source_intake_until_review_marks_it_ready(tmp_path: Path):
+    source_material = tmp_path / "sources" / "vendor-doc.md"
+    source_material.parent.mkdir(parents=True, exist_ok=True)
+    source_material.write_text("# FastDedup\n\nUse FastDedup before alignment.\n", encoding="utf-8")
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    intake_source_to_inbox(
+        inbox_directory=inbox_dir,
+        source_class="vendor-official",
+        source_path=source_material,
+        kind="module",
+        entry_id="fastdedup-source",
+        name="FastDedup Source",
+    )
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    build_dir = _latest_build_dir(build_root)
+    manifest = json.loads((build_dir / "candidate-packs" / "manifest.json").read_text(encoding="utf-8"))
+    assert {
+        "relative_path": "fastdedup-source.md",
+        "reason": "factory intake pending review",
+    } in manifest["compile_skips"]
+
+
+def test_knowledge_build_emits_gap_eval_seed_records_for_triaged_gap_entries(tmp_path: Path):
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    _write_gap_inbox_entry(
+        inbox_dir,
+        review={
+            "status": "triaged",
+            "decision": "seed_eval",
+            "scope": "last",
+            "expected_mode": "boundary",
+            "expected_task": "troubleshooting",
+            "notes": "Turn this into a closed-loop boundary regression.",
+        },
+    )
+
+    source_dir = tmp_path / "sentieon-note"
+    _write_source_packs(source_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+
+    assert code == 0
+    build_dir = _latest_build_dir(build_root)
+    review_records = [
+        json.loads(line)
+        for line in (build_dir / "gap_intake_review.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert review_records[0]["review_status"] == "triaged"
+    assert review_records[0]["review_decision"] == "seed_eval"
+    assert review_records[0]["expected_mode"] == "boundary"
+    assert review_records[0]["expected_task"] == "troubleshooting"
+
+    seed_records = [
+        json.loads(line)
+        for line in (build_dir / "gap_eval_seed.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert seed_records == [
+        {
+            "record_id": seed_records[0]["record_id"],
+            "source": "gap-intake-review",
+            "scope": "last",
+            "session_id": "session-gap-001",
+            "selected_turn_ids": ["turn-gap-001"],
+            "expected_mode": "boundary",
+            "expected_task": "troubleshooting",
+            "scorable": True,
+            "entry_id": "license-gap-001",
+            "gap_type": "clarification_open",
+            "build_id": review_records[0]["build_id"],
+        }
+    ]
+
+    report = (build_dir / "report.md").read_text(encoding="utf-8")
+    assert "Pending gap triage: 0" in report
+    assert "Eval seeds materialized: 1" in report
+    assert "gap_eval_seed.jsonl" in report
 
 
 def test_knowledge_build_manifest_records_added_and_updated_candidate_ids(tmp_path: Path):

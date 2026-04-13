@@ -13,6 +13,7 @@ from uuid import uuid4
 import yaml
 
 from sentieon_assist.app_paths import default_knowledge_build_root, default_knowledge_inbox_dir, default_runtime_root
+from sentieon_assist.gap_review import build_gap_eval_seed_record, normalize_gap_maintainer_review, validate_gap_maintainer_review
 from sentieon_assist.kernel.pack_runtime import ordered_required_pack_file_names, required_pack_status
 from sentieon_assist.vendors import get_vendor_profile
 
@@ -158,14 +159,38 @@ class GapIntakeReviewRecord:
     build_id: str
     doc_id: str
     relative_path: str
+    metadata_path: str
     pack_target: str
     entry_id: str
+    session_id: str
+    turn_id: str
     gap_type: str | None
     vendor_version: str | None
     user_question: str | None
     missing_materials: list[str]
     known_context: dict[str, Any]
     captured_at: str | None
+    review_status: str
+    review_decision: str
+    review_scope: str
+    review_notes: str
+    expected_mode: str
+    expected_task: str
+
+
+@dataclass(frozen=True)
+class GapEvalSeedRecord:
+    record_id: str
+    source: str
+    scope: str
+    session_id: str
+    selected_turn_ids: list[str]
+    expected_mode: str
+    expected_task: str
+    scorable: bool
+    entry_id: str
+    gap_type: str
+    build_id: str
 
 
 @dataclass(frozen=True)
@@ -192,6 +217,7 @@ class CandidatePackBuildResult:
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord]
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord]
     gap_intake_reviews: list[GapIntakeReviewRecord]
+    gap_eval_seeds: list[GapEvalSeedRecord]
 
 
 @dataclass(frozen=True)
@@ -488,6 +514,7 @@ def run_knowledge_build(
     _write_jsonl(build_dir / "parameter_promotion_review.jsonl", candidate_pack_result.parameter_promotion_reviews)
     _write_jsonl(build_dir / "parameter_review_suggestion.jsonl", candidate_pack_result.parameter_review_suggestions)
     _write_jsonl(build_dir / "gap_intake_review.jsonl", candidate_pack_result.gap_intake_reviews)
+    _write_jsonl(build_dir / "gap_eval_seed.jsonl", candidate_pack_result.gap_eval_seeds)
     _write_jsonl(build_dir / "exceptions.jsonl", exceptions)
     (build_dir / "report.md").write_text(
         _build_report(
@@ -503,6 +530,7 @@ def run_knowledge_build(
             parameter_promotion_reviews=candidate_pack_result.parameter_promotion_reviews,
             parameter_review_suggestions=candidate_pack_result.parameter_review_suggestions,
             gap_intake_reviews=candidate_pack_result.gap_intake_reviews,
+            gap_eval_seeds=candidate_pack_result.gap_eval_seeds,
             docling_is_available=docling_is_available,
         ),
         encoding="utf-8",
@@ -1370,6 +1398,7 @@ def _compile_candidate_packs(
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord] = []
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord] = []
     gap_intake_reviews: list[GapIntakeReviewRecord] = []
+    gap_eval_seeds: list[GapEvalSeedRecord] = []
     for record in doc_records:
         compiled_entry = _compile_candidate_entry(
             record,
@@ -1387,6 +1416,7 @@ def _compile_candidate_packs(
         parameter_promotion_reviews.extend(compiled_entry["parameter_promotion_reviews"])
         parameter_review_suggestions.extend(compiled_entry["parameter_review_suggestions"])
         gap_intake_reviews.extend(compiled_entry["gap_intake_reviews"])
+        gap_eval_seeds.extend(compiled_entry["gap_eval_seeds"])
         pack_target = compiled_entry["pack_target"]
         candidate_id = str(compiled_entry.get("entry_id") or compiled_entry["entry"]["id"])
         seen_key = (pack_target, candidate_id)
@@ -1446,6 +1476,7 @@ def _compile_candidate_packs(
             "parameter_promotion_reviews": [asdict(item) for item in parameter_promotion_reviews],
             "parameter_review_suggestions": [asdict(item) for item in parameter_review_suggestions],
             "gap_intake_reviews": [asdict(item) for item in gap_intake_reviews],
+            "gap_eval_seeds": [asdict(item) for item in gap_eval_seeds],
             "status": "candidate_only",
             "note": "candidate packs are not active runtime packs yet",
         },
@@ -1458,11 +1489,16 @@ def _compile_candidate_packs(
         parameter_promotion_reviews=parameter_promotion_reviews,
         parameter_review_suggestions=parameter_review_suggestions,
         gap_intake_reviews=gap_intake_reviews,
+        gap_eval_seeds=gap_eval_seeds,
     )
 
 
 def _compile_skip_reason(record: CanonicalDocumentRecord) -> str | None:
     pack_entry_types = _pack_entry_types()
+    if _string_or_none(record.source_metadata.get("origin")) == "factory-source-intake":
+        intake_status = _string_or_none(record.source_metadata.get("factory_intake_status")) or "pending_review"
+        if intake_status != "ready":
+            return "factory intake pending review"
     if record.file_type != "markdown":
         return None
     if _string_or_none(record.source_metadata.get("action")) == "delete":
@@ -1521,6 +1557,7 @@ def _compile_candidate_entry(
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
             "gap_intake_reviews": [],
+            "gap_eval_seeds": [],
         }
     if record.pack_target == "sentieon-modules.json":
         entry: dict[str, Any] = {
@@ -1567,6 +1604,7 @@ def _compile_candidate_entry(
             "parameter_promotion_reviews": parameter_review_records,
             "parameter_review_suggestions": parameter_suggestion_records,
             "gap_intake_reviews": [],
+            "gap_eval_seeds": [],
         }
     if record.pack_target == "workflow-guides.json":
         workflow_entry: dict[str, Any] = {
@@ -1598,6 +1636,7 @@ def _compile_candidate_entry(
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
             "gap_intake_reviews": [],
+            "gap_eval_seeds": [],
         }
     if record.pack_target in {"external-format-guides.json", "external-tool-guides.json"}:
         external_entry: dict[str, Any] = {
@@ -1618,6 +1657,7 @@ def _compile_candidate_entry(
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
             "gap_intake_reviews": [],
+            "gap_eval_seeds": [],
         }
     if record.pack_target == "external-error-associations.json":
         error_entry: dict[str, Any] = {
@@ -1638,6 +1678,7 @@ def _compile_candidate_entry(
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
             "gap_intake_reviews": [],
+            "gap_eval_seeds": [],
         }
     if record.pack_target == "incident-memory.json":
         incident_entry: dict[str, Any] = {
@@ -1663,26 +1704,76 @@ def _compile_candidate_entry(
                 incident_entry["known_context"] = {}
         if "captured_at" in metadata:
             incident_entry["captured_at"] = _string_or_none(metadata.get("captured_at"))
+        review_exceptions: list[KnowledgeBuildException] = []
+        review_metadata = normalize_gap_maintainer_review(metadata.get("maintainer_review"))
+        try:
+            review_metadata = validate_gap_maintainer_review(review_metadata)
+        except ValueError as error:
+            review_exceptions.append(
+                KnowledgeBuildException(
+                    path=record.path,
+                    relative_path=record.relative_path,
+                    file_type=record.file_type,
+                    exception_type="gap_review_invalid",
+                    detail=str(error),
+                )
+            )
+            review_metadata = normalize_gap_maintainer_review(None)
+        metadata_path = str(_sidecar_metadata_candidates(Path(record.path))[0])
         gap_review = GapIntakeReviewRecord(
             build_id=build_id,
             doc_id=record.doc_id,
             relative_path=record.relative_path,
+            metadata_path=metadata_path,
             pack_target=record.pack_target,
             entry_id=str(metadata["id"]),
+            session_id=_string_or_none(metadata.get("session_id")) or "",
+            turn_id=_string_or_none(metadata.get("turn_id")) or "",
             gap_type=_string_or_none(metadata.get("gap_type")),
             vendor_version=_string_or_none(metadata.get("vendor_version")),
             user_question=_string_or_none(metadata.get("user_question")),
             missing_materials=_string_list(metadata.get("missing_materials")) if "missing_materials" in metadata else [],
             known_context=metadata.get("known_context") if isinstance(metadata.get("known_context"), dict) else {},
             captured_at=_string_or_none(metadata.get("captured_at")),
+            review_status=review_metadata["status"],
+            review_decision=review_metadata["decision"],
+            review_scope=review_metadata["scope"],
+            review_notes=review_metadata["notes"],
+            expected_mode=review_metadata["expected_mode"],
+            expected_task=review_metadata["expected_task"],
         )
+        gap_eval_seeds: list[GapEvalSeedRecord] = []
+        if not review_exceptions:
+            try:
+                gap_eval_seed = build_gap_eval_seed_record(
+                    build_id=build_id,
+                    entry_id=str(metadata["id"]),
+                    gap_type=_string_or_none(metadata.get("gap_type")) or "",
+                    session_id=_string_or_none(metadata.get("session_id")) or "",
+                    turn_id=_string_or_none(metadata.get("turn_id")) or "",
+                    review=review_metadata,
+                )
+            except ValueError as error:
+                review_exceptions.append(
+                    KnowledgeBuildException(
+                        path=record.path,
+                        relative_path=record.relative_path,
+                        file_type=record.file_type,
+                        exception_type="gap_eval_seed_invalid",
+                        detail=str(error),
+                    )
+                )
+            else:
+                if gap_eval_seed is not None:
+                    gap_eval_seeds.append(GapEvalSeedRecord(**gap_eval_seed))
         return {
             "pack_target": record.pack_target,
             "entry": incident_entry,
-            "exceptions": [],
+            "exceptions": review_exceptions,
             "parameter_promotion_reviews": [],
             "parameter_review_suggestions": [],
             "gap_intake_reviews": [gap_review],
+            "gap_eval_seeds": gap_eval_seeds,
         }
     return None
 
@@ -2010,6 +2101,7 @@ def _build_report(
     parameter_promotion_reviews: list[ParameterPromotionReviewRecord],
     parameter_review_suggestions: list[ParameterReviewSuggestionRecord],
     gap_intake_reviews: list[GapIntakeReviewRecord],
+    gap_eval_seeds: list[GapEvalSeedRecord],
     docling_is_available: bool,
 ) -> str:
     candidate_pack_directory = build_dir / "candidate-packs"
@@ -2021,6 +2113,8 @@ def _build_report(
     covered_by_module = [item for item in parameter_promotion_reviews if item.status == "covered_by_module"]
     covered_by_shared_module = [item for item in parameter_promotion_reviews if item.status == "covered_by_shared_module"]
     captured_gap_reviews = gap_intake_reviews
+    pending_gap_reviews = [item for item in captured_gap_reviews if item.review_status == "pending"]
+    triaged_gap_reviews = [item for item in captured_gap_reviews if item.review_status == "triaged"]
     changed_pack_diffs = {
         pack_name: diff
         for pack_name, diff in candidate_pack_result.pack_diffs.items()
@@ -2098,13 +2192,24 @@ def _build_report(
             "",
             "## Captured gaps",
             f"- Captured gap records: {len(captured_gap_reviews)}",
+            f"- Pending gap triage: {len(pending_gap_reviews)}",
+            f"- Triaged gap decisions: {len(triaged_gap_reviews)}",
+            f"- Eval seeds materialized: {len(gap_eval_seeds)}",
             f"- Gap intake review artifact: `{build_dir / 'gap_intake_review.jsonl'}`",
+            f"- Gap eval seed artifact: `{build_dir / 'gap_eval_seed.jsonl'}`",
         ]
     )
+    if gap_eval_seeds:
+        lines.append(
+            f"- Closed-loop command: `python scripts/pilot_closed_loop.py --runtime-feedback-path {build_dir / 'gap_eval_seed.jsonl'}`"
+        )
     if captured_gap_reviews:
         for item in captured_gap_reviews:
             description = item.gap_type or "unknown"
-            lines.append(f"- `{item.relative_path}`: `{item.entry_id}` ({description})")
+            lines.append(
+                f"- `{item.relative_path}`: `{item.entry_id}` "
+                f"({description}, {item.review_status}/{item.review_decision})"
+            )
     else:
         lines.append("- none")
     lines.extend(

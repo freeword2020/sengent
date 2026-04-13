@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 from sentieon_assist.cli import _build_input_prompt
 from sentieon_assist.cli import main
 from sentieon_assist.cli import render_chat_response
@@ -91,6 +93,49 @@ def _write_session_with_gap(runtime_root: Path, *, gap_record: dict[str, object]
     )
     append_turn_event(turn_event, runtime_root=runtime_root)
     return session.session_id, turn_event.turn_id
+
+
+def _write_gap_inbox_entry(
+    inbox_dir: Path,
+    *,
+    stem: str = "incident-gap",
+    entry_id: str = "license-gap-001",
+) -> None:
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    (inbox_dir / f"{stem}.md").write_text(
+        "# Incident capture\n\n"
+        "Use this to track the runtime gap.\n",
+        encoding="utf-8",
+    )
+    (inbox_dir / f"{stem}.meta.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "pack_target": "incident-memory.json",
+                "entry_type": "incident",
+                "id": entry_id,
+                "name": "License gap capture",
+                "summary": "Clarify the deployed version before giving the next step.",
+                "gap_type": "clarification_open",
+                "vendor_version": "202503.03",
+                "session_id": "session-gap-001",
+                "turn_id": "turn-gap-001",
+                "user_question": "Which Sentieon version is deployed?",
+                "missing_materials": ["Sentieon 202503.03"],
+                "known_context": {"query_version": "202503.03"},
+                "captured_at": "2026-04-13T00:00:00+00:00",
+                "origin": "runtime-gap-capture",
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_source_text(path: Path, text: str = "# Release Notes\n\nDNAscope update\n") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def test_cli_requires_query(capsys):
@@ -778,6 +823,147 @@ def test_cli_knowledge_review_ignores_activation_backups_when_selecting_latest_b
     combined = "\n".join(outputs)
     assert str(latest_dir) in combined
     assert "Latest Report" in combined
+
+
+def test_cli_knowledge_triage_gap_updates_gap_review_metadata(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    _write_gap_inbox_entry(inbox_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    build_code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+    assert build_code == 0
+    build_dir = next(path for path in build_root.iterdir() if path.is_dir() and path.name != "activation-backups")
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "knowledge",
+            "triage-gap",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+            "--entry-id",
+            "license-gap-001",
+            "--decision",
+            "seed_eval",
+            "--expected-mode",
+            "boundary",
+            "--expected-task",
+            "troubleshooting",
+            "--scope",
+            "last",
+            "--note",
+            "Need a reproducible boundary case before gate.",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    metadata = yaml.safe_load((inbox_dir / "incident-gap.meta.yaml").read_text(encoding="utf-8"))
+    assert metadata["maintainer_review"] == {
+        "status": "triaged",
+        "decision": "seed_eval",
+        "scope": "last",
+        "expected_mode": "boundary",
+        "expected_task": "troubleshooting",
+        "notes": "Need a reproducible boundary case before gate.",
+    }
+    assert any("Knowledge gap triage updated" in item for item in outputs)
+
+
+def test_cli_knowledge_triage_gap_rejects_seed_eval_without_expected_mode_and_task(tmp_path: Path):
+    source_dir = tmp_path / "sentieon-note"
+    _write_activation_source_packs(source_dir)
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    _write_gap_inbox_entry(inbox_dir)
+    build_root = tmp_path / "runtime" / "knowledge-build"
+
+    build_code = main(
+        [
+            "--source-dir",
+            str(source_dir),
+            "knowledge",
+            "build",
+            "--inbox-dir",
+            str(inbox_dir),
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=lambda _message: None,
+    )
+    assert build_code == 0
+    build_dir = next(path for path in build_root.iterdir() if path.is_dir() and path.name != "activation-backups")
+
+    outputs: list[str] = []
+    code = main(
+        [
+            "knowledge",
+            "triage-gap",
+            "--build-root",
+            str(build_root),
+            "--build-id",
+            build_dir.name,
+            "--entry-id",
+            "license-gap-001",
+            "--decision",
+            "seed_eval",
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 2
+    assert any("expected_mode" in item or "expected_task" in item for item in outputs)
+
+
+def test_cli_knowledge_intake_source_writes_inbox_artifacts(tmp_path: Path):
+    source_path = _write_source_text(tmp_path / "sources" / "release.md")
+    inbox_dir = tmp_path / "knowledge-inbox" / "sentieon"
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "intake-source",
+            "--source-class",
+            "release-notes",
+            "--source-path",
+            str(source_path),
+            "--kind",
+            "workflow",
+            "--id",
+            "release-note-source",
+            "--name",
+            "Release Note Source",
+            "--inbox-dir",
+            str(inbox_dir),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    markdown_path = inbox_dir / "release-note-source.md"
+    metadata_path = inbox_dir / "release-note-source.meta.yaml"
+    assert markdown_path.exists()
+    assert metadata_path.exists()
+    metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["source_class"] == "release-notes"
+    assert metadata["origin"] == "factory-source-intake"
+    assert any("Knowledge source intake completed" in item for item in outputs)
 
 
 def test_cli_knowledge_commands_use_default_config_source_dir(tmp_path: Path, monkeypatch):

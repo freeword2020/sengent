@@ -136,6 +136,11 @@ sengent knowledge review --build-id <build_id>
 2. changed candidate packs
 3. `parameter_review_suggestion.jsonl`
 
+如果这次 build 包含 runtime gap intake，再额外看：
+
+4. `gap_intake_review.jsonl`
+5. `gap_eval_seed.jsonl`
+
 ## Gate
 
 在 activation 之前，必须生成这两份 gate 报告：
@@ -152,8 +157,11 @@ python scripts/pilot_readiness_eval.py \
 
 python scripts/pilot_closed_loop.py \
   --source-dir <build-root>/<build_id>/candidate-packs \
+  --runtime-feedback-path <build-root>/<build_id>/gap_eval_seed.jsonl \
   --json-out <build-root>/<build_id>/pilot-closed-loop-report.json
 ```
+
+如果这次 build 没有 triaged gap eval seeds，可以去掉 `--runtime-feedback-path`。
 
 如果不写 `--json-out`，`knowledge activate` 会阻止执行。
 
@@ -210,6 +218,20 @@ sengent knowledge intake-gap \
   --latest
 ```
 
+maintainer review 阶段不要直接改 active packs，而是先给 gap intake 写明确 decision：
+
+```bash
+sengent knowledge triage-gap \
+  --build-id <build_id> \
+  --entry-id <entry_id> \
+  --decision seed_eval \
+  --expected-mode boundary \
+  --expected-task troubleshooting \
+  --note "需要一个 boundary regression case"
+```
+
+这个命令会把 review decision 写回 inbox sidecar。之后重新 `knowledge build`，让新的 `gap_intake_review.jsonl` / `gap_eval_seed.jsonl` 反映 triage 结果。
+
 这个命令会在 inbox 里生成两份 incident intake 文件：
 
 - markdown 说明
@@ -258,8 +280,10 @@ python scripts/pilot_closed_loop.py \
 1. `sengent knowledge build`
 2. `sengent knowledge review`
 3. 看 `gap_intake_review.jsonl`
-4. 补材料或修 sidecar
-5. gate 通过后再 activate
+4. 用 `sengent knowledge triage-gap` 写 maintainer decision
+5. 重新 `sengent knowledge build`
+6. 如果有 `gap_eval_seed.jsonl`，把它带进 closed-loop gate
+7. gate 通过后再 activate
 
 ### Case 3: activation 后效果不对
 
@@ -280,6 +304,7 @@ python scripts/pilot_closed_loop.py \
 sengent knowledge scaffold --kind module --id <id> --name <name>
 sengent knowledge build
 sengent knowledge review
+sengent knowledge triage-gap --build-id <build_id> --entry-id <entry_id> --decision <decision>
 sengent knowledge activate --build-id <build_id>
 sengent knowledge rollback --backup-id <backup_id>
 ```
