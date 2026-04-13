@@ -69,6 +69,7 @@ This tranche explicitly excludes:
 - `docs/superpowers/specs/2026-04-13-sengent-2-1-hosted-llm-architecture-design.md`
 - `docs/superpowers/architecture/2026-04-13-sengent-2-1-anti-drift-principles.md`
 - `docs/superpowers/plans/2026-04-13-sengent-2-1-hosted-llm-architecture.md`
+- `docs/superpowers/plans/2026-04-13-sengent-2-1-engineering-implementation.md`
 
 ### Required Architecture Content
 
@@ -173,6 +174,8 @@ Must include:
 ## Phase 2: Write The Engineering Implementation Plan
 
 This phase begins only after the revised spec package is considered stable.
+
+- [x] Write `docs/superpowers/plans/2026-04-13-sengent-2-1-engineering-implementation.md`
 
 Recommended implementation-plan breakdown:
 
