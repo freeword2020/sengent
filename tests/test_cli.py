@@ -825,6 +825,118 @@ def test_cli_knowledge_review_ignores_activation_backups_when_selecting_latest_b
     assert "Latest Report" in combined
 
 
+def test_cli_knowledge_queue_prints_actionable_bucket_summary(tmp_path: Path):
+    build_root = tmp_path / "runtime" / "knowledge-build"
+    build_dir = build_root / "20260413T010203Z-queue1234"
+    candidate_dir = build_dir / "candidate-packs"
+    candidate_dir.mkdir(parents=True)
+    (build_dir / "report.md").write_text("# Knowledge Build Report\n", encoding="utf-8")
+    (candidate_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "compile_skips": [
+                    {"relative_path": "fastdedup-source.md", "reason": "factory intake pending review"},
+                ],
+                "pack_diffs": {
+                    "sentieon-modules.json": {
+                        "unchanged": False,
+                        "added_ids": [],
+                        "removed_ids": [],
+                        "updated_ids": ["fastdedup"],
+                    }
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (build_dir / "gap_intake_review.jsonl").write_text(
+        json.dumps(
+            {
+                "build_id": build_dir.name,
+                "relative_path": "incident-gap.md",
+                "metadata_path": str(build_dir / "incident-gap.meta.yaml"),
+                "pack_target": "incident-memory.json",
+                "entry_id": "license-gap-001",
+                "session_id": "session-gap-001",
+                "turn_id": "turn-gap-001",
+                "gap_type": "clarification_open",
+                "vendor_version": "202503.03",
+                "user_question": "Which Sentieon version is deployed?",
+                "missing_materials": ["Sentieon 202503.03"],
+                "known_context": {"query_version": "202503.03"},
+                "captured_at": "2026-04-13T00:00:00+00:00",
+                "review_status": "pending",
+                "review_decision": "pending",
+                "review_scope": "last",
+                "review_notes": "",
+                "expected_mode": "",
+                "expected_task": "",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (build_dir / "parameter_review_suggestion.jsonl").write_text(
+        json.dumps(
+            {
+                "build_id": build_dir.name,
+                "relative_path": "fastdedup.md",
+                "module_id": "fastdedup",
+                "parameter_name": "--threads",
+                "suggested_action": "review_parameter_candidate",
+                "template": {"name": "--threads"},
+                "detail": "Found a high-confidence parameter candidate.",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (build_dir / "gap_eval_seed.jsonl").write_text(
+        json.dumps(
+            {
+                "record_id": "gap-eval.1",
+                "source": "gap-intake-review",
+                "scope": "last",
+                "session_id": "session-gap-001",
+                "selected_turn_ids": ["turn-gap-001"],
+                "expected_mode": "boundary",
+                "expected_task": "troubleshooting",
+                "scorable": True,
+                "entry_id": "license-gap-001",
+                "gap_type": "clarification_open",
+                "build_id": build_dir.name,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    outputs: list[str] = []
+
+    code = main(
+        [
+            "knowledge",
+            "queue",
+            "--build-root",
+            str(build_root),
+        ],
+        output_fn=outputs.append,
+    )
+
+    assert code == 0
+    combined = "\n".join(outputs)
+    assert str(build_dir) in combined
+    assert "Pending Gap Triage" in combined
+    assert "Pending Source Review" in combined
+    assert "Pending Parameter Review" in combined
+    assert "Pending Gate Input" in combined
+    assert "Candidate Pack Change" in combined
+
+
 def test_cli_knowledge_triage_gap_updates_gap_review_metadata(tmp_path: Path):
     source_dir = tmp_path / "sentieon-note"
     _write_activation_source_packs(source_dir)

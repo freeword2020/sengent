@@ -42,6 +42,7 @@ from sentieon_assist.knowledge_build import (
     run_knowledge_build,
     scaffold_knowledge_source,
 )
+from sentieon_assist.knowledge_review import build_maintainer_queue, format_maintainer_queue
 from sentieon_assist.llm_backends import build_backend_router
 from sentieon_assist.prompts import build_chat_missing_info_prompt, build_chat_polish_prompt
 from sentieon_assist.reference_intents import parse_reference_intent
@@ -135,6 +136,7 @@ def format_cli_help() -> str:
             "  sengent knowledge intake-source --source-class <class> --source-path <path> --kind <kind> --id <id> --name <name>",
             "  sengent knowledge intake-gap --session-id <id> [--turn-id <id> | --latest] [--runtime-root <dir>] [--inbox-dir <dir>]",
             "  sengent knowledge build [--inbox-dir <dir>] [--build-root <dir>]",
+            "  sengent knowledge queue [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge review [--build-id <id>] [--build-root <dir>]",
             "  sengent knowledge triage-gap --build-id <id> --entry-id <id> --decision <decision> [--expected-mode <mode>] [--expected-task <task>]",
             "  sengent knowledge activate --build-id <id> [--build-root <dir>]",
@@ -210,6 +212,7 @@ def format_knowledge_help() -> str:
             "  intake-source  Import a local source file into inbox-ready artifacts",
             "  intake-gap  Export a captured runtime gap into the knowledge inbox",
             "  build       Compile inbox content into candidate packs",
+            "  queue       Show the maintainer queue and next actions for a build",
             "  review      Show the latest or selected build report",
             "  triage-gap  Record a maintainer decision for a captured gap entry",
             "  activate    Promote a gated build into active packs",
@@ -257,6 +260,14 @@ def format_knowledge_subcommand_help(subcommand: str) -> str:
                 "Usage: sengent knowledge activate --build-id <id> [--build-root <dir>]",
                 "",
                 "Activate a gated knowledge build and back up the previous active packs first.",
+            ]
+        )
+    if subcommand == "queue":
+        return "\n".join(
+            [
+                "Usage: sengent knowledge queue [--build-id <id>] [--build-root <dir>]",
+                "",
+                "Show the maintainer queue and next actions for the latest or selected build.",
             ]
         )
     if subcommand == "triage-gap":
@@ -1535,6 +1546,20 @@ def main(
             f"{result.backup_dir} "
             f"(files={len(result.restored_files)}, backup_id={result.backup_id})"
         )
+        return 0
+    if len(args) >= 2 and args[0] == "knowledge" and args[1] == "queue":
+        try:
+            build_root, build_id = _parse_knowledge_review_options(args[2:])
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        resolved_build_root = build_root or str(default_build_root(runtime_root=runtime_directory))
+        try:
+            result = build_maintainer_queue(build_root=resolved_build_root, build_id=build_id)
+        except ValueError as error:
+            output_fn(str(error))
+            return 2
+        output_fn(format_maintainer_queue(result))
         return 0
     if len(args) >= 2 and args[0] == "knowledge" and args[1] == "review":
         try:

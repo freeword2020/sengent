@@ -121,12 +121,33 @@ build 完成后，产物默认写到：
 最近一次 build：
 
 ```bash
+sengent knowledge queue
+sengent knowledge review
+```
+
+推荐顺序：
+
+1. 先跑 `sengent knowledge queue`
+2. 再按 queue 提示钻进 `sengent knowledge review`
+
+`knowledge queue` 用来回答“现在该做什么”：
+
+- 哪些 gap 还没 triage
+- 哪些 source intake 还没 review
+- 哪些 parameter suggestions 还待审核
+- 是否有 eval seeds 还没进入 gate
+- candidate pack 本次改了哪些 ids
+
+`knowledge review` 用来回答“证据细节是什么”：
+
+```bash
 sengent knowledge review
 ```
 
 指定某次 build：
 
 ```bash
+sengent knowledge queue --build-id <build_id>
 sengent knowledge review --build-id <build_id>
 ```
 
