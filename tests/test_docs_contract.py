@@ -71,3 +71,17 @@ def test_pre_human_test_gate_doc_exists_with_required_boundary_terms():
     assert "prohibited operations" in text
     assert "expected review-only behavior for factory drafts" in text
     assert "manual test categories" in text
+
+
+def test_stage_handoff_doc_exists_with_status_and_architecture_summary():
+    text = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-13-sengent-2-1-stage-handoff.md"
+    ).read_text(encoding="utf-8")
+
+    assert "governance-first PoC completed" in text
+    assert "hosted runtime + hosted factory internal branch" in text
+    assert "vendor / domain / playbook / incident" in text
+    assert "factory hosted learning pilot" in text
+    assert "live provider smoke" in text
+    assert "structured human testing" in text
