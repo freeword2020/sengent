@@ -3991,6 +3991,34 @@ def test_run_query_routes_sentieon_capability_prompt_to_support_explanation():
     assert "当前 MVP 仅支持 license 和 install 问题" not in text
 
 
+def test_run_query_passes_route_vendor_to_capability_explanation(monkeypatch):
+    seen: list[object] = []
+
+    monkeypatch.setattr(
+        "sentieon_assist.cli.format_capability_explanation_answer",
+        lambda vendor_id=None: seen.append(vendor_id) or "CAPABILITY",
+    )
+
+    text = run_query(
+        "你能做什么",
+        route_decision=SupportRouteDecision(
+            task="capability_explanation",
+            issue_type="other",
+            parsed_intent=ReferenceIntent(),
+            info={},
+            reason="capability_question",
+            support_intent=SupportIntent.CAPABILITY_EXPLANATION,
+            fallback_mode=FallbackMode.NONE,
+            vendor_id="acme",
+            vendor_version="1.0",
+            explicit=True,
+        ),
+    )
+
+    assert text == "CAPABILITY"
+    assert seen == ["acme"]
+
+
 def test_main_passes_override_directories_to_run_query(monkeypatch):
     seen: dict[str, str] = {}
 

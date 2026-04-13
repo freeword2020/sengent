@@ -2,6 +2,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
+from types import SimpleNamespace
 
 from sentieon_assist.chat_events import (
     event_check_missing_info,
@@ -242,6 +243,32 @@ def test_missing_info_event_text_is_deterministic():
     assert event_detect_issue_type("license") == "已识别问题类型：许可证问题"
     assert event_detect_issue_type("install") == "已识别问题类型：安装问题"
     assert event_check_missing_info(["version"]) == "发现需要补充的信息：Sentieon 版本"
+
+
+def test_event_check_missing_info_uses_profile_owned_field_labels(monkeypatch):
+    import sentieon_assist.chat_events as chat_events
+
+    monkeypatch.setattr(
+        chat_events,
+        "get_vendor_profile",
+        lambda vendor_id: SimpleNamespace(
+            runtime_wording=SimpleNamespace(
+                field_labels={
+                    "version": "产品版本",
+                    "error": "完整报错信息",
+                    "input_type": "输入文件类型",
+                    "data_type": "数据类型",
+                    "step": "执行步骤",
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(chat_events, "resolve_vendor_id", lambda vendor_id=None: "acme")
+
+    assert (
+        event_check_missing_info(["version", "step"], vendor_id="acme")
+        == "发现需要补充的信息：产品版本, 执行步骤"
+    )
 
 
 def test_reference_path_event_text_is_deterministic():

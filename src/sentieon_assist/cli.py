@@ -1169,7 +1169,7 @@ def run_query(
     if decision.task == "capability_explanation":
         if trace_collector is not None:
             trace_collector({"sources": [], "boundary_tags": [], "resolver_path": [ResolverPath.CAPABILITY_EXPLANATION]})
-        return format_capability_explanation_answer()
+        return format_capability_explanation_answer(vendor_id=decision.vendor_id)
     if decision.task in {"reference_lookup", "onboarding_guidance"} or decision.issue_type == "other":
         parsed_intent = decision.parsed_intent if decision.parsed_intent.is_reference else None
         return answer_reference_query(

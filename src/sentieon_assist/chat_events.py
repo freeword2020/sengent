@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-
-FIELD_LABELS = {
-    "version": "Sentieon 版本",
-    "error": "完整报错信息",
-    "input_type": "输入文件类型",
-    "data_type": "数据类型",
-    "step": "执行步骤",
-}
+from sentieon_assist.vendors import get_vendor_profile, resolve_vendor_id
 
 ISSUE_TYPE_LABELS = {
     "license": "许可证问题",
@@ -22,10 +15,17 @@ def event_detect_issue_type(issue_type: str) -> str:
     return f"已识别问题类型：{label}"
 
 
-def event_check_missing_info(missing_fields: list[str]) -> str:
+def _field_labels(vendor_id: str | None = None) -> dict[str, str]:
+    resolved_vendor_id = resolve_vendor_id(vendor_id)
+    profile = get_vendor_profile(resolved_vendor_id)
+    return dict(profile.runtime_wording.field_labels)
+
+
+def event_check_missing_info(missing_fields: list[str], *, vendor_id: str | None = None) -> str:
     if not missing_fields:
         return "已检查必要信息"
-    labels = [FIELD_LABELS.get(field, field) for field in missing_fields]
+    field_labels = _field_labels(vendor_id)
+    labels = [field_labels.get(field, field) for field in missing_fields]
     return f"发现需要补充的信息：{', '.join(labels)}"
 
 
