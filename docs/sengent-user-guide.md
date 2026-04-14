@@ -1,209 +1,124 @@
-# Sengent User Guide
+# Sengent 使用者说明
 
-## 这份指南给谁看
+## 这份说明给谁看
 
 给日常使用 Sengent 提问、排障、查模块 / 参数 / 脚本的同事看。
 
-默认前提：
+## 先记住 2.1 的定位
 
-- 你已经从 GitHub Releases、`Download ZIP` 或仓库 checkout 拿到了安装目录
-- 你会优先使用安装后的 `sengent` 命令
-- 你不需要直接修改知识库文件
+- Sengent 1.0 主要用 Ollama 做本地运行时
+- Sengent 2.1 主运行时改成 OpenAI-compatible API
+- 但 runtime truth 仍然来自 reviewed active knowledge packs
+- factory hosted draft 仍然是 offline + review-only，不会直接变成运行时事实
 
-## Sengent 能做什么
+## 安装前提
 
-Sengent 主要做四类事：
-
-1. 帮你入门和找流程
-2. 帮你排障
-3. 帮你查模块 / 参数 / 脚本
-4. 基于本地资料给出支持回答
-
-它不是把文档直接丢给模型自由发挥。它的基本原则是：
-
-- 先按规则路由
-- 运行时优先使用结构化 pack
-- 知识上线前要过评估门禁
-- 出问题时优先回退
-
-## 先决条件
-
-### 支持的系统
-
-- macOS
-- Linux
-
-### 运行时需要
+### 运行时主机
 
 - Python `3.11+`
-- 本地 Ollama HTTP API
-- 一个可用模型，例如 `gemma4:e4b`
+- OpenAI-compatible API endpoint
+- runtime model id
+- runtime API key
 
-### 可选能力
+### 可选的 factory hosted draft
 
-- `docling`
-  - 只在 PDF-backed knowledge build 时需要
-  - 不影响普通 query / chat
+- factory provider / base URL / model / API key
+
+### 兼容路径
+
+如果你仍然要跑旧的本地模型路径，可以继续显式配置 Ollama，但这不是 2.1 的主使用方式。
 
 ## 安装步骤
 
-### 第 0 步: 先拿到安装目录
+### 1. 获取安装包
 
-优先推荐：
+优先从 [GitHub Releases](https://github.com/freeword2020/sengent/releases) 下载 `sengent-<version>.tar.gz` 或 `.zip`。
 
-1. 打开 [GitHub Releases](https://github.com/freeword2020/sengent/releases)
-2. 下载 `sengent-<version>.tar.gz` 或 `.zip`
-3. 解压
-4. 进入解压后的目录
+如果暂时没有 release 包，也可以从仓库主页使用 `Download ZIP`。
 
-如果当前还没有 release 包，也可以在仓库主页点击 `Code` -> `Download ZIP`。
-
-### 第 1 步: 先安装
-
-如果这台机器要实际聊天和回答问题，建议这样装：
+### 2. 安装 CLI
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --ensure-ollama-model
+tar -xzf sengent-<version>.tar.gz
+cd sengent-<version>
+bash scripts/install_sengent.sh
 source .venv/bin/activate
-sengent doctor
 ```
 
-如果这台机器只是先做 build / review，不负责聊天：
+### 3. 配置运行时 API
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --skip-ollama
-source .venv/bin/activate
-sengent doctor --skip-ollama
+export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+export SENGENT_RUNTIME_LLM_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_RUNTIME_LLM_MODEL=your-runtime-model
+export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
 ```
 
-### 第 2 步: 确认命令可用
-
-如果你不知道下一步该输入什么命令，先看：
+如果你还要启用 hosted factory draft：
 
 ```bash
-sengent --help
+export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+export SENGENT_FACTORY_HOSTED_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
+export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
 ```
 
-安装后普通用户最常用的检查是：
+### 4. 做第一次检查
 
 ```bash
 sengent doctor
 ```
 
-### 第 3 步: 如果网络走内网镜像
+建议优先看这几项：
 
-先配 pip mirror，再安装：
+- runtime provider 是否是 `openai_compatible`
+- runtime `model_available` 是否是 `yes`
+- `managed_pack_complete` 是否是 `yes`
+- 如果配了 factory hosted，`review_only` 是否是 `yes`
 
-```bash
-export PIP_INDEX_URL=https://your-internal-pypi/simple
-bash scripts/install_sengent.sh --skip-ollama
-```
-
-## 第一次使用前要看什么
-
-第一次跑 `sengent doctor` 时，建议先确认这 4 件事：
-
-- Ollama 是否能连上
-- 模型是否可用
-- `docling_available`
-- `managed_pack_complete`
-
-如果 `managed_pack_complete: no`，说明当前 active source packs 不完整。这通常不是你提问方式的问题，需要维护者修复安装或 source dir。
-
-## 怎么使用
-
-### 1. 打开对话
+### 5. 开始提问
 
 ```bash
 sengent chat
 ```
 
-常用命令：
-
-- `/help`
-- `/quit`
-- `/reset`
-- `/feedback`
-
-### 2. 直接提一个问题
+或者直接单轮提问：
 
 ```bash
 sengent "DNAscope 是做什么的"
-sengent "sentieon-cli dnascope 的 --pcr_free 是什么"
-sengent "能给个 rnaseq 的参考脚本吗"
+sengent "GVCFtyper 是否可以按 interval 跑"
 ```
 
-### 3. 看当前资料来源
+## 常用命令
 
 ```bash
+sengent --help
+sengent doctor
+sengent chat
 sengent sources
 sengent search SENTIEON_LICENSE
 ```
 
-### 4. 临时切到另一套客户资料
+## 使用边界
 
-如果你需要临时看别的客户现场资料源：
-
-```bash
-sengent --source-dir /path/to/customer-sources doctor --skip-ollama
-sengent --source-dir /path/to/customer-sources "DNAscope 是做什么的"
-```
+- Sengent 不是 raw-doc RAG bot
+- 它不会把 factory draft 直接当成 truth
+- 证据不足时，正确行为应是先澄清，而不是先乱猜
+- 遇到真正的格式 / 结构一致性问题时，系统可能要求先走 tool-arbitration 路径
 
 ## 如果回答不理想
 
-你可以直接用 `/feedback`。提交前尽量保留这三样：
+直接在 `chat` 里用 `/feedback`，并尽量保留：
 
 1. 原问题
 2. 原回答
-3. 你希望它怎么改
+3. 你觉得正确的支持结论或正确下一步
 
-如果方便，再补一句它到底是：
+## 什么时候找维护者
 
-- 知识缺失
-- 知识过期
-- 表达不清楚
-
-## 常见问题排查
-
-### 先记住这几条
-
-- 运行时主知识源是 structured packs，不是原始 PDF
-- 没装 `docling` 不影响普通使用，但会影响 PDF build
-- Ollama CLI 不是运行时硬依赖，真正依赖的是本地 HTTP API
-- 普通使用者一般不需要自己操作 build / activate / rollback
-
-### 机器上文件放哪
-
-macOS：
-
-- `~/Library/Application Support/Sengent`
-
-Linux：
-
-- `$XDG_DATA_HOME/sengent`
-- 或 `~/.local/share/sengent`
-
-常见目录：
-
-- active source packs: `<app-home>/sources/active`
-- runtime logs: `<app-home>/runtime`
-- knowledge builds: `<app-home>/runtime/knowledge-build`
-
-如果要统一改位置：
-
-```bash
-export SENGENT_HOME=/path/to/sengent-home
-```
-
-### 什么时候找维护者
-
-这些情况直接找维护者比较快：
+这些情况直接找维护者更快：
 
 - `managed_pack_complete: no`
-- 需要新增 / 更新 / 删除知识
-- 需要回退到旧版本知识库
-- 需要 PDF build 能力，但当前 `docling_available: no`
+- provider / model / API key 明显配置无误，但 `doctor` 仍然失败
+- 需要补知识、改知识、删知识
+- 需要把真实客户问题回填成题库或评测 case

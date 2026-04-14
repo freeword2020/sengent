@@ -1,22 +1,22 @@
-# Sengent 维护者说明
+# Sengent Maintainer Guide
 
-## 这份说明给谁看
+## Audience
 
-给维护知识、做 release、跑 build / review / gate / activate / rollback 的同事看。
+This guide is for maintainers who manage knowledge updates, prepare release bundles, run build / review / gate / activate / rollback, and backfill real support failures into the corpus.
 
-## 2.1 的维护者前提
+## What Changed In 2.1
 
-- Sengent 1.0 主要是 Ollama-first
-- Sengent 2.1 主运行时改成 OpenAI-compatible API
-- 但 knowledge governance 不变
-- runtime truth 仍然只能来自 reviewed active packs
-- factory hosted drafting 仍然只能停留在 review-only 资产层
+- Sengent 1.0 was Ollama-first
+- Sengent 2.1 is OpenAI-compatible-API-first
+- knowledge governance remains unchanged
+- runtime truth still comes only from reviewed active packs
+- hosted factory drafting still stays review-only
 
-## 两类主机
+## Two Host Types
 
-### 1. Build / Review 主机
+### 1. Build / Review host
 
-这类主机负责：
+This host is for:
 
 - source intake
 - build
@@ -24,7 +24,7 @@
 - gate
 - activate / rollback
 
-推荐安装：
+Recommended install:
 
 ```bash
 tar -xzf sengent-<version>.tar.gz
@@ -34,9 +34,9 @@ source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
 
-### 2. Runtime + Maintainer 合并主机
+### 2. Combined runtime + maintainer host
 
-如果同一台机器既要维护，也要做实际问答：
+If the same machine also serves real support runtime, configure the OpenAI-compatible API runtime first:
 
 ```bash
 tar -xzf sengent-<version>.tar.gz
@@ -52,7 +52,7 @@ export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
 sengent doctor
 ```
 
-如果要启用 factory hosted draft，再额外配置：
+If hosted factory drafting is enabled, also configure:
 
 ```bash
 export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
@@ -61,40 +61,40 @@ export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
 export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
 ```
 
-## Release 压缩包
+## Release Bundles
 
-从仓库根目录执行：
+From repo root:
 
 ```bash
 bash scripts/package_release.sh --output-dir dist
 ```
 
-默认产物：
+Default artifacts:
 
 - `dist/sengent-<version>.tar.gz`
 - `dist/sengent-<version>.zip`
 
-推荐上传到 GitHub Releases。
+Upload both to GitHub Releases.
 
-## 安装脚本行为
+## Installer Behavior
 
-`scripts/install_sengent.sh` 会：
+`scripts/install_sengent.sh`:
 
-- 创建虚拟环境
-- 非 editable 安装 Sengent
-- 复制 managed JSON packs 到 active source dir
-- 运行 `sengent doctor`
-- 保留 `--ensure-ollama-model` 作为 legacy Ollama 兼容选项
+- creates a virtualenv
+- installs Sengent non-editably
+- seeds the managed JSON packs into the active source dir
+- runs `sengent doctor`
+- keeps `--ensure-ollama-model` only as a legacy Ollama compatibility path
 
-## 维护者必须守住的边界
+## Boundaries Maintainers Must Preserve
 
-- 不要把系统改成 raw-doc runtime retrieval
-- 不要让 hosted model 直接变成 runtime truth
-- 不要让 factory hosted draft 直接进入 active packs
-- 所有知识更新都必须经过 build / review / gate / activate
-- 出问题先 rollback，再定位问题
+- do not turn the system into raw-doc runtime retrieval
+- do not let the hosted model become runtime truth
+- do not let hosted factory drafts bypass review into active packs
+- every knowledge change must go through build / review / gate / activate
+- rollback first when the knowledge state is suspect
 
-## 维护流程
+## Maintainer Workflow
 
 ### 1. Intake / Scaffold
 
@@ -133,7 +133,7 @@ sengent knowledge activate --build-id <build_id>
 sengent knowledge rollback --backup-id <backup_id>
 ```
 
-## 建议验证
+## Recommended Verification
 
 ```bash
 pytest -q tests/test_install_script.py tests/test_docs_contract.py
@@ -141,10 +141,10 @@ python3.11 scripts/adversarial_support_drill.py
 pytest -q
 ```
 
-## 推荐文档
+## Related Docs
 
 - [README.md](../README.md)
 - [README.zh-CN.md](../README.zh-CN.md)
 - [docs/sengent-user-guide.en.md](./sengent-user-guide.en.md)
 - [docs/sengent-user-guide.md](./sengent-user-guide.md)
-- [2026-04-14-sengent-2-1-github-release-package.zh-CN.md](./superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md)
+- [2026-04-14-sengent-2-1-github-release-package.md](./superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md)

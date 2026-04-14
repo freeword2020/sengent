@@ -1,60 +1,25 @@
 # Sengent
 
-Offline CLI harness for a local Sentieon technical-support assistant.
+Governance-first CLI support system for Sentieon software support.
 
 Chinese README: [README.zh-CN.md](README.zh-CN.md)
 
 ![Sengent Home](docs/assets/sengent-home.svg)
 
-## What Sengent Is
+## What Changed In 2.1
 
-Sengent is a local Sentieon support system for:
+Sengent 1.0 used Ollama as the primary runtime path.
 
-- onboarding and workflow guidance
-- troubleshooting
-- module / parameter / script lookup
-- controlled knowledge updates with build / gate / activate / rollback
+Sengent 2.1 keeps the same support-kernel and knowledge-governance model, but the primary runtime path now uses an **OpenAI-compatible API**.
 
-It is deliberately **not** a RAG-first chat bot and **not** a model-first router.
+That change does **not** relax the core boundaries:
 
-## Design Intent
+- runtime truth still comes from reviewed active knowledge packs
+- raw docs still do not become runtime truth
+- factory hosted drafting is still offline and review-only
+- clarify-first, boundary pack, tool arbitration, and rollback stay in place
 
-Sengent is built around five engineering rules:
-
-- rule-first routing
-- structured packs as runtime truth
-- raw docs only for build, audit, and traceability
-- eval-gated activation before knowledge goes live
-- backup and rollback before and after every apply
-
-The local model is part of the runtime, but only as a **controlled generator**.
-It does not decide top-level routing, and it does not define runtime truth.
-
-## Runtime Architecture
-
-There are two major paths:
-
-1. **Runtime support path**
-   - `support_coordinator`
-   - deterministic reference / workflow / module access
-   - controlled answer generation
-   - session / event / feedback trace
-2. **Knowledge renew path**
-   - raw docs / sidecar metadata
-   - `knowledge build`
-   - candidate packs
-   - gate
-   - `knowledge activate`
-   - automatic backups
-   - `knowledge rollback`
-
-## Compatibility
-
-- macOS: supported
-- Linux: supported
-- Windows: not a primary target in this delivery
-
-## Get The Package First
+## Package Download
 
 Preferred download path:
 
@@ -65,119 +30,104 @@ Preferred download path:
 
 Fallback if you do not have a release bundle yet:
 
-1. Open the repo page
+1. Open the repository page
 2. Click the green `Code` button
 3. Choose `Download ZIP`
 4. Extract it and enter the extracted repo directory
 
-For maintainers preparing a GitHub release bundle from a checkout:
+If you are preparing GitHub release assets from a checkout:
 
 ```bash
 bash scripts/package_release.sh --output-dir dist
 ```
 
-This creates both `dist/sengent-<version>.tar.gz` and `dist/sengent-<version>.zip` for upload to GitHub Releases.
+This produces both `dist/sengent-<version>.tar.gz` and `dist/sengent-<version>.zip`.
 
-## Quick Start For Ordinary Users
+## Quick Start
 
-If you want a runtime host that can answer questions right away:
+### Runtime Host Using An OpenAI-Compatible API
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --ensure-ollama-model
+tar -xzf sengent-<version>.tar.gz
+cd sengent-<version>
+bash scripts/install_sengent.sh
 source .venv/bin/activate
+
+export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+export SENGENT_RUNTIME_LLM_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_RUNTIME_LLM_MODEL=your-runtime-model
+export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
+
+export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+export SENGENT_FACTORY_HOSTED_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
+export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
+
 sengent doctor
 sengent chat
 ```
 
-If this machine is only for knowledge build / review work:
+If you only want hosted runtime and not hosted factory yet, configure the four `SENGENT_RUNTIME_LLM_*` variables first and add the factory variables later.
+
+### Build / Review Host
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --skip-ollama
+tar -xzf sengent-<version>.tar.gz
+cd sengent-<version>
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
 
-If you do not know which command to run next, start with:
+### Legacy Ollama Path
+
+If you still want the old local-model path, 2.1 can still run it explicitly:
 
 ```bash
-sengent --help
+bash scripts/install_sengent.sh --ensure-ollama-model
+source .venv/bin/activate
+OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=gemma4:e4b sengent doctor
 ```
+
+Treat this as a compatibility path, not the primary 2.1 install story.
 
 ## Requirements
 
-### Runtime
+### Primary 2.1 runtime
 
 - Python `3.11+`
-- local Ollama HTTP API for chat / query runtime
-- a local model such as `gemma4:e4b`
+- an OpenAI-compatible API endpoint
+- a valid runtime model id and API key
+
+### Optional hosted factory drafting
+
+- another OpenAI-compatible endpoint or the same one
+- a valid factory model id and API key
+
+### Optional legacy runtime
+
+- local Ollama HTTP API
+- a locally available model such as `gemma4:e4b`
 
 ### Core dependencies
 
 - `rich`
 - `PyYAML`
 
-### Optional dependencies
-
-- `docling`
-  - only needed for PDF-backed knowledge build
-
-### Maintainer tools
+### Optional maintainer extras
 
 - `pytest`
 - `docling`
 
-The installer can provision the right dependency set for normal users or maintainers.
-
-## Install
-
-### Runtime host install
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --ensure-ollama-model
-source .venv/bin/activate
-sengent doctor
-sengent chat
-```
-
-Use this on hosts that should answer questions.
-
-### Build-only host install
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --skip-ollama
-source .venv/bin/activate
-sengent doctor --skip-ollama
-```
-
-Use this on hosts that only handle build / review / gate / activate.
-
-### Maintainer install
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
-source .venv/bin/activate
-sengent doctor --skip-ollama
-```
-
-### What the installer does
+## Install Script Notes
 
 `scripts/install_sengent.sh` now:
 
 - creates a local virtualenv
-- installs Sengent **non-editably** from the current checkout
-- seeds the active source pack directory from the repo’s six managed JSON packs, including `incident-memory.json`
+- installs Sengent non-editably from the current checkout
+- seeds the active source pack directory from the managed JSON packs, including `incident-memory.json`
 - runs the installed `sengent doctor`
-- optionally runs `ollama pull <model>` when you explicitly pass `--ensure-ollama-model`
+- keeps the old `--ensure-ollama-model` path only for legacy Ollama setup
 
 Useful flags:
 
@@ -192,16 +142,48 @@ bash scripts/install_sengent.sh --ensure-ollama-model
 bash scripts/install_sengent.sh --dry-run
 ```
 
-If your host uses an internal Python package mirror, set it before running the installer:
+## Runtime And Factory API Configuration
+
+### Required runtime variables
 
 ```bash
-export PIP_INDEX_URL=https://your-internal-pypi/simple
-bash scripts/install_sengent.sh --with-maintainer-tools
+export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+export SENGENT_RUNTIME_LLM_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_RUNTIME_LLM_MODEL=your-runtime-model
+export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
+```
+
+### Optional hosted factory variables
+
+```bash
+export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+export SENGENT_FACTORY_HOSTED_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
+export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
+```
+
+### Optional runtime capability overrides
+
+```bash
+export SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS=true
+export SENGENT_RUNTIME_LLM_SUPPORTS_JSON_SCHEMA=true
+export SENGENT_RUNTIME_LLM_SUPPORTS_REASONING_EFFORT=false
+export SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING=true
+export SENGENT_RUNTIME_LLM_MAX_CONTEXT=128000
+export SENGENT_RUNTIME_LLM_PROMPT_CACHE_BEHAVIOR=provider-default
+```
+
+### Legacy compatibility variables
+
+```bash
+export OLLAMA_BASE_URL=http://127.0.0.1:11434
+export OLLAMA_MODEL=gemma4:e4b
+export OLLAMA_KEEP_ALIVE=30m
 ```
 
 ## Installed Command
 
-After install, the default command is:
+After installation, the default command is:
 
 ```bash
 sengent
@@ -213,114 +195,18 @@ Typical usage:
 sengent --help
 sengent doctor
 sengent chat
-sengent "DNAscope 是做什么的"
+sengent "What does DNAscope do?"
 sengent sources
 sengent search SENTIEON_LICENSE
 ```
 
-## If Runtime Chat Is Not Ready Yet
-
-If Sengent says the model or local runtime is unavailable:
-
-1. Run `sengent doctor`
-2. Confirm whether this host is a runtime host or only a build-only host
-3. If it is a runtime host, make sure the Ollama HTTP API is reachable
-4. If the service is up but the model is missing, run:
-
-```bash
-ollama pull gemma4:e4b
-```
-
-If this host is only for build / review work, use:
-
-```bash
-sengent doctor --skip-ollama
-```
-
-## Default Paths
-
-By default Sengent now uses a user-owned app home instead of the repo checkout.
-
-### macOS
-
-- app home: `~/Library/Application Support/Sengent`
-
-### Linux
-
-- app home: `$XDG_DATA_HOME/sengent`
-- fallback: `~/.local/share/sengent`
-
-### Important subdirectories
-
-- active source packs: `<app-home>/sources/active`
-- knowledge inbox: `<app-home>/knowledge-inbox/sentieon`
-- runtime logs: `<app-home>/runtime`
-- knowledge builds: `<app-home>/runtime/knowledge-build`
-
-You can override these with environment variables when needed:
-
-- `SENGENT_HOME`
-- `SENTIEON_ASSIST_SOURCE_DIR`
-- `SENTIEON_ASSIST_KNOWLEDGE_DIR`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `OLLAMA_KEEP_ALIVE`
-
-Optional fallback backend settings:
-
-- `SENGENT_LLM_FALLBACK_BACKEND`
-- `SENGENT_LLM_FALLBACK_BASE_URL`
-- `SENGENT_LLM_FALLBACK_MODEL`
-- `SENGENT_LLM_FALLBACK_API_KEY`
-
-## Common User Commands
-
-```bash
-sengent --help
-sengent doctor
-sengent chat
-sengent "sentieon-cli dnascope 的 --pcr_free 是什么"
-sengent "能给个 rnaseq 的参考脚本吗"
-sengent sources
-sengent search DNAscope
-```
-
-## Common Maintainer Commands
-
-```bash
-sengent knowledge scaffold --kind module --id fastdedup --name FastDedup
-sengent knowledge build
-sengent knowledge review
-sengent knowledge activate --build-id <build_id>
-sengent knowledge rollback --backup-id <backup_id>
-```
-
-For a customer-site bundle override:
-
-```bash
-sengent --source-dir /path/to/customer-sources doctor --skip-ollama
-sengent --source-dir /path/to/customer-sources knowledge build
-```
-
-## Testing And Gates
-
-Two different levels matter:
-
-- **runtime / maintainer operations**
-  - use `sengent doctor`
-  - use `sengent knowledge build/review/activate/rollback`
-- **developer / release verification**
-  - run `python -m pytest -q`
-  - run the pilot gate scripts from the repo checkout
-
-See the maintainer guide for the exact gate commands and required `--json-out` artifacts.
-
-## Documentation
+## Docs
 
 - Chinese README: [README.zh-CN.md](README.zh-CN.md)
-- User guide: [docs/sengent-user-guide.md](docs/sengent-user-guide.md)
-- Maintainer guide: [docs/sengent-maintainer-guide.md](docs/sengent-maintainer-guide.md)
-- Ollama runtime guide: [docs/local-ollama-environment.md](docs/local-ollama-environment.md)
-- Operator manual: [docs/superpowers/operators/2026-04-10-sengent-knowledge-build-operator-manual.md](docs/superpowers/operators/2026-04-10-sengent-knowledge-build-operator-manual.md)
-- Team briefing: [docs/superpowers/operators/2026-04-10-sengent-team-briefing.md](docs/superpowers/operators/2026-04-10-sengent-team-briefing.md)
-- Architecture: [docs/superpowers/architecture/2026-04-10-sengent-knowledge-build-architecture.md](docs/superpowers/architecture/2026-04-10-sengent-knowledge-build-architecture.md)
+- User guide, English: [docs/sengent-user-guide.en.md](docs/sengent-user-guide.en.md)
+- User guide, Chinese: [docs/sengent-user-guide.md](docs/sengent-user-guide.md)
+- Maintainer guide, English: [docs/sengent-maintainer-guide.en.md](docs/sengent-maintainer-guide.en.md)
+- Maintainer guide, Chinese: [docs/sengent-maintainer-guide.md](docs/sengent-maintainer-guide.md)
+- 2.1 GitHub release package, English: [docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md](docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md)
+- 2.1 GitHub release package, Chinese: [docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md](docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md)
+- Legacy Ollama environment notes: [docs/local-ollama-environment.md](docs/local-ollama-environment.md)

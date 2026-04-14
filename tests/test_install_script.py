@@ -18,8 +18,11 @@ def test_install_script_help_lists_key_flags():
     result = _run_install_script("--help")
 
     assert result.returncode == 0
-    assert "runtime host" in result.stdout.lower()
+    assert "hosted runtime host" in result.stdout.lower()
     assert "build-only host" in result.stdout.lower()
+    assert "openai-compatible api" in result.stdout.lower()
+    assert "sengent_runtime_llm_provider" in result.stdout.lower()
+    assert "sengent_factory_hosted_provider" in result.stdout.lower()
     assert "--venv-dir" in result.stdout
     assert "--with-pdf-build" in result.stdout
     assert "--with-maintainer-tools" in result.stdout
@@ -46,6 +49,7 @@ def test_install_script_dry_run_prints_core_bootstrap_steps(tmp_path: Path):
     assert "Seed active source packs" in result.stdout
     assert "incident-memory.json" in result.stdout
     assert f"source {tmp_path / '.venv' / 'bin' / 'activate'}" in result.stdout
+    assert "Runtime provider env" in result.stdout
 
 
 def test_install_script_dry_run_with_pdf_build_prints_optional_extra(tmp_path: Path):
@@ -110,3 +114,5 @@ def test_install_script_dry_run_runtime_path_mentions_activation_and_installed_c
     assert result.returncode == 0
     assert f"source {tmp_path / '.venv' / 'bin' / 'activate'}" in result.stdout
     assert str(tmp_path / ".venv" / "bin" / "sengent") in result.stdout
+    assert "SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible" in result.stdout
+    assert "SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible" in result.stdout

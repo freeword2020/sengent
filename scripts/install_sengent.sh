@@ -7,6 +7,12 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 DEFAULT_OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 DEFAULT_OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:e4b}"
+RUNTIME_PROVIDER_ENV="${SENGENT_RUNTIME_LLM_PROVIDER:-}"
+RUNTIME_BASE_URL_ENV="${SENGENT_RUNTIME_LLM_BASE_URL:-}"
+RUNTIME_MODEL_ENV="${SENGENT_RUNTIME_LLM_MODEL:-}"
+FACTORY_PROVIDER_ENV="${SENGENT_FACTORY_HOSTED_PROVIDER:-}"
+FACTORY_BASE_URL_ENV="${SENGENT_FACTORY_HOSTED_BASE_URL:-}"
+FACTORY_MODEL_ENV="${SENGENT_FACTORY_HOSTED_MODEL:-}"
 
 PYTHON_BIN=""
 VENV_DIR="${REPO_ROOT}/.venv"
@@ -26,9 +32,23 @@ Usage: scripts/install_sengent.sh [options]
 Install Sengent from the current git checkout into a local virtualenv.
 
 Typical modes:
-  Runtime host:    scripts/install_sengent.sh --ensure-ollama-model
-  Build-only host: scripts/install_sengent.sh --skip-ollama
-  Maintainer host: scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
+  Hosted runtime host: scripts/install_sengent.sh
+  Build-only host:     scripts/install_sengent.sh --skip-ollama
+  Maintainer host:     scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
+  Legacy Ollama host:  scripts/install_sengent.sh --ensure-ollama-model
+
+Sengent 2.1 primary runtime uses an OpenAI-compatible API.
+Configure these before 'sengent doctor' or 'sengent chat':
+  SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+  SENGENT_RUNTIME_LLM_BASE_URL=<endpoint>
+  SENGENT_RUNTIME_LLM_MODEL=<model>
+  SENGENT_RUNTIME_LLM_API_KEY=<api-key>
+
+Optional hosted factory drafting stays review-only and uses:
+  SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+  SENGENT_FACTORY_HOSTED_BASE_URL=<endpoint>
+  SENGENT_FACTORY_HOSTED_MODEL=<model>
+  SENGENT_FACTORY_HOSTED_API_KEY=<api-key>
 
 Options:
   --python <path>            Python interpreter to use (default: python3.11, then python3)
@@ -203,6 +223,12 @@ printf 'Python: %s\n' "${PYTHON_BIN}"
 printf 'Virtualenv: %s\n' "${VENV_DIR}"
 printf 'PDF build extra: %s\n' "$( [[ "${WITH_PDF_BUILD}" -eq 1 ]] && echo yes || echo no )"
 printf 'Maintainer tools: %s\n' "$( [[ "${WITH_MAINTAINER_TOOLS}" -eq 1 ]] && echo yes || echo no )"
+printf 'Runtime provider env: %s\n' "${RUNTIME_PROVIDER_ENV:-<unset>}"
+printf 'Runtime base URL env: %s\n' "${RUNTIME_BASE_URL_ENV:-<unset>}"
+printf 'Runtime model env: %s\n' "${RUNTIME_MODEL_ENV:-<unset>}"
+printf 'Factory provider env: %s\n' "${FACTORY_PROVIDER_ENV:-<unset>}"
+printf 'Factory base URL env: %s\n' "${FACTORY_BASE_URL_ENV:-<unset>}"
+printf 'Factory model env: %s\n' "${FACTORY_MODEL_ENV:-<unset>}"
 printf 'Ollama base URL: %s\n' "${OLLAMA_BASE_URL}"
 printf 'Ollama model: %s\n' "${OLLAMA_MODEL}"
 
@@ -216,13 +242,24 @@ if [[ "${SKIP_OLLAMA}" -eq 1 ]]; then
   echo "Activate the virtualenv first: source ${VENV_ACTIVATE}"
   echo "Then use the installed command: ${VENV_SENGENT} doctor --skip-ollama"
   echo "If you prefer the shell alias after activation, run: sengent doctor --skip-ollama"
-  echo "If you later want chat/runtime on this machine, install/start Ollama, pull ${OLLAMA_MODEL}, then run '${VENV_SENGENT} doctor'."
+  echo "If you later want hosted runtime on this machine, configure SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible plus the base URL, model, and API key, then run '${VENV_SENGENT} doctor'."
+  echo "If you later want the legacy local-model path, install/start Ollama, pull ${OLLAMA_MODEL}, then run '${VENV_SENGENT} doctor'."
   echo "Skipping Ollama handling as requested."
   exit 0
 fi
 
-echo "Ollama runtime integration uses the local HTTP API at ${OLLAMA_BASE_URL}."
-echo "Make sure model ${OLLAMA_MODEL} is available before chat/runtime validation."
+echo "Sengent 2.1 primary runtime uses an OpenAI-compatible API."
+echo "Before chat/runtime validation, configure:"
+echo "  export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible"
+echo "  export SENGENT_RUNTIME_LLM_BASE_URL=<endpoint>"
+echo "  export SENGENT_RUNTIME_LLM_MODEL=<model>"
+echo "  export SENGENT_RUNTIME_LLM_API_KEY=<api-key>"
+echo "Optional hosted factory drafting is still review-only. To enable it, configure:"
+echo "  export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible"
+echo "  export SENGENT_FACTORY_HOSTED_BASE_URL=<endpoint>"
+echo "  export SENGENT_FACTORY_HOSTED_MODEL=<model>"
+echo "  export SENGENT_FACTORY_HOSTED_API_KEY=<api-key>"
+echo "Legacy Ollama compatibility remains available at ${OLLAMA_BASE_URL} with model ${OLLAMA_MODEL}."
 
 if [[ "${ENSURE_OLLAMA_MODEL}" -eq 1 ]]; then
   if command -v ollama >/dev/null 2>&1; then
@@ -235,7 +272,9 @@ fi
 
 echo "Next step for a runtime host:"
 echo "  1. Activate: source ${VENV_ACTIVATE}"
-echo "  2. Confirm runtime readiness: ${VENV_SENGENT} doctor"
-echo "  3. If doctor says the model is missing, run: ollama pull ${OLLAMA_MODEL}"
-echo "  4. Start using: ${VENV_SENGENT} chat"
-echo "  5. After activation, you can also use the short command: sengent"
+echo "  2. Export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible"
+echo "  3. Export SENGENT_RUNTIME_LLM_BASE_URL / SENGENT_RUNTIME_LLM_MODEL / SENGENT_RUNTIME_LLM_API_KEY"
+echo "  4. Confirm runtime readiness: ${VENV_SENGENT} doctor"
+echo "  5. Start using: ${VENV_SENGENT} chat"
+echo "  6. Optional: export SENGENT_FACTORY_HOSTED_* for review-only hosted factory drafting"
+echo "  7. After activation, you can also use the short command: sengent"

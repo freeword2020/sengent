@@ -1,60 +1,25 @@
 # Sengent
 
-面向本地 Sentieon 技术支持助手的离线 CLI 工具。
+面向 Sentieon 软件支持的 governance-first CLI 支持系统。
 
 English README: [README.md](README.md)
 
 ![Sengent Home](docs/assets/sengent-home.svg)
 
-## Sengent 是什么
+## 2.1 这一版改了什么
 
-Sengent 是一个本地支持系统，主要用来做这些事：
+Sengent 1.0 的主运行时路径是 Ollama。
 
-- 新人上手和流程说明
-- 排障
-- 查询模块 / 参数 / 脚本
-- 通过 build / gate / activate / rollback 做受控知识更新
+Sengent 2.1 保留原来的 support kernel 和 knowledge governance，但主运行时路径改成了 **OpenAI-compatible API**。
 
-它刻意不是“先检索再聊天”的 RAG 工具，也不是“让模型自己决定路由”的模型优先路由器。
+这个变化不意味着放松治理边界：
 
-## 设计意图
+- runtime truth 仍然只来自 reviewed active knowledge packs
+- raw docs 仍然不会直接变成 runtime truth
+- factory hosted draft 仍然是 offline + review-only
+- clarify-first、boundary pack、tool arbitration、rollback 仍然保留
 
-Sengent 按下面 5 条规则设计：
-
-- 先按规则路由
-- 运行时以结构化 pack 为准
-- 原始文档只用于 build、审计和追溯
-- 知识上线前必须经过评估门禁
-- 每次应用前后都要有备份和回退能力
-
-本地模型是运行时的一部分，但只负责受控生成回答。
-它不负责顶层路由，也不定义运行时事实。
-
-## 运行时架构
-
-系统主要有两条路径：
-
-1. 运行时支持路径
-   - `support_coordinator`
-   - 确定性的参考 / 流程 / 模块访问
-   - 受控回答生成
-   - 会话 / 事件 / 反馈记录
-2. 知识更新路径
-   - 原始资料 / sidecar 元数据
-   - `knowledge build`
-   - 候选 pack
-   - gate
-   - `knowledge activate`
-   - 自动备份
-   - `knowledge rollback`
-
-## 兼容性
-
-- macOS: 支持
-- Linux: 支持
-- Windows: 不是本交付的主要目标
-
-## 先把安装包拿到本地
+## 先拿安装包
 
 优先推荐：
 
@@ -68,116 +33,101 @@ Sengent 按下面 5 条规则设计：
 1. 打开仓库主页
 2. 点击绿色 `Code`
 3. 选择 `Download ZIP`
-4. 解压并进入解压后的目录
+4. 解压并进入目录
 
-如果你是维护者，需要从当前 checkout 生成 GitHub Release 压缩包：
+如果你是维护者，要从当前 checkout 生成 GitHub Release 资产：
 
 ```bash
 bash scripts/package_release.sh --output-dir dist
 ```
 
-这会同时生成 `dist/sengent-<version>.tar.gz` 和 `dist/sengent-<version>.zip`，可直接上传到 GitHub Releases。
+它会生成 `dist/sengent-<version>.tar.gz` 和 `dist/sengent-<version>.zip`。
 
-## 普通用户快速开始
+## 快速开始
 
-如果你希望这台机器装完就能聊天和问答，建议这样装：
+### 运行时主机：使用 OpenAI-compatible API
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --ensure-ollama-model
+tar -xzf sengent-<version>.tar.gz
+cd sengent-<version>
+bash scripts/install_sengent.sh
 source .venv/bin/activate
+
+export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+export SENGENT_RUNTIME_LLM_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_RUNTIME_LLM_MODEL=your-runtime-model
+export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
+
+export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+export SENGENT_FACTORY_HOSTED_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
+export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
+
 sengent doctor
 sengent chat
 ```
 
-如果这台机器只做知识 build / review：
+如果你暂时只想启用 hosted runtime，还没准备 hosted factory，可以先只配四个 `SENGENT_RUNTIME_LLM_*` 变量。
+
+### Build / Review 主机
 
 ```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --skip-ollama
+tar -xzf sengent-<version>.tar.gz
+cd sengent-<version>
+bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
 source .venv/bin/activate
 sengent doctor --skip-ollama
 ```
 
-如果你不知道下一步该输什么命令，先看：
+### Legacy Ollama 路径
+
+如果你仍然要走旧的本地模型路径，2.1 也保留了显式兼容方式：
 
 ```bash
-sengent --help
+bash scripts/install_sengent.sh --ensure-ollama-model
+source .venv/bin/activate
+OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=gemma4:e4b sengent doctor
 ```
+
+把它当成兼容路径，不要把它当成 2.1 的主安装方式。
 
 ## 需求
 
-### 运行时
+### 2.1 主运行时
 
 - Python `3.11+`
-- 本地 Ollama HTTP API，用于 chat / query 运行时
-- 一个本地模型，例如 `gemma4:e4b`
+- 一个 OpenAI-compatible API endpoint
+- 可用的 runtime model id 和 API key
+
+### 可选的 hosted factory draft
+
+- 另一个 OpenAI-compatible endpoint，或者与 runtime 共用同一个 endpoint
+- 可用的 factory model id 和 API key
+
+### 可选 legacy runtime
+
+- 本地 Ollama HTTP API
+- 本地可用模型，例如 `gemma4:e4b`
 
 ### 核心依赖
 
 - `rich`
 - `PyYAML`
 
-### 可选依赖
-
-- `docling`
-  - 只在 PDF 驱动的知识 build 时需要
-
-### 维护者工具
+### 可选维护者依赖
 
 - `pytest`
 - `docling`
 
-安装脚本会按普通用户或维护者的场景，准备合适的依赖集合。
+## 安装脚本会做什么
 
-## 安装
-
-### 运行时主机安装
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --ensure-ollama-model
-source .venv/bin/activate
-sengent doctor
-sengent chat
-```
-
-这是给真正要回答问题、要运行聊天的主机准备的。
-
-### 只做 build 的主机安装
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --skip-ollama
-source .venv/bin/activate
-sengent doctor --skip-ollama
-```
-
-这是给只做 build / review / gate / activate 的主机准备的。
-
-### 维护者安装
-
-```bash
-tar -xzf sengent-0.1.0.tar.gz
-cd sengent-0.1.0
-bash scripts/install_sengent.sh --with-maintainer-tools --skip-ollama
-source .venv/bin/activate
-sengent doctor --skip-ollama
-```
-
-### 安装脚本会做什么
-
-`scripts/install_sengent.sh` 会：
+`scripts/install_sengent.sh` 现在会：
 
 - 创建本地虚拟环境
-- 从当前 checkout 以非 editable 的方式安装 Sengent
-- 把 6 个 managed JSON packs 复制到 active source pack 目录，其中包括 `incident-memory.json`
+- 从当前 checkout 以非 editable 方式安装 Sengent
+- 把 managed JSON packs 复制到 active source pack 目录，其中包含 `incident-memory.json`
 - 运行已安装的 `sengent doctor`
-- 只有显式传入 `--ensure-ollama-model` 时，才会尝试执行 `ollama pull <model>`
+- 只在 legacy Ollama 场景下，通过 `--ensure-ollama-model` 处理旧的模型拉取
 
 常用参数：
 
@@ -192,11 +142,43 @@ bash scripts/install_sengent.sh --ensure-ollama-model
 bash scripts/install_sengent.sh --dry-run
 ```
 
-如果你的机器需要内网 Python 镜像，先设置：
+## Runtime 和 Factory API 配置
+
+### 必配的 runtime 变量
 
 ```bash
-export PIP_INDEX_URL=https://your-internal-pypi/simple
-bash scripts/install_sengent.sh --with-maintainer-tools
+export SENGENT_RUNTIME_LLM_PROVIDER=openai_compatible
+export SENGENT_RUNTIME_LLM_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_RUNTIME_LLM_MODEL=your-runtime-model
+export SENGENT_RUNTIME_LLM_API_KEY=your-runtime-api-key
+```
+
+### 可选的 hosted factory 变量
+
+```bash
+export SENGENT_FACTORY_HOSTED_PROVIDER=openai_compatible
+export SENGENT_FACTORY_HOSTED_BASE_URL=https://your-llm-endpoint.example.com
+export SENGENT_FACTORY_HOSTED_MODEL=your-factory-model
+export SENGENT_FACTORY_HOSTED_API_KEY=your-factory-api-key
+```
+
+### 可选的 runtime capability 覆盖
+
+```bash
+export SENGENT_RUNTIME_LLM_SUPPORTS_TOOLS=true
+export SENGENT_RUNTIME_LLM_SUPPORTS_JSON_SCHEMA=true
+export SENGENT_RUNTIME_LLM_SUPPORTS_REASONING_EFFORT=false
+export SENGENT_RUNTIME_LLM_SUPPORTS_STREAMING=true
+export SENGENT_RUNTIME_LLM_MAX_CONTEXT=128000
+export SENGENT_RUNTIME_LLM_PROMPT_CACHE_BEHAVIOR=provider-default
+```
+
+### Legacy 兼容变量
+
+```bash
+export OLLAMA_BASE_URL=http://127.0.0.1:11434
+export OLLAMA_MODEL=gemma4:e4b
+export OLLAMA_KEEP_ALIVE=30m
 ```
 
 ## 安装后的命令
@@ -218,109 +200,13 @@ sengent sources
 sengent search SENTIEON_LICENSE
 ```
 
-## 如果聊天运行时还没准备好
-
-如果 Sengent 说本地模型或运行时不可用：
-
-1. 先执行 `sengent doctor`
-2. 先确认这台机器到底是不是运行时主机
-3. 如果它是运行时主机，确认 Ollama HTTP API 能访问
-4. 如果服务已经起来但模型没拉好，执行：
-
-```bash
-ollama pull gemma4:e4b
-```
-
-如果这台机器本来只做 build / review，请改用：
-
-```bash
-sengent doctor --skip-ollama
-```
-
-## 默认路径
-
-默认情况下，Sengent 使用的是用户自己的 app home，而不是仓库目录。
-
-### macOS
-
-- app home: `~/Library/Application Support/Sengent`
-
-### Linux
-
-- app home: `$XDG_DATA_HOME/sengent`
-- 兜底: `~/.local/share/sengent`
-
-### 重要子目录
-
-- active source packs: `<app-home>/sources/active`
-- knowledge inbox: `<app-home>/knowledge-inbox/sentieon`
-- runtime logs: `<app-home>/runtime`
-- knowledge builds: `<app-home>/runtime/knowledge-build`
-
-需要时，可以用环境变量覆盖：
-
-- `SENGENT_HOME`
-- `SENTIEON_ASSIST_SOURCE_DIR`
-- `SENTIEON_ASSIST_KNOWLEDGE_DIR`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_MODEL`
-- `OLLAMA_KEEP_ALIVE`
-
-可选的回退后端设置：
-
-- `SENGENT_LLM_FALLBACK_BACKEND`
-- `SENGENT_LLM_FALLBACK_BASE_URL`
-- `SENGENT_LLM_FALLBACK_MODEL`
-- `SENGENT_LLM_FALLBACK_API_KEY`
-
-## 常用用户命令
-
-```bash
-sengent --help
-sengent doctor
-sengent chat
-sengent "sentieon-cli dnascope 的 --pcr_free 是什么"
-sengent "能给个 rnaseq 的参考脚本吗"
-sengent sources
-sengent search DNAscope
-```
-
-## 常用维护者命令
-
-```bash
-sengent knowledge scaffold --kind module --id fastdedup --name FastDedup
-sengent knowledge build
-sengent knowledge review
-sengent knowledge activate --build-id <build_id>
-sengent knowledge rollback --backup-id <backup_id>
-```
-
-如果是客户现场的资料包覆盖：
-
-```bash
-sengent --source-dir /path/to/customer-sources doctor --skip-ollama
-sengent --source-dir /path/to/customer-sources knowledge build
-```
-
-## 测试与门禁
-
-这两类检查都很重要：
-
-- 运行和维护检查
-  - 用 `sengent doctor`
-  - 用 `sengent knowledge build/review/activate/rollback`
-- 开发和发布验证
-  - 跑 `python -m pytest -q`
-  - 跑仓库里的 pilot gate 脚本
-
-更完整的门禁命令，请看维护者指南。
-
-## 文档
+## 文档入口
 
 - English README: [README.md](README.md)
-- 用户指南: [docs/sengent-user-guide.md](docs/sengent-user-guide.md)
-- 维护者指南: [docs/sengent-maintainer-guide.md](docs/sengent-maintainer-guide.md)
-- 本地 Ollama 说明: [docs/local-ollama-environment.md](docs/local-ollama-environment.md)
-- Operator 手册: [docs/superpowers/operators/2026-04-10-sengent-knowledge-build-operator-manual.md](docs/superpowers/operators/2026-04-10-sengent-knowledge-build-operator-manual.md)
-- Team briefing: [docs/superpowers/operators/2026-04-10-sengent-team-briefing.md](docs/superpowers/operators/2026-04-10-sengent-team-briefing.md)
-- 架构说明: [docs/superpowers/architecture/2026-04-10-sengent-knowledge-build-architecture.md](docs/superpowers/architecture/2026-04-10-sengent-knowledge-build-architecture.md)
+- User guide, English: [docs/sengent-user-guide.en.md](docs/sengent-user-guide.en.md)
+- User guide, Chinese: [docs/sengent-user-guide.md](docs/sengent-user-guide.md)
+- Maintainer guide, English: [docs/sengent-maintainer-guide.en.md](docs/sengent-maintainer-guide.en.md)
+- Maintainer guide, Chinese: [docs/sengent-maintainer-guide.md](docs/sengent-maintainer-guide.md)
+- 2.1 GitHub release 说明，English: [docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md](docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md)
+- 2.1 GitHub release 说明，中文: [docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md](docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md)
+- Legacy Ollama 环境说明: [docs/local-ollama-environment.md](docs/local-ollama-environment.md)

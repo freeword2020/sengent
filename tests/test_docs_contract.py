@@ -12,12 +12,16 @@ def test_chinese_readme_exists_and_links_to_installed_command():
     assert "sengent" in text
     assert "安装" in text
     assert "sengent doctor" in text
+    assert "OpenAI-compatible API" in text
+    assert "Sengent 1.0" in text
 
 
 def test_english_readme_links_to_chinese_readme():
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "README.zh-CN.md" in text
+    assert "Sengent 1.0 used Ollama" in text
+    assert "OpenAI-compatible API" in text
 
 
 def test_readmes_explain_how_to_get_the_package_before_install():
@@ -28,6 +32,44 @@ def test_readmes_explain_how_to_get_the_package_before_install():
     assert "Download ZIP" in english
     assert "GitHub Releases" in chinese
     assert "Download ZIP" in chinese
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in english
+    assert "SENGENT_FACTORY_HOSTED_PROVIDER" in english
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in chinese
+    assert "SENGENT_FACTORY_HOSTED_PROVIDER" in chinese
+
+
+def test_bilingual_user_and_maintainer_guides_exist_with_hosted_api_install_notes():
+    english_user = (REPO_ROOT / "docs/sengent-user-guide.en.md").read_text(encoding="utf-8")
+    chinese_user = (REPO_ROOT / "docs/sengent-user-guide.md").read_text(encoding="utf-8")
+    english_maintainer = (REPO_ROOT / "docs/sengent-maintainer-guide.en.md").read_text(encoding="utf-8")
+    chinese_maintainer = (REPO_ROOT / "docs/sengent-maintainer-guide.md").read_text(encoding="utf-8")
+
+    assert "OpenAI-compatible API" in english_user
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in english_user
+    assert "OpenAI-compatible API" in chinese_user
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in chinese_user
+    assert "OpenAI-compatible API" in english_maintainer
+    assert "SENGENT_FACTORY_HOSTED_PROVIDER" in english_maintainer
+    assert "OpenAI-compatible API" in chinese_maintainer
+    assert "SENGENT_FACTORY_HOSTED_PROVIDER" in chinese_maintainer
+
+
+def test_bilingual_release_package_docs_exist_with_version_shift_notes():
+    english = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.md"
+    ).read_text(encoding="utf-8")
+    chinese = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-14-sengent-2-1-github-release-package.zh-CN.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Sengent 1.0 used Ollama" in english
+    assert "OpenAI-compatible API" in english
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in english
+    assert "Sengent 1.0" in chinese
+    assert "OpenAI-compatible API" in chinese
+    assert "SENGENT_RUNTIME_LLM_PROVIDER" in chinese
 
 
 def test_platform_principles_doc_exists_with_kernel_rules():
