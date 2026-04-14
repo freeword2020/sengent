@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import subprocess
+import tomllib
 from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "package_release.sh"
+PYPROJECT_PATH = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+
+def _project_version() -> str:
+    payload = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+    return str(payload["project"]["version"])
 
 
 def _run_package_script(*args: str) -> subprocess.CompletedProcess[str]:
@@ -27,7 +34,8 @@ def test_package_release_script_help_lists_main_options():
 
 def test_package_release_script_dry_run_prints_archive_names(tmp_path: Path):
     result = _run_package_script("--dry-run", "--output-dir", str(tmp_path))
+    version = _project_version()
 
     assert result.returncode == 0
-    assert "sengent-0.1.0.tar.gz" in result.stdout
-    assert "sengent-0.1.0.zip" in result.stdout
+    assert f"sengent-{version}.tar.gz" in result.stdout
+    assert f"sengent-{version}.zip" in result.stdout

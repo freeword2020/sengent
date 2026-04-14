@@ -72,6 +72,24 @@ def test_bilingual_release_package_docs_exist_with_version_shift_notes():
     assert "SENGENT_RUNTIME_LLM_PROVIDER" in chinese
 
 
+def test_bilingual_2_1_0_release_notes_exist_with_release_assets():
+    english = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-14-sengent-2-1-0-release-notes.md"
+    ).read_text(encoding="utf-8")
+    chinese = (
+        REPO_ROOT
+        / "docs/superpowers/operators/2026-04-14-sengent-2-1-0-release-notes.zh-CN.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Sengent 2.1.0" in english
+    assert "OpenAI-compatible API" in english
+    assert "sengent-2.1.0.tar.gz" in english
+    assert "Sengent 2.1.0" in chinese
+    assert "OpenAI-compatible API" in chinese
+    assert "sengent-2.1.0.tar.gz" in chinese
+
+
 def test_platform_principles_doc_exists_with_kernel_rules():
     text = (
         REPO_ROOT
